@@ -1,0 +1,76 @@
+name: Pisya
+options:
+  bundleIdPrefix: com.docomoz
+  deploymentTarget:
+    macOS: '15.0'
+packages:
+  MLXAudio:
+    path: Vendor/mlx-audio-swift
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: YES
+    MACOSX_DEPLOYMENT_TARGET: '15.0'
+    CODE_SIGN_IDENTITY: '-'
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_STRICT_CONCURRENCY: targeted
+targets:
+  Pisya:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/Pisya
+      - Sources/PisyaCore
+      - path: Resources/silero_vad.onnx
+        buildPhase: resources
+      - path: Resources/Silero-LICENSE
+        buildPhase: resources
+      - path: Resources/BrandMark.json
+        buildPhase: resources
+      - path: Resources/PisyaPlain.icns
+        buildPhase: resources
+    dependencies:
+      - framework: Vendor/WebRTCAEC/libPisyaAEC.a
+        embed: false
+      - sdk: libc++.tbd
+      - sdk: CoreFoundation.framework
+      - framework: Vendor/Sherpa/lib/libsherpa-onnx-c-api.dylib
+        embed: true
+        codeSign: true
+      - framework: Vendor/Sherpa/lib/libonnxruntime.dylib
+        embed: true
+        codeSign: true
+      - package: MLXAudio
+        product: MLXAudioSTT
+      - package: MLXAudio
+        product: MLXAudioCore
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: Resources/Bridge.h
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/Sherpa/lib $(SRCROOT)/Vendor/WebRTCAEC
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/Sherpa/include $(SRCROOT)/Vendor/WebRTCAEC/include
+        GCC_PREPROCESSOR_DEFINITIONS: $(inherited) FLOATING_POINT USE_KISS_FFT EXPORT=
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/../Frameworks
+        PRODUCT_BUNDLE_IDENTIFIER: com.docomoz.pisya
+        PRODUCT_NAME: Pisya
+        INFOPLIST_FILE: Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/Pisya.entitlements
+        COMBINE_HIDPI_IMAGES: YES
+  PisyaMCP:
+    type: tool
+    platform: macOS
+    sources:
+      - Sources/PisyaMCP
+      - Sources/PisyaCore
+    settings:
+      base:
+        PRODUCT_NAME: pisya-mcp
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: XCODE_BUILD
+schemes:
+  Pisya:
+    build:
+      targets:
+        Pisya: all
+        PisyaMCP: all

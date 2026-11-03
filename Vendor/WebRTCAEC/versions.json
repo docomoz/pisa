@@ -1,0 +1,10 @@
+{
+  "webrtc_audio_processing": "2.1",
+  "source_url": "https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-2.1.tar.xz",
+  "source_sha256": "ae9302824b2038d394f10213cab05312c564a038434269f11dbf68f511f9f9fe",
+  "abseil": "20240722.0",
+  "meson": "1.9.1",
+  "ninja": "1.13.0",
+  "target": "arm64-apple-macos15.0",
+  "cpp_standard": 17
+}

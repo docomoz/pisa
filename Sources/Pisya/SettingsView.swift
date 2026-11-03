@@ -1,0 +1,143 @@
+import SwiftUI
+import AppKit
+struct SettingsView: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) var dismiss
+    @State private var section = "Запись"
+    @State private var showRecordingDetails = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack { screenText("Настройки").font(.appFont(size: 26, weight: .semibold)); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.appFont(size: 20, weight: .semibold)).foregroundStyle(Color.mutedInk) }.buttonStyle(.plain).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
+            Picker("Раздел", selection: $section) { ForEach(["Запись", "Модель", "Экспорт", "MCP"], id: \.self) { screenText($0) } }.pickerStyle(.segmented).labelsHidden()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    switch section {
+                    case "Запись":
+                        recordingSettings
+                    case "Модель":
+                        columns {
+                        block("Qwen3-ASR", "Локальное распознавание русской речи на Apple Silicon") {
+                            screenToggle("Тихая обработка", isOn: Binding(get: { state.preferences.usesQuietProcessing }, set: { state.preferences.quietProcessing = $0; state.savePreferences() }))
+                            screenText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                            screenLabel(state.modelReady ? "Модель готова" : "Модель ещё не выбрана", systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive").foregroundStyle(Color.moss)
+                            if let url = state.modelURL() { screenText(verbatim: url.path).font(.appFont(size: 15)).fixedSize(horizontal: false, vertical: true).foregroundStyle(Color.mutedInk).textSelection(.enabled) }
+                            screenButton("Выбрать папку модели…") { state.chooseModel() }
+                            screenText("Нужна MLX-версия Qwen3-ASR с файлами config.json и model.safetensors. Приложение не загружает ничего из сети. Скрипт установки модели находится в репозитории.").font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                        }
+                        } right: {
+                            VStack(alignment: .leading, spacing: 28) {
+                        block("Контекстный словарь", "Названия, имена и термины, которые часто встречаются в разговорах") {
+                            TextEditor(text: $state.preferences.vocabulary).font(.appFont(size: 16)).frame(height: 180).padding(8).background(.white).clipShape(RoundedRectangle(cornerRadius: 8)).onChange(of: state.preferences.vocabulary) { state.savePreferences() }
+                        }
+
+
+                            }
+                        }
+                    case "Экспорт":
+                        columns {
+                        block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
+                            if let path = state.preferences.exportDisplayPath { screenText(verbatim: path).font(.appFont(size: 16)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) } else { screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk) }
+                            HStack { screenButton("Выбрать папку…") { state.chooseExportFolder() }; if state.preferences.exportBookmark != nil { screenButton("Отключить") { state.preferences.exportBookmark = nil; state.preferences.exportDisplayPath = nil; state.savePreferences() } } }
+                            screenText("После расшифровки и последующих правок файл обновляется автоматически. В него входят текст, участники и временные метки. Аудио остаётся в библиотеке.").font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                        }
+                        } right: {
+                            VStack(alignment: .leading, spacing: 28) {
+                        block("Если папка синхронизируется", "Dropbox, iCloud или другой сервис могут отправлять её содержимое в облако") { screenText("Выбор такой папки разрешает выгрузку текстов через приложение синхронизации. Это отдельно от локального распознавания.").font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true) }
+
+                            }
+                        }
+                    default:
+                        columns {
+                        block("Доступ к встречам через MCP", "Локальный процесс · только чтение · без открытого сетевого порта") {
+                            screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled).onChange(of: state.preferences.mcpEnabled) { state.savePreferences() }
+                            screenText("Подключённый клиент сможет искать встречи и читать расшифровки. Если клиент использует облачную модель, прочитанный текст может уйти к ней. Доступ к аудио и изменениям библиотеки не предоставляется.").font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                        }
+                        } right: {
+                            VStack(alignment: .leading, spacing: 28) {
+                        block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента") {
+                            screenText(verbatim: "[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"").font(.appFont(size: 15)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Color.moss.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                            screenButton("Скопировать конфигурацию") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString("[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"", forType: .string) }
+                            screenText("Инструменты: list_meetings, search_meetings, read_transcript. Выключатель отзывает доступ и у уже запущенного клиента.").font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                        }
+                            }
+                        }
+
+                    }
+                }.padding(.vertical, 4)
+            }
+            HStack { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.plainButton(prominent: true).keyboardShortcut(.cancelAction) }
+        }.plainControls().font(.appFont(size: 16)).controlSize(.large).padding(30).frame(width: 900, height: 700).popupCanvas()
+            .background(SettingsInitialFocus().allowsHitTesting(false))
+            .background(ClickToUnfocus())
+    }
+    private var recordingSettings: some View {
+        HStack(alignment: .top, spacing: 28) {
+            VStack(alignment: .leading, spacing: 28) {
+                block("Источники звука", "Микрофон и системный звук") {
+                    screenText("Начните запись заранее, затем откройте встречу в любом приложении или браузере. Записываются и другие звуки Mac.")
+                        .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                }
+                block("Автозапись", "Экспериментальная функция") {
+                    screenToggle("Автоматический старт и стоп", isOn: Binding(get: { state.preferences.automaticRecording }, set: { state.setAutomatic($0) }))
+                    VStack(alignment: .leading, spacing: 8) {
+                        screenLabel("Старт — через 3 секунды", systemImage: "record.circle")
+                        screenLabel("Стоп — через 45 секунд без микрофона", systemImage: "stop.circle").fixedSize(horizontal: false, vertical: true)
+                    }.font(.appFont(size: 16)).fixedSize(horizontal: false, vertical: true)
+                    screenText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука.")
+                        .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                    Button { showRecordingDetails.toggle() } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: showRecordingDetails ? "chevron.down" : "chevron.right").font(.appFont(size: 11, weight: .semibold)).frame(width: 12)
+                            screenText("Как работает и ограничения")
+                            Spacer(minLength: 0)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5).contentShape(Rectangle())
+                    }.buttonStyle(.plain).foregroundStyle(Color.moss)
+                        .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
+                    if showRecordingDetails {
+                        screenText("Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если вы начали запись вручную до встречи, автостоп включится только после обнаружения звонка.")
+                            .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
+                    }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
+            VStack(alignment: .leading, spacing: 28) {
+                block("Разрешения macOS", "Нужны для записи вашего голоса и собеседников") {
+                    Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон…", systemImage: "mic") }
+                    Button { NSWorkspace.shared.open(CapturePermission.screen.settingsURL) } label: { screenLabel("Системный звук…", systemImage: "speaker.wave.2") }
+                }
+                block("Хранение аудио", "На этом Mac") {
+                    screenText("Оригиналы сохраняются без автоматического удаления. В папку экспорта отправляется только текст.")
+                        .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                }
+                block("Фоновая расшифровка", "Черновик во время звонка") {
+                    screenToggle("Расшифровывать во время записи", isOn: Binding(get: { state.preferences.usesBackgroundTranscription }, set: { state.setBackgroundTranscription($0) }))
+                    screenText("После остановки обрабатывается оставшийся хвост. Пауза распознавания не останавливает запись.")
+                        .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.fixedSize(horizontal: false, vertical: true)
+    }
+    private func columns<Left: View, Right: View>(@ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right) -> some View {
+        HStack(alignment: .top, spacing: 28) {
+            left().frame(maxWidth: .infinity, alignment: .leading)
+            Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
+            right().frame(maxWidth: .infinity, alignment: .leading)
+        }.fixedSize(horizontal: false, vertical: true)
+    }
+    private func block<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) { screenText(title).font(.appFont(size: 19, weight: .semibold)); screenText(subtitle).font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true); content() }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// Clear only the initial sheet focus. Keyboard Tab navigation remains available.
+private struct SettingsInitialFocus: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { FocusView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+    private final class FocusView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [weak window] in window?.makeFirstResponder(nil) }
+        }
+    }
+}

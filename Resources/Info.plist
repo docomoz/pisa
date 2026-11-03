@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+<key>CFBundleDevelopmentRegion</key><string>ru</string>
+<key>CFBundleLocalizations</key><array><string>ru</string></array>
+<key>CFBundleIconFile</key><string>PisyaPlain</string>
+<key>CFBundleName</key><string>Pisya</string>
+<key>CFBundleDisplayName</key><string>Pisya</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>40</string>
+<key>LSMinimumSystemVersion</key><string>15.0</string>
+<key>NSMicrophoneUsageDescription</key><string>Pisya записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
+<key>NSScreenCaptureUsageDescription</key><string>Pisya использует захват системного звука для записи собеседников. Видео экрана не сохраняется, обработка выполняется на этом Mac.</string>
+<key>NSAudioCaptureUsageDescription</key><string>Pisya записывает звук собеседников из приложения звонка для локальной расшифровки.</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>
