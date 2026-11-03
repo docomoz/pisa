@@ -16,6 +16,7 @@
 		1A96AB0329240BCF185CE120 /* EchoDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D6274BB0F524455208FA32 /* EchoDiagnostics.swift */; };
 		1B923B1F1AEA6015D2D5C482 /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E01BFA0522999304AB49C2 /* Appearance.swift */; };
 		24FC614084878FC2F9729297 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04715BFB01C5131C9A26F890 /* Models.swift */; };
+		288836F5D3833238D29D671E /* MicrophoneLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BA1C0DBD2239A6695DE9DEE /* MicrophoneLanguage.swift */; };
 		31B3EA58BE206A9B53E81D2F /* EchoAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */; };
 		31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4FF1C5BBACF2D807BA97CDB /* PisyaApp.swift */; };
 		353CCB4D18E118A923565704 /* AudioTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E3383FB572B040008A8A958 /* AudioTimeline.swift */; };
@@ -64,6 +65,7 @@
 		E1BC92CB83D8D573A6EDDCB6 /* LivePipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */; };
 		E70D48433B80740BFBC1CC0E /* BrandMark.json in Resources */ = {isa = PBXBuildFile; fileRef = 617B477E74AC92F686705696 /* BrandMark.json */; };
 		F213075828582EAD1BCF4290 /* MCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D39C911B36F059AE59708CE /* MCP.swift */; };
+		FDBDF350EB46B8279623869C /* MicrophoneLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BA1C0DBD2239A6695DE9DEE /* MicrophoneLanguage.swift */; };
 		FE488DEAE26E87E51EC22C24 /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15F1BA27798D440B4BD55F1 /* CaptureWindow.swift */; };
 		FEADC40A879F8C137986D832 /* LiveTranscriptionSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F65EBDA94C5680BD47C9F64 /* LiveTranscriptionSchedule.swift */; };
 		FEBCBFA39AF3949C7227BB71 /* libonnxruntime.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F9511027F13DA6F25E99C2C /* libonnxruntime.dylib */; };
@@ -113,6 +115,7 @@
 		652A3742B6BB73EF82795BF0 /* AudioWindowReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWindowReader.swift; sourceTree = "<group>"; };
 		6585D6825AB0F029B1B85B64 /* EchoDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoDetector.swift; sourceTree = "<group>"; };
 		66782C763742FA0DA6D66EB7 /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
+		6BA1C0DBD2239A6695DE9DEE /* MicrophoneLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneLanguage.swift; sourceTree = "<group>"; };
 		76501685FA39B87B9D14185B /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		77FC5B696CF82D53B33A9E7E /* HorizontalWheelScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalWheelScroll.swift; sourceTree = "<group>"; };
 		7B93F0BF5AA174BAD09403D6 /* Launcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Launcher.swift; sourceTree = "<group>"; };
@@ -165,6 +168,7 @@
 				0A7D9BA3CD5E71CD3D7A94AF /* Library.swift */,
 				0F65EBDA94C5680BD47C9F64 /* LiveTranscriptionSchedule.swift */,
 				3D39C911B36F059AE59708CE /* MCP.swift */,
+				6BA1C0DBD2239A6695DE9DEE /* MicrophoneLanguage.swift */,
 				04715BFB01C5131C9A26F890 /* Models.swift */,
 				02730430AA4A692599107B47 /* SpeakerClustering.swift */,
 			);
@@ -380,6 +384,7 @@
 				354C668ECB695B99A3A0F080 /* Library.swift in Sources */,
 				FEADC40A879F8C137986D832 /* LiveTranscriptionSchedule.swift in Sources */,
 				F213075828582EAD1BCF4290 /* MCP.swift in Sources */,
+				288836F5D3833238D29D671E /* MicrophoneLanguage.swift in Sources */,
 				08318E52F67D3E31293557AE /* Models.swift in Sources */,
 				BEFAE7C58FF04A2925AF1A7B /* SpeakerClustering.swift in Sources */,
 				59B783367B2F8AF429C54AA3 /* main.swift in Sources */,
@@ -417,6 +422,7 @@
 				4DAC4E2D09BD62303E9E6FF3 /* LiveTranscriptionSchedule.swift in Sources */,
 				866AC88D6DE7932CFDB566F6 /* MCP.swift in Sources */,
 				8E4EF95AD5D77069EEEC1B34 /* MainView.swift in Sources */,
+				FDBDF350EB46B8279623869C /* MicrophoneLanguage.swift in Sources */,
 				24FC614084878FC2F9729297 /* Models.swift in Sources */,
 				76C8F12E768DF0333089517A /* PCMRead.swift in Sources */,
 				31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */,

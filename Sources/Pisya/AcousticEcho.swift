@@ -6,7 +6,7 @@ import AVFoundation
 final class AcousticEcho {
     private let processor: OpaquePointer
     static let frameSize = 320 // Two 10 ms WebRTC frames at 16 kHz.
-    static let latency = 128 // AEC3 suppressor framing, measured by near-only correlation.
+    static let latency = 128 // AEC3 framing, measured by near-only correlation.
     init() throws {
         guard let processor = PisyaEchoCreate() else { throw PisyaError.message("Не удалось подготовить подавление эха") }
         self.processor = processor
@@ -18,7 +18,7 @@ final class AcousticEcho {
         try microphone.withUnsafeBufferPointer { mic in try reference.withUnsafeBufferPointer { ref in try output.withUnsafeMutableBufferPointer { out in
             for start in stride(from: 0, to: Self.frameSize, by: 160) {
                 if PisyaEchoProcess(processor, mic.baseAddress! + start, ref.baseAddress! + start, out.baseAddress! + start) != 0 {
-                    throw PisyaError.message("AEC processing unavailable")
+                    throw PisyaError.message("Не удалось обработать микрофон: эхоподавление недоступно")
                 }
             }
         } } }
@@ -47,9 +47,10 @@ final class AcousticEcho {
             EchoAlignment.referencePosition(microphonePosition: position, offset: offset, referenceOffset: referenceOffset, delay: delay)
         }
         var delay = alignment.delay(at: 0)
-        var lastRealignment: Int64?
         // Offline calibration learns the room before the first word is emitted.
-        // Flush histories with silence afterwards; learned filter coefficients remain.
+        // Clear capture history, then prime the render lookahead from the actual
+        // preceding reference. Zeroing both histories loses the first echo's
+        // reference and creates a false near-end transient at the file boundary.
         let calibration = min(mic.length, 16000 * 5)
         var training: Int64 = 0
         while training < calibration {
@@ -57,7 +58,10 @@ final class AcousticEcho {
             _ = try processor.process(microphone: try frame(mic, at: training, count: frameSize), reference: try frame(ref, at: referencePosition(training, delay: delay), count: frameSize))
             training += Int64(frameSize)
         }
-        for _ in 0..<50 { _ = try processor.process(microphone: Array(repeating: 0, count: frameSize), reference: Array(repeating: 0, count: frameSize)) }
+        for warmup in stride(from: Int64(-16000), to: 0, by: frameSize) {
+            _ = try processor.process(microphone: Array(repeating: 0, count: frameSize),
+                                      reference: try frame(ref, at: referencePosition(warmup, delay: delay), count: frameSize))
+        }
         while position < mic.length + Int64(latency) {
             try Task.checkCancellation()
             // Playback is submitted 100 ms before its expected microphone echo;
@@ -65,7 +69,6 @@ final class AcousticEcho {
             let nextDelay = alignment.delay(at: Double(position) / 16000 + 0.1)
             if abs(nextDelay - delay) > 0.02 {
                 delay = nextDelay
-                lastRealignment = position
                 // Keep the learned room filter and near-end state. Recreating AEC
                 // here would train on (and suppress) a quiet boundary utterance.
 
@@ -77,13 +80,6 @@ final class AcousticEcho {
             let leadingSkip = Int(max(0, -outputPosition))
             let writePosition = max(0, outputPosition)
             if leadingSkip < frameSize && writePosition < mic.length {
-                if let lastRealignment, outputPosition < lastRealignment + 1600 {
-                    let original = try frame(mic, at: outputPosition, count: frameSize)
-                    for i in output.indices {
-                        let blend = Float(min(1, max(0, Double(outputPosition + Int64(i) - lastRealignment + Int64(latency)) / Double(1600 + latency))))
-                        output[i] = original[i] * (1 - blend) + output[i] * blend
-                    }
-                }
                 let count = Int(min(Int64(frameSize - leadingSkip), mic.length - writePosition))
                 let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count))!
                 buffer.frameLength = AVAudioFrameCount(count)

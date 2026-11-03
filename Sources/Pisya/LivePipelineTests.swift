@@ -143,6 +143,41 @@ public enum LivePipelineTests {
             try check(!recognized.isEmpty && recognized.last?.1 == 48, "Uncommitted tail was not drained")
             let remaining = try FileManager.default.contentsOfDirectory(atPath: root.path)
             try check(!remaining.contains(where: { $0.hasPrefix("window-") }), "Temporary window leaked")
+
+            // Exercise cancellation while the cached model's short-stream
+            // collector is actually active, then join before model cleanup.
+            let cancelMic = root.appendingPathComponent("cancel-mic.caf")
+            var cancelAudio = [Float](repeating: 0, count: rate / 4)
+            cancelAudio.append(contentsOf: short.map { $0 * 0.1 })
+            cancelAudio.append(contentsOf: repeatElement(0, count: rate / 3))
+            let cancelWriter = try AVAudioFile(forWriting: cancelMic, settings: format.settings)
+            try append(cancelWriter, samples: cancelAudio, from: 0, to: cancelAudio.count)
+            cancelWriter.close()
+            let cancelTask = Task(priority: .utility) {
+                try await transcriber.transcribe(files: [(cancelMic, 0)], modelDirectory: model, context: "", speakerDirectory: speakerDirectory, profiles: [], quiet: true, live: true) { _, _ in }
+            }
+            do {
+                let deadline = Date().addingTimeInterval(30)
+                var observedActive = false
+                while Date() < deadline {
+                    try Task.checkCancellation()
+                    if await transcriber.shortDecodeIsActive() { observedActive = true; break }
+                    try await Task.sleep(nanoseconds: 5_000_000)
+                }
+                try check(observedActive, "Short decode did not become active before timeout")
+                cancelTask.cancel()
+                let outcome = await cancelTask.result
+                guard case .failure(let failure) = outcome, failure is CancellationError else {
+                    throw PisyaError.message("Active short decode did not finish with CancellationError")
+                }
+                let activeAfterJoin = await transcriber.shortDecodeIsActive()
+                try check(!activeAfterJoin, "Short decode collector remained active after cancellation")
+                print("LIVE_SHORT_CANCELLATION_OK collector_joined=true")
+            } catch {
+                cancelTask.cancel()
+                _ = await cancelTask.result
+                throw error
+            }
             print("LIVE_PIPELINE_TEST_OK cursor=\(scheduler.committed) windows=\(recognized.count) near_keyword_count=\(matches) short_count=\(shortMatches)")
         } catch {
             await transcriber.finishLive()

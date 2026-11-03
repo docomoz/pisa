@@ -31,12 +31,24 @@ struct PisyaApp: App {
                         options[.applicationIcon] = icon
                     }
                     let paragraph = NSMutableParagraphStyle()
-                    paragraph.alignment = .center; paragraph.paragraphSpacing = 8
-                    let credits = typographicText("Автор: Максим Берёзкин · maxim@berezkin.ru") + "\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
-                    options[.credits] = NSAttributedString(string: credits, attributes: [
-                        .font: NSFont.systemFont(ofSize: 14),
-                        .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
+                    paragraph.alignment = .center; paragraph.paragraphSpacing = 4
+                    let credits = typographicText("Автор: Максим Берёзкин") + "\nmaxim@berezkin.ru\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
+                    let gap = NSMutableParagraphStyle()
+                    gap.minimumLineHeight = 6; gap.maximumLineHeight = 6
+                    let formatted = NSMutableAttributedString(string: "\n", attributes: [
+                        .font: NSFont.systemFont(ofSize: 6), .paragraphStyle: gap
                     ])
+                    formatted.append(NSAttributedString(string: credits, attributes: [
+                        .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                        .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
+                    ]))
+                    let email = (formatted.string as NSString).range(of: "maxim@berezkin.ru")
+                    formatted.addAttributes([
+                        .link: URL(string: "mailto:maxim@berezkin.ru")!,
+                        .foregroundColor: NSColor.linkColor,
+                        .underlineStyle: NSUnderlineStyle.single.rawValue
+                    ], range: email)
+                    options[.credits] = formatted
                     NSApp.orderFrontStandardAboutPanel(options: options)
                 }
             }

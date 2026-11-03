@@ -9,9 +9,31 @@ actor Transcriber {
     private var liveActivity: SpeechDetector?
     private var liveVoices: SpeakerEngine?
     private var previousLiveCacheLimit: Int?
+    private var activeShortDecodes = 0
 
     /// Used by the local synthetic integration fixture to check session reuse.
     func liveModelIdentity() -> ObjectIdentifier? { liveModel.map(ObjectIdentifier.init) }
+    func shortDecodeIsActive() -> Bool { activeShortDecodes > 0 }
+
+    private func decodeShortMicrophone(_ model: Qwen3ASRModel, audio: MLXArray, maxTokens: Int) async throws -> STTOutput {
+        try Task.checkCancellation()
+        activeShortDecodes += 1
+        defer { activeShortDecodes -= 1 }
+        // The short streaming API preserves a missing language as nil, rather
+        // than substituting English. Drain it in an independent collector:
+        // cancellation must not release MLX state while its producer still runs.
+        let collector = Task<STTOutput, Error> {
+            var final: STTOutput?
+            for try await update in model.generateStream(audio: audio, maxTokens: maxTokens, context: "", language: nil, chunkDuration: 24, repetitionPenalty: 1.1) {
+                if case .result(let result) = update { final = result }
+            }
+            guard let final else { throw PisyaError.message("Распознавание не вернуло результат") }
+            return final
+        }
+        let result = try await collector.value
+        try Task.checkCancellation()
+        return result
+    }
 
     func finishLive() {
         liveModel = nil; liveActivity = nil; liveVoices = nil
@@ -96,9 +118,20 @@ actor Transcriber {
                             guard upper > lower else { continue }
                             let regionSamples = Array(samples[lower..<upper])
                             let inferenceStarted = Date()
-                            // Short residual/noisy mic spans must not be prompted into
-                            // "hearing" the vocabulary. Actual words still go through ASR.
-                            let result = model.generate(audio: MLXArray(regionSamples), maxTokens: min(768, max(64, Int((region.end - region.start) * 16))), context: isMic ? "" : context, language: isMic ? nil : "Russian", chunkDuration: 24, repetitionPenalty: 1.1)
+                            let tokenLimit = min(768, max(64, Int((region.end - region.start) * 16)))
+                            let audio = MLXArray(regionSamples)
+                            // Never provide prompt text for the microphone: noise can
+                            // otherwise be transcribed as that text. Let the first pass
+                            // abstain before resolving a short reply's language ambiguity.
+                            let shortMic = isMic && region.end - region.start <= 1.5
+                            var result: STTOutput
+                            if shortMic { result = try await decodeShortMicrophone(model, audio: audio, maxTokens: tokenLimit) }
+                            else { result = model.generate(audio: audio, maxTokens: tokenLimit, context: isMic ? "" : context, language: isMic ? nil : "Russian", chunkDuration: 24, repetitionPenalty: 1.1) }
+                            if isMic && MicrophoneLanguage.shouldRetryRussian(duration: region.end - region.start, language: result.language, languageIsExplicit: shortMic && result.language != nil,
+                                                                            text: result.text, supportedLanguages: model.config.supportLanguages) {
+                                try Task.checkCancellation()
+                                result = model.generate(audio: audio, maxTokens: tokenLimit, context: "", language: "Russian", chunkDuration: 24, repetitionPenalty: 1.1)
+                            }
                             // Give the GPU cooling/foreground headroom between utterances.
                             let thermal = ProcessInfo.processInfo.thermalState
                             if quiet || thermal == .serious || thermal == .critical {

@@ -2,7 +2,7 @@
 
 Static audio-only WebRTC AEC3 module, version 2.1, with Abseil 20240722.0. The original source URL, SHA-256 and build-tool versions are pinned in `versions.json`. The application performs no network operations through this module.
 
-`PisyaAEC.cpp` exposes one mono 16 kHz, 10 ms float-frame function through `include/PisyaAEC.h`. Automatic gain control, general noise suppression and high-pass filtering are disabled. AEC3 receives the explicit playback reference supplied by the application. The adaptive linear cancellation output is exported before residual suppression, which could erase quiet short double-talk. Unavailable linear output is an explicit processing error. Its measured block-framing latency is 64 samples and is compensated when writing the derivative audio.
+`PisyaAEC.cpp` exposes one mono 16 kHz, 10 ms float-frame function through `include/PisyaAEC.h`. Automatic gain control, general noise suppression and high-pass filtering are disabled. AEC3 receives the explicit playback reference supplied by the application. The ERLE estimator's upper caps allow the measured adaptive-filter improvement to protect quiet near speech; the lower bound remains unchanged. Processing failures are explicit errors. The measured block-framing latency is 128 samples and is compensated when writing the derivative audio. The reference lookahead is primed at each file boundary before output begins.
 
 The committed static archive targets Apple Silicon and macOS 15 or later. Rebuild on an Apple Silicon Mac with Xcode Command Line Tools:
 

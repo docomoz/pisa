@@ -102,7 +102,7 @@ struct MeetingView: View {
                 screenText("·")
                 screenText(timecode(meeting.duration)).monospacedDigit()
                 Spacer()
-                if meeting.status == .ready { screenLabel("Готово", systemImage: "checkmark.circle") }
+                if meeting.status == .ready && state.processingID != meeting.id { screenLabel("Готово", systemImage: "checkmark.circle") }
                 if state.demo { screenButton("Закрыть пример") { state.showDemo() } }
             }.font(.appFont(size: 14)).foregroundStyle(Color.mutedInk).padding(.bottom, 14)
             TextField("Название встречи", text: $title).textFieldStyle(.plain)
