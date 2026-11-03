@@ -10,4 +10,5 @@ cp dependencies.resolved.json Vendor/mlx-audio-swift/Package.resolved
 xcodegen generate
 xcodebuild -project Pisya.xcodeproj -scheme Pisya -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
 ./scripts/package.sh
+./scripts/make-dmg.sh
 printf '%s\n' "Готово: $PWD/build/Build/Products/Release/Pisya.app"

@@ -1,10 +1,57 @@
 import Foundation
 import AppKit
 import AVFoundation
+import SwiftUI
 
 @main
 enum Launcher {
     static func main() {
+        if CommandLine.arguments.contains("--model-setup-self-test") {
+            Task { @MainActor in
+                do { try await ModelSetupTests.run(); exit(0) }
+                catch { print("MODEL_SETUP_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
+        if CommandLine.arguments.contains("--model-download-smoke-test") {
+            Task { @MainActor in
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Model-Smoke-" + UUID().uuidString)
+                defer { try? FileManager.default.removeItem(at: root) }
+                do {
+                    guard let manifest = Bundle.main.url(forResource: "models", withExtension: "json") else { throw ModelInstallError.invalidManifest }
+                    let assets = try JSONDecoder().decode([ModelAsset].self, from: Data(contentsOf: manifest))
+                    guard let small = assets.first(where: { $0.path == "Qwen3-ASR/config.json" }) else { throw ModelInstallError.invalidManifest }
+                    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                    let fixture = root.appendingPathComponent("manifest.json")
+                    try JSONEncoder().encode([small]).write(to: fixture)
+                    let setup = ModelSetup(root: root, manifestURL: fixture, customModel: { nil }, usesCustomModel: { false })
+                    setup.phase = .available; setup.install(onReady: {})
+                    while setup.busy { try await Task.sleep(nanoseconds: 10_000_000) }
+                    guard setup.ready else { throw PisyaError.message(setup.error ?? "Model setup did not become ready") }
+                    let ready = try await ModelInstaller(root: root, assets: [small]).isReady()
+                    guard ready else { throw PisyaError.message("Downloaded model did not verify") }
+                    print("MODEL_DOWNLOAD_SMOKE_OK native_https sandbox sha256 live_readiness")
+                    exit(0)
+                } catch { print("MODEL_DOWNLOAD_SMOKE_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
+        if CommandLine.arguments.contains("--setup-preview") {
+            // An isolated window for checking first-run layout without opening the user's library.
+            MainActor.assumeIsolated {
+                let app = NSApplication.shared
+                app.setActivationPolicy(.regular)
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Setup-Preview-" + UUID().uuidString)
+                let setup = ModelSetup(root: root, customModel: { nil }, usesCustomModel: { false })
+                setup.phase = .available
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 590), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+                window.title = "Pisya · Подготовка"
+                window.contentView = NSHostingView(rootView: ModelSetupView(setup: setup, onReady: {}).preferredColorScheme(.light))
+                window.center(); window.makeKeyAndOrderFront(nil); app.activate(ignoringOtherApps: true)
+                app.run()
+            }
+            return
+        }
         if CommandLine.arguments.contains("--live-pipeline-test") {
             Task { @MainActor in
                 do { try await LivePipelineTests.run(); exit(0) }

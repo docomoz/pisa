@@ -19,6 +19,9 @@ struct PisyaApp: App {
                     }
                 } message: { screenText(state.permissionIssue?.localizedDescription ?? state.message ?? "") }
                 .sheet(isPresented: $state.showingSettings) { SettingsView().environmentObject(state) }
+                .sheet(isPresented: Binding(get: { state.modelSetup.presented }, set: { state.modelSetup.presented = $0 })) {
+                    ModelSetupView(setup: state.modelSetup, onReady: { state.modelInstallationCompleted() })
+                }
         }
         .defaultSize(width: 1200, height: 800)
         .windowStyle(.hiddenTitleBar)
@@ -53,7 +56,7 @@ private struct MainWindowConnection: View {
     let delegate: PisyaDelegate
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Color.clear.onAppear { delegate.connect(state, openMain: { openWindow(id: "main") }) }
+        Color.clear.onAppear { delegate.connect(state, openMain: { openWindow(id: "main") }); state.modelSetup.check() }
     }
 }
 
@@ -139,6 +142,13 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
             sender.activate(ignoringOtherApps: true)
             sender.windows.first?.makeKeyAndOrderFront(nil)
             return .terminateCancel
+        }
+        if state.modelSetup.busy {
+            Task { @MainActor in
+                await state.modelSetup.cancelAndWait()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
         }
         return .terminateNow
     }

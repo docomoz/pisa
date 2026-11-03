@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
+import Combine
 
 @MainActor
 final class AppState: ObservableObject {
@@ -117,7 +118,12 @@ final class AppState: ObservableObject {
             if folderFilter == folder.id { openFolder() }
         } catch { message = error.localizedDescription }
     }
-    var modelReady: Bool { modelURL().map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("model.safetensors").path) } ?? false }
+    lazy var modelSetup = ModelSetup(root: library.root.appendingPathComponent("Models"), customModel: { [weak self] in self?.modelURL() }, usesCustomModel: { [weak self] in self?.preferences.modelBookmark != nil })
+    private var modelSetupObservation: AnyCancellable?
+    var modelReady: Bool { modelSetup.ready }
+    func modelInstallationCompleted() {
+        if !modelSetup.installedUsingCustom { preferences.modelBookmark = nil; preferences.modelDisplayPath = nil; savePreferences() }
+    }
     var mcpPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/pisya-mcp").path }
     init(rootURL: URL? = nil) {
         let root = rootURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisya", isDirectory: true)
@@ -141,6 +147,7 @@ final class AppState: ObservableObject {
             }
             selection = filtered.first?.id
         } catch { message = error.localizedDescription }
+        modelSetupObservation = modelSetup.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         capture.onFailure = { [weak self] error in Task { @MainActor in self?.message = error; if self?.recording == true { await self?.stopRecording() } } }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.pollCall() } }
     }
@@ -157,7 +164,7 @@ final class AppState: ObservableObject {
     private func pollCall() {
         if let player, player.isPlaying, player.currentTime >= playbackEnd { player.stop(); playingSegmentID = nil }
         if let player, !player.isPlaying { playingSegmentID = nil }
-        guard preferences.automaticRecording, !demo else { return }
+        guard preferences.automaticRecording, !demo, !modelSetup.presented, !modelSetup.busy else { return }
         Task {
             let active = await Task.detached(priority: .utility) { CallAudioProbe.isActive() }.value
             guard preferences.automaticRecording else { return }
@@ -176,6 +183,7 @@ final class AppState: ObservableObject {
     }
     func startRecording(automatic: Bool = false) async {
         guard !recording, !starting, !demo else { return }
+        guard !modelSetup.busy, !modelSetup.presented else { modelSetup.presented = true; return }
         player?.stop(); playingSegmentID = nil
         starting = true; defer { starting = false }
         let selectedSource = source
@@ -250,7 +258,7 @@ final class AppState: ObservableObject {
             if let warning = result.warning { message = warning }
             if liveTask != nil && processingID == m.id { liveStopped = true }
             else if result.warning == nil && modelReady { enqueue(m.id) }
-            else if !modelReady { message = "Запись сохранена. Добавьте локальную модель в настройках, чтобы расшифровать её" }
+            else if !modelReady { message = "Запись сохранена. Загрузите модели в настройках, чтобы расшифровать её" }
         } catch {
             if processingID == m.id { liveStopped = true; liveTask?.cancel() }
             m = (try? library.read(m.id)) ?? m
@@ -407,7 +415,7 @@ final class AppState: ObservableObject {
     }
     func enqueue(_ id: UUID, reprocess: Bool = false) {
         guard !demo, id != processingID, !pending.contains(id) else { return }
-        guard modelReady else { showingSettings = true; return }
+        guard modelReady else { modelSetup.presented = true; return }
         if reprocess { pendingReprocessing.insert(id) }
         pending.append(id); runNext()
     }
@@ -623,7 +631,7 @@ final class AppState: ObservableObject {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
         panel.message = "Папка Qwen3-ASR в формате MLX. Все вычисления останутся на Mac"
         if panel.runModal() == .OK, let url = panel.url {
-            do { preferences.modelBookmark = try url.bookmarkData(options: .withSecurityScope); preferences.modelDisplayPath = url.path; savePreferences(); objectWillChange.send() } catch { message = error.localizedDescription }
+            do { preferences.modelBookmark = try url.bookmarkData(options: .withSecurityScope); preferences.modelDisplayPath = url.path; savePreferences(); modelSetup.check(presentWhenNeeded: false); objectWillChange.send() } catch { message = error.localizedDescription }
         }
     }
     func chooseExportFolder() {

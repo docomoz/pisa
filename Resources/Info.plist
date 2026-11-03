@@ -9,8 +9,8 @@
 <key>CFBundleName</key><string>Pisya</string>
 <key>CFBundleDisplayName</key><string>Pisya</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.0</string>
-<key>CFBundleVersion</key><string>40</string>
+<key>CFBundleShortVersionString</key><string>0.4.1</string>
+<key>CFBundleVersion</key><string>41</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSMicrophoneUsageDescription</key><string>Pisya записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
 <key>NSScreenCaptureUsageDescription</key><string>Pisya использует захват системного звука для записи собеседников. Видео экрана не сохраняется, обработка выполняется на этом Mac.</string>

@@ -27,6 +27,8 @@ targets:
         buildPhase: resources
       - path: Resources/Silero-LICENSE
         buildPhase: resources
+      - path: scripts/models.json
+        buildPhase: resources
       - path: Resources/BrandMark.json
         buildPhase: resources
       - path: Resources/PisyaPlain.icns
