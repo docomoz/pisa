@@ -57,10 +57,12 @@
 		A50422B5670055545EDF9F33 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B278DF62917E67995A9B0B57 /* ModelInstaller.swift */; };
 		A594AAD95C34387CCD16F920 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8434C08566169642C267590E /* AppState.swift */; };
 		A69A4EC3F53D8A7F0077F944 /* PisyaPlain.icns in Resources */ = {isa = PBXBuildFile; fileRef = 933F1E681ACA1BD9B2705BA1 /* PisyaPlain.icns */; };
+		B6B0B392E461E1BDE14766A4 /* VoiceNameDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD67044B45B65F4105496FF0 /* VoiceNameDraft.swift */; };
 		BA178B3A513D47B1EECD2947 /* HorizontalWheelScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77FC5B696CF82D53B33A9E7E /* HorizontalWheelScroll.swift */; };
 		BE90CF5FF64D22E9381DE0C1 /* Transcriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19696248CFDC35ECF633842B /* Transcriber.swift */; };
 		BEFAE7C58FF04A2925AF1A7B /* SpeakerClustering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02730430AA4A692599107B47 /* SpeakerClustering.swift */; };
 		BFC8DE1BE80F21C3BE8E16DB /* EchoAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 005ECAE683EDCF4151EFF500 /* EchoAlignment.swift */; };
+		BFFB0E18456A5437555373C6 /* VoiceNameDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD67044B45B65F4105496FF0 /* VoiceNameDraft.swift */; };
 		C1D8F1C10F2B975E48010526 /* EchoDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6585D6825AB0F029B1B85B64 /* EchoDetector.swift */; };
 		C807E5C802ED610ACC40A178 /* AudioDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B8C8390CB5ED142F254257 /* AudioDiagnostics.swift */; };
 		C9778B81F97258A3D7A7A345 /* BrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BAEB36AD45E0E5879222A8 /* BrandMark.swift */; };
@@ -145,6 +147,7 @@
 		F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePipelineTests.swift; sourceTree = "<group>"; };
 		F6BAEB36AD45E0E5879222A8 /* BrandMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMark.swift; sourceTree = "<group>"; };
 		F7D6274BB0F524455208FA32 /* EchoDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoDiagnostics.swift; sourceTree = "<group>"; };
+		FD67044B45B65F4105496FF0 /* VoiceNameDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNameDraft.swift; sourceTree = "<group>"; };
 		FED06F84C4C7BB8FAFCDC049 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -177,6 +180,7 @@
 				B278DF62917E67995A9B0B57 /* ModelInstaller.swift */,
 				04715BFB01C5131C9A26F890 /* Models.swift */,
 				02730430AA4A692599107B47 /* SpeakerClustering.swift */,
+				FD67044B45B65F4105496FF0 /* VoiceNameDraft.swift */,
 			);
 			name = PisyaCore;
 			path = Sources/PisyaCore;
@@ -405,6 +409,7 @@
 				A50422B5670055545EDF9F33 /* ModelInstaller.swift in Sources */,
 				08318E52F67D3E31293557AE /* Models.swift in Sources */,
 				BEFAE7C58FF04A2925AF1A7B /* SpeakerClustering.swift in Sources */,
+				B6B0B392E461E1BDE14766A4 /* VoiceNameDraft.swift in Sources */,
 				59B783367B2F8AF429C54AA3 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -455,6 +460,7 @@
 				4F41F71B6C20E38A1450158C /* StatusBarController.swift in Sources */,
 				BE90CF5FF64D22E9381DE0C1 /* Transcriber.swift in Sources */,
 				041A85D5F0FD29F87F4BF60D /* VoiceManager.swift in Sources */,
+				BFFB0E18456A5437555373C6 /* VoiceNameDraft.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

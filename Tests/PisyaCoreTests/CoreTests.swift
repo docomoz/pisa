@@ -1,6 +1,13 @@
 import XCTest
 @testable import PisyaCore
 final class CoreTests: XCTestCase {
+    func testReselectingVoiceSamplePreservesUnappliedName() {
+        let sample = TranscriptSegment(start: 0, end: 2, speaker: "Спикер 1", text: "Текст")
+        XCTAssertEqual(voiceNameForSelection(currentID: sample.id, currentName: "Мария", segment: sample), "Мария")
+        XCTAssertEqual(voiceNameForSelection(currentID: UUID(), currentName: "Мария", segment: sample), "Спикер 1")
+        XCTAssertEqual(voiceNameForSelection(currentID: nil, currentName: "", segment: sample), "Спикер 1")
+    }
+
     func testRecordingCounterSwitchesToHoursAtOneHour() {
         XCTAssertEqual(recordingTimecode(0), "00:00")
         XCTAssertEqual(recordingTimecode(9), "00:09")
