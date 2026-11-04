@@ -96,9 +96,10 @@ actor Transcriber {
                             guard upper > lower else { continue }
                             let regionSamples = Array(samples[lower..<upper])
                             let inferenceStarted = Date()
-                            // Short residual/noisy mic spans must not be prompted into
-                            // "hearing" the vocabulary. Actual words still go through ASR.
-                            let result = model.generate(audio: MLXArray(regionSamples), maxTokens: min(768, max(64, Int((region.end - region.start) * 16))), context: isMic ? "" : context, language: isMic ? nil : "Russian", chunkDuration: 24, repetitionPenalty: 1.1)
+                            // Both tracks need the user's spelling hints. VAD and echo
+                            // cleanup keep nonspeech out; mic language detection can still
+                            // return "none" instead of forcing words into residual noise.
+                            let result = model.generate(audio: MLXArray(regionSamples), maxTokens: min(768, max(64, Int((region.end - region.start) * 16))), context: context, language: isMic ? nil : "Russian", chunkDuration: 24, repetitionPenalty: 1.1)
                             // Give the GPU cooling/foreground headroom between utterances.
                             let thermal = ProcessInfo.processInfo.thermalState
                             if quiet || thermal == .serious || thermal == .critical {

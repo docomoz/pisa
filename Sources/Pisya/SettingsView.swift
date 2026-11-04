@@ -30,7 +30,9 @@ struct SettingsView: View {
                         }
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-                        block("Контекстный словарь", "Подсказки модели для написания названий, имён и терминов") {
+                        block("Словарь распознавания", "Чтобы Pisya точнее записывала имена и названия в вашей речи и речи собеседников") {
+                            screenText("Например, добавьте «2ГИС», если вместо него получается «два гис»")
+                                .font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                             TextEditor(text: $state.preferences.vocabulary)
                                 .font(.appFont(size: 16))
                                 .scrollContentBackground(.hidden)
@@ -42,12 +44,10 @@ struct SettingsView: View {
                                         .strokeBorder(Color.mutedInk.opacity(0.25), lineWidth: 1)
                                         .allowsHitTesting(false)
                                 }
-                                .accessibilityLabel("Контекстный словарь")
+                                .accessibilityLabel("Словарь распознавания")
                                 .accessibilityHint("Введите слова через запятую или с новой строки")
                                 .onChange(of: state.preferences.vocabulary) { state.savePreferences() }
-                            screenText("Введите слова через запятую или с новой строки. Можно оставить поле пустым.")
-                                .font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
-                            screenText("Применяется к речи собеседников из системного звука. На ваш микрофон не влияет.")
+                            screenText("Укажите нужное написание слов через запятую или с новой строки. Можно оставить поле пустым.")
                                 .font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                         }
 
