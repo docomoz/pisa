@@ -1,10 +1,6 @@
 import SwiftUI
 
 enum PisyaDesign {
-    enum Typography {
-        static let button = Font.appFont(size: 16, weight: .medium)
-        static let smallButton = Font.appFont(size: 13, weight: .medium)
-    }
     enum Colors {
         // Bronegis light-theme OKLCH tokens converted to sRGB.
         static let ink = Color(red: 0.08727, green: 0.09624, blue: 0.10585)
@@ -31,10 +27,18 @@ enum PisyaDesign {
         static let cornerRadius: CGFloat = 8
         static let regularHeight: CGFloat = 36
         static let smallHeight: CGFloat = 32
-        static let regularPadding: CGFloat = 16
-        static let smallPadding: CGFloat = 12
+        static let surfaceRadius: CGFloat = 12
+        static let selectionRadius: CGFloat = 10
+        static let navigationRadius: CGFloat = 9
+        static let editorHeight: CGFloat = 180
+        static let labelIconWidth: CGFloat = 24
+        static let elapsedWidth: CGFloat = 58
+        static let elapsedHeight: CGFloat = 15
     }
     enum Spacing {
+        static let none: CGFloat = 0
+        static let hairline: CGFloat = 2
+        static let compact: CGFloat = 4
         static let textLine: CGFloat = 7
         static let inline: CGFloat = 8
         static let related: CGFloat = 12
@@ -45,23 +49,6 @@ enum PisyaDesign {
     }
 }
 
-struct SectionHeading: View {
-    let title: String
-    var subtitle: String?
-    var size: CGFloat = 19
-    init(_ title: String, subtitle: String? = nil, size: CGFloat = 19) {
-        self.title = title; self.subtitle = subtitle; self.size = size
-    }
-    var body: some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-            screenText(title).font(.appFont(size: size, weight: .semibold))
-            if let subtitle {
-                screenText(subtitle).foregroundStyle(Color.mutedInk)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }.fixedSize(horizontal: false, vertical: true)
-    }
-}
 
 extension Color {
     static let ink = PisyaDesign.Colors.ink
@@ -86,10 +73,10 @@ extension View {
             .background(SlimScrollbars().allowsHitTesting(false))
             .focusEffectDisabled()
     }
-    func plainSurface(radius: CGFloat = 12) -> some View {
+    func plainSurface(radius: CGFloat = PisyaDesign.Metrics.surfaceRadius) -> some View {
         background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: radius))
     }
-    func plainSelection(_ selected: Bool, radius: CGFloat = 10) -> some View {
+    func plainSelection(_ selected: Bool, radius: CGFloat = PisyaDesign.Metrics.selectionRadius) -> some View {
         background {
             if selected {
                 RoundedRectangle(cornerRadius: radius).fill(Color.selectionTint)
@@ -103,7 +90,7 @@ extension View {
             .controlKeyboardFocus()
     }
     func speakerChip() -> some View { actionButton(.secondary, size: .small) }
-    func shapeAwarePlainButton<Outline: Shape>(_ shape: Outline = RoundedRectangle(cornerRadius: 8)) -> some View {
+    func shapeAwarePlainButton<Outline: Shape>(_ shape: Outline = RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)) -> some View {
         buttonStyle(PlainControlStyle()).controlKeyboardFocus()
     }
     func controlKeyboardFocus() -> some View { modifier(ControlKeyboardFocus()) }
@@ -169,7 +156,7 @@ private struct ActionButtonContent<Label: View>: View {
         label
             .font(size == .small ? PisyaDesign.Typography.smallButton : PisyaDesign.Typography.button)
             .foregroundStyle(foreground)
-            .padding(.horizontal, size == .small ? PisyaDesign.Metrics.smallPadding : PisyaDesign.Metrics.regularPadding)
+            .padding(.horizontal, size == .small ? PisyaDesign.Spacing.related : PisyaDesign.Spacing.content)
             .frame(minHeight: size == .small ? PisyaDesign.Metrics.smallHeight : PisyaDesign.Metrics.regularHeight)
             .background(background, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
             .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
@@ -182,8 +169,9 @@ struct PisyaTextFieldStyle: TextFieldStyle {
     @Environment(\.isEnabled) private var enabled
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration.textFieldStyle(.plain)
+            .font(PisyaDesign.Typography.body)
             .foregroundStyle(enabled ? PisyaDesign.Colors.ink : PisyaDesign.Colors.disabledInk)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, PisyaDesign.Spacing.related)
             .frame(minHeight: PisyaDesign.Metrics.regularHeight)
             .background(enabled ? PisyaDesign.Colors.secondary : PisyaDesign.Colors.disabledSurface,
                         in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))

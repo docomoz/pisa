@@ -20,7 +20,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         if let button = item.button {
             button.image = BrandMark.menuIcon
             button.imagePosition = .imageLeading
-            button.font = AppTypography.counterFont(size: 12)
+            button.font = AppTypography.statusCounter
         }
         // Let AppKit draw the same compact, translucent menu used by other menu-bar apps.
         menu.delegate = self
@@ -118,7 +118,7 @@ private final class PersistentMenuToggle: NSButton {
     }
 
     init(title: String) {
-        let font = NSFont.menuFont(ofSize: 0)
+        let font = AppTypography.menu
         label = NSTextField(labelWithString: title)
         label.font = font
         let width = label.fittingSize.width + PisyaDesign.Spacing.content

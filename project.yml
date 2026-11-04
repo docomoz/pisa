@@ -20,6 +20,10 @@ targets:
   Pisya:
     type: application
     platform: macOS
+    preBuildScripts:
+      - name: Check design tokens
+        script: python3 "$SRCROOT/scripts/check-design-system.py"
+        basedOnDependencyAnalysis: false
     sources:
       - Sources/Pisya
       - Sources/PisyaCore

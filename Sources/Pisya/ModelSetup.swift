@@ -100,17 +100,17 @@ struct ModelSetupView: View {
     @ObservedObject var setup: ModelSetup
     let onReady: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 26, height: 26)
-                screenText("Pisya").font(.appFont(size: 23, weight: .semibold))
+                screenText("Pisya").font(PisyaDesign.Typography.brand)
                 Spacer()
-                screenText("НА ЭТОМ MAC").font(.appFont(size: 10, weight: .semibold)).tracking(1.5).foregroundStyle(Color.mutedInk)
+                Eyebrow("НА ЭТОМ MAC")
             }.padding(.bottom, PisyaDesign.Spacing.page)
-            screenText(setup.ready ? "Всё готово к первой встрече" : "Подготовим Pisya к работе")
-                .font(.appFont(size: 29, weight: .semibold)).fixedSize(horizontal: false, vertical: true).padding(.bottom, PisyaDesign.Spacing.inline)
-            screenText(setup.ready ? "Модели установлены. Перед записью macOS попросит доступ к микрофону и системному звуку." : "Один раз загрузим модели для распознавания речи и участников. Затем встречи можно расшифровывать без интернета.")
-                .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true).padding(.bottom, PisyaDesign.Spacing.content)
+            SectionHeading(setup.ready ? "Всё готово к первой встрече" : "Подготовим Pisya к работе",
+                           subtitle: setup.ready ? "Модели установлены. Перед записью macOS попросит доступ к микрофону и системному звуку." : "Один раз загрузим модели для распознавания речи и участников. Затем встречи можно расшифровывать без интернета.",
+                           style: .page)
+                .padding(.bottom, PisyaDesign.Spacing.content)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
                 item("waveform", "Речь и участники", "Qwen3-ASR · локальная обработка")
                 Divider().opacity(0.5)
@@ -122,19 +122,19 @@ struct ModelSetupView: View {
                         screenText(setup.phase == .checking ? "Проверяем установленные модели…" : setup.progress?.verifying == true ? "Проверяем целостность…" : "Загружаем модели…")
                         Spacer()
                         if let p = setup.progress, p.expectedBytes > 0 { screenText("\(Int(p.fraction * 100)) %").monospacedDigit() }
-                    }.font(.appFont(size: 14, weight: .medium))
+                    }.font(PisyaDesign.Typography.detailMedium)
                     if let p = setup.progress { ProgressView(value: p.fraction).tint(Color.moss) }
                     else { ProgressView().controlSize(.small) }
                     if let p = setup.progress {
                         screenText(p.verifying ? "Большой файл проверяется на Mac. Это может занять немного времени" : "Файл \(min(p.completedFiles + 1, p.totalFiles)) из \(p.totalFiles) · \(ByteCountFormatter.string(fromByteCount: p.downloadedBytes, countStyle: .file))")
-                            .font(.appFont(size: 12)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                            .font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                     }
                 }.frame(minHeight: 66, alignment: .top)
             } else if let error = setup.error {
-                screenText(error).font(.appFont(size: 14)).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
+                screenText(error).font(PisyaDesign.Typography.detail).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
             } else {
                 screenLabel(setup.ready ? "Можно начинать" : "Понадобится интернет только для загрузки", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
-                    .font(.appFont(size: 14)).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
+                    .font(PisyaDesign.Typography.detail).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
             }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.actionButton() }
@@ -145,14 +145,14 @@ struct ModelSetupView: View {
                     screenButton(setup.phase == .failed ? "Повторить загрузку" : "Загрузить модели") { setup.install(onReady: onReady) }.actionButton(.primary).disabled(setup.busy).keyboardShortcut(.defaultAction)
                 }
             }.padding(.top, PisyaDesign.Spacing.section)
-        }.padding(PisyaDesign.Spacing.sheetInset).frame(width: 600).popupCanvas().interactiveDismissDisabled(setup.busy)
+        }.dialogContent().frame(width: 600).interactiveDismissDisabled(setup.busy)
     }
     private func item(_ symbol: String, _ title: String, _ subtitle: String) -> some View {
         HStack(spacing: PisyaDesign.Spacing.related) {
-            Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(Color.moss).frame(width: 28)
+            Image(systemName: symbol).font(PisyaDesign.Typography.Icon.featured).foregroundStyle(Color.moss).frame(width: 28)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                screenText(title).font(.appFont(size: 16, weight: .semibold))
-                screenText(subtitle).font(.appFont(size: 13)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                screenText(title).font(PisyaDesign.Typography.bodyStrong)
+                screenText(subtitle).font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

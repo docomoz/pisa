@@ -1,6 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+python3 scripts/check-design-system.py
 git submodule update --init --recursive
 if [[ ! -f Vendor/Sherpa/lib/libonnxruntime.dylib ]]; then ./scripts/setup-runtime.sh; fi
 if git -C Vendor/mlx-audio-swift apply --check ../../patches/mlx-audio-fft.patch 2>/dev/null; then

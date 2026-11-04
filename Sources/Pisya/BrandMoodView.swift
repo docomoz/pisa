@@ -27,10 +27,10 @@ struct BrandMoodView: View {
     @State private var colorIndex = Int.random(in: 0..<BrandMoodView.colors.count)
 
     var body: some View {
-        HStack(spacing: 5) {
-            screenText("Pisya").font(.appFont(size: 14, weight: .semibold)).fixedSize()
+        HStack(spacing: PisyaDesign.Spacing.inline) {
+            screenText("Pisya").font(PisyaDesign.Typography.detailStrong).fixedSize()
             screenText("\(Self.phrases[phraseIndex]) \(Self.emojis[emojiIndex])")
-                .font(.appFont(size: 14)).foregroundStyle(Self.colors[colorIndex])
+                .font(PisyaDesign.Typography.detail).foregroundStyle(Self.colors[colorIndex])
                 .lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: 340, alignment: .leading)

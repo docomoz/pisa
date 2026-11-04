@@ -39,7 +39,7 @@ private struct FocusFillToggle: View {
                     .overlay {
                         if isOn {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(PisyaDesign.Typography.Icon.checkmark)
                                 .foregroundStyle(Color.white)
                         } else {
                             // This is the checkbox boundary, independent of keyboard focus.

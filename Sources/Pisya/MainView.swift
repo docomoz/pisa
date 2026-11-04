@@ -4,19 +4,19 @@ import AppKit
 struct MainView: View {
     @EnvironmentObject var state: AppState
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: PisyaDesign.Spacing.none) {
             sidebar.frame(width: 270)
             Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
-            VStack(spacing: 0) {
+            VStack(spacing: PisyaDesign.Spacing.none) {
                 topbar
                 if state.recording { recordingBanner }
-                if state.demo { screenText("ДЕМОНСТРАЦИЯ · вымышленные реплики, не настоящая запись").font(.appFont(size: 11, weight: .medium)).foregroundStyle(Color.moss).padding(10).frame(maxWidth: .infinity).background(Color.moss.opacity(0.08)) }
+                if state.demo { screenText("ДЕМОНСТРАЦИЯ · вымышленные реплики, не настоящая запись").font(PisyaDesign.Typography.microMedium).foregroundStyle(Color.moss).padding(PisyaDesign.Spacing.related).frame(maxWidth: .infinity).background(Color.moss.opacity(0.08)) }
                 if let meeting = state.selected { MeetingView(meeting: meeting).id(meeting.id) } else { welcome }
             }.background(Color.paper)
         }
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
-        .font(.appFont(size: 14))
+        .font(PisyaDesign.Typography.detail)
         .foregroundStyle(Color.ink)
         .tint(Color.brandAccent)
         .focusEffectDisabled()
@@ -37,7 +37,7 @@ struct MainView: View {
             Spacer()
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Button { state.showingSettings = true } label: {
-                    Image(systemName: "gearshape").font(.appFont(size: 14, weight: .medium))
+                    Image(systemName: "gearshape").font(PisyaDesign.Typography.detailMedium)
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
                     screenLabel("Импорт", systemImage: "arrow.down.doc")
@@ -55,11 +55,11 @@ struct MainView: View {
         RecordingWaveformView(monitor: state.recordingMonitor, started: state.recordingStarted)
     }
     private var welcome: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             Spacer()
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 76, height: 76).padding(.bottom, PisyaDesign.Spacing.section)
-            screenText("Вы разговариваете.\nPisya записывает.").font(.appFont(size: 40, weight: .medium)).tracking(-0.8).lineSpacing(2)
-            screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).lineSpacing(6).padding(.top, PisyaDesign.Spacing.content)
+            screenText("Вы разговариваете.\nPisya записывает.").font(PisyaDesign.Typography.hero).tracking(PisyaDesign.Typography.heroTracking).lineSpacing(PisyaDesign.Spacing.hairline)
+            screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.").font(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk).lineSpacing(PisyaDesign.Spacing.textLine).padding(.top, PisyaDesign.Spacing.content)
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Button { state.showingSettings = true } label: { screenText(state.modelReady ? "Настроить автозапись" : "Подготовить к первой встрече") }.actionButton(.primary)
             }.padding(.top, PisyaDesign.Spacing.section)
@@ -72,7 +72,7 @@ struct MainView: View {
         }.padding(.horizontal, PisyaDesign.Spacing.page).frame(maxWidth: .infinity, alignment: .leading)
     }
     private func feature(_ icon: String, _ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { Image(systemName: icon).font(.appFont(size: 18)).foregroundStyle(Color.moss); screenText(title).font(.appFont(size: 12, weight: .medium)); screenText(detail).font(.appFont(size: 11)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true) }.frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { Image(systemName: icon).font(PisyaDesign.Typography.Icon.medium).foregroundStyle(Color.moss); screenText(title).font(PisyaDesign.Typography.footnoteMedium); screenText(detail).font(PisyaDesign.Typography.micro).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true) }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -88,7 +88,7 @@ struct MeetingView: View {
     @FocusState private var focusedField: Field?
     private enum Field: Hashable { case title, search }
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
                 if !meeting.hasAutomaticTitle { screenText(meetingDateLabel(meeting.date)); screenText("·") }
                 screenText(meeting.source)
@@ -97,9 +97,9 @@ struct MeetingView: View {
                 Spacer()
                 if meeting.status == .ready { screenLabel("Готово", systemImage: "checkmark.circle") }
                 if state.demo { screenButton("Закрыть пример") { state.showDemo() }.actionButton(size: .small) }
-            }.font(.appFont(size: 14)).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
+            }.font(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
             TextField("Название встречи", text: $title).textFieldStyle(.plain)
-                .font(.appFont(size: 29, weight: meeting.hasAutomaticTitle ? .regular : .semibold)).focused($focusedField, equals: .title)
+                .font(meeting.hasAutomaticTitle ? PisyaDesign.Typography.automaticTitle : PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
                 .disabled(!state.canModify(meeting))
                 .onSubmit { saveTitle(); focusedField = nil }
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
@@ -108,7 +108,7 @@ struct MeetingView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: PisyaDesign.Spacing.related) { meetingControls; Spacer(minLength: 0); exportControl }
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { meetingControls; exportControl }
-            }.actionControls().font(.appFont(size: 14, weight: .medium)).controlSize(.large).padding(.top, PisyaDesign.Spacing.section).padding(.bottom, PisyaDesign.Spacing.section)
+            }.actionControls().font(PisyaDesign.Typography.detailMedium).controlSize(.large).padding(.top, PisyaDesign.Spacing.section).padding(.bottom, PisyaDesign.Spacing.section)
             if !meeting.speakers.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: PisyaDesign.Spacing.related) {
@@ -120,35 +120,30 @@ struct MeetingView: View {
                     }
                 }.background(HorizontalWheelScroll()).padding(.bottom, PisyaDesign.Spacing.section)
             }
-            HStack { screenText("РАСШИФРОВКА").tracking(1.5); Spacer(); screenText(fragmentCount(meeting.segments.count)) }.font(.appFont(size: 12, weight: .medium)).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
-                TextField("Поиск внутри записи", text: $transcriptSearch).textFieldStyle(.plain).focused($focusedField, equals: .search)
-                if !transcriptSearch.isEmpty { Button { transcriptSearch = "" } label: { Image(systemName: "xmark.circle.fill") }.shapeAwarePlainButton(Circle()) }
-            }.font(.appFont(size: 14)).padding(.horizontal, 12).padding(.vertical, 10)
-                .background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+            HStack(spacing: PisyaDesign.Spacing.inline) { screenText("РАСШИФРОВКА").tracking(PisyaDesign.Typography.overlineTracking); Spacer(); screenText(fragmentCount(meeting.segments.count)) }.font(PisyaDesign.Typography.footnoteMedium).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
+            SearchField(title: "Поиск внутри записи", text: $transcriptSearch).focused($focusedField, equals: .search)
                 .padding(.bottom, PisyaDesign.Spacing.related).disabled(meeting.segments.isEmpty || state.recordingMeetingID == meeting.id)
             Divider()
             if state.recordingMeetingID == meeting.id && state.processingID == meeting.id {
-                HStack {
+                HStack(spacing: PisyaDesign.Spacing.inline) {
                     screenText(state.liveStatus).foregroundStyle(Color.mutedInk)
                     Spacer()
                     screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") { state.toggleLivePause() }.actionButton(size: .small)
-                }.font(.appFont(size: 13)).padding(.vertical, PisyaDesign.Spacing.content)
+                }.font(PisyaDesign.Typography.caption).padding(.vertical, PisyaDesign.Spacing.content)
             } else if state.processingID == meeting.id && !state.liveStatus.isEmpty {
-                HStack { screenText(state.liveStatus); Spacer(); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.font(.appFont(size: 13)).padding(.vertical, PisyaDesign.Spacing.content)
+                HStack(spacing: PisyaDesign.Spacing.inline) { screenText(state.liveStatus); Spacer(); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.font(PisyaDesign.Typography.caption).padding(.vertical, PisyaDesign.Spacing.content)
             } else if state.processingID == meeting.id {
-                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { screenText(state.phase).font(.appFont(size: 13)); ProgressView(value: state.progress); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.padding(.vertical, PisyaDesign.Spacing.section)
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { screenText(state.phase).font(PisyaDesign.Typography.caption); ProgressView(value: state.progress); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.padding(.vertical, PisyaDesign.Spacing.section)
             }
             if meeting.status == .failed && meeting.liveCommittedUntil != nil && !meeting.segments.isEmpty && !state.recording {
-                HStack { screenText("Расшифровка не завершена").foregroundStyle(Color.mutedInk); Spacer(); screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small) }.font(.appFont(size: 13)).padding(.vertical, PisyaDesign.Spacing.content)
+                HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Расшифровка не завершена").foregroundStyle(Color.mutedInk); Spacer(); screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small) }.font(PisyaDesign.Typography.caption).padding(.vertical, PisyaDesign.Spacing.content)
             }
             if meeting.segments.isEmpty {
                 VStack(spacing: PisyaDesign.Spacing.section) {
                     Spacer()
-                    if state.recordingMeetingID != meeting.id { Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform").font(.appFont(size: 34, weight: .light)).foregroundStyle(Color.moss) }
-                    screenText(state.recordingMeetingID == meeting.id ? (state.processingID == meeting.id ? "Здесь появится черновик" : "Расшифровка появится после записи") : meeting.status == .processing ? "Слушаю и превращаю в текст" : meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено").font(.appFont(size: 21, weight: .medium))
-                    if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error).font(.appFont(size: 12)).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
+                    if state.recordingMeetingID != meeting.id { Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform").font(PisyaDesign.Typography.Icon.emptyState).foregroundStyle(Color.moss) }
+                    screenText(state.recordingMeetingID == meeting.id ? (state.processingID == meeting.id ? "Здесь появится черновик" : "Расшифровка появится после записи") : meeting.status == .processing ? "Слушаю и превращаю в текст" : meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено").font(PisyaDesign.Typography.dialogTitle)
+                    if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error).font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
                     if !state.recording && meeting.status != .processing && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
                     Spacer()
                 }.frame(maxWidth: .infinity)
@@ -157,18 +152,18 @@ struct MeetingView: View {
                     LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         ForEach(meeting.segments.filter { transcriptSearch.isEmpty || !transcriptSearchRanges(in: typographicText($0.text), query: transcriptSearch).isEmpty || !transcriptSearchRanges(in: typographicText($0.speaker), query: transcriptSearch).isEmpty }) { segment in
                             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
-                                Button { state.play(segment, in: meeting) } label: { VStack(spacing: PisyaDesign.Spacing.inline) { screenText(timecode(segment.start)).font(.appFont(size: 13)); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").font(.appFont(size: 12)) }.frame(width: 56, alignment: .leading).padding(.top, 3) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.demo || state.recording || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
+                                Button { state.play(segment, in: meeting) } label: { VStack(spacing: PisyaDesign.Spacing.inline) { screenText(timecode(segment.start)).font(PisyaDesign.Typography.caption); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").font(PisyaDesign.Typography.footnote) }.frame(width: 56, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.demo || state.recording || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
                                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                                    screenText(segment.speaker, highlighting: transcriptSearch).font(.appFont(size: 14, weight: .semibold)).foregroundStyle(segment.isMicrophoneSpeaker ? Color.moss : Color.ink)
-                                    screenText(segment.text, highlighting: transcriptSearch).font(.appFont(size: 16)).lineSpacing(PisyaDesign.Spacing.textLine).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                    screenText(segment.speaker, highlighting: transcriptSearch).font(PisyaDesign.Typography.detailStrong).foregroundStyle(segment.isMicrophoneSpeaker ? Color.moss : Color.ink)
+                                    screenText(segment.text, highlighting: transcriptSearch).font(PisyaDesign.Typography.body).lineSpacing(PisyaDesign.Spacing.textLine).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                Button { editing = segment } label: { Image(systemName: "pencil").font(.appFont(size: 14)) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.recordingMeetingID == meeting.id || state.processingID == meeting.id).screenHelp("Исправить реплику")
+                                Button { editing = segment } label: { Image(systemName: "pencil").font(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.recordingMeetingID == meeting.id || state.processingID == meeting.id).screenHelp("Исправить реплику")
                             }
                         }
                     }.padding(.vertical, PisyaDesign.Spacing.section).padding(.trailing, PisyaDesign.Spacing.related)
                 }
             }
-            HStack { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.font(.appFont(size: 12)).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
+            HStack(spacing: PisyaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
         }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.top, PisyaDesign.Spacing.page)
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
@@ -229,15 +224,13 @@ private struct SegmentEditor: View {
     @Environment(\.dismiss) var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-            SectionHeading("Исправить реплику", size: 20)
+            SectionHeading("Исправить реплику", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                 TextField("Участник", text: $segment.speaker).textFieldStyle(PisyaTextFieldStyle())
-                TextEditor(text: $segment.text).font(.appFont(size: 15)).frame(height: 180)
-                    .scrollContentBackground(.hidden).padding(PisyaDesign.Spacing.related)
-                    .background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                FormTextEditor(text: $segment.text)
             }
             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Отмена") { dismiss() }.actionButton(); Spacer(); screenButton("Сохранить") { save(segment) }.actionButton(.primary) }
-        }.font(.appFont(size: 15)).actionControls().padding(PisyaDesign.Spacing.sheetInset).frame(width: 520).popupCanvas()
+        }.dialogContent().frame(width: 520)
     }
 }
 
@@ -249,9 +242,9 @@ private struct RecordingWaveformView: View {
         VStack(spacing: PisyaDesign.Spacing.content) {
             HStack(spacing: PisyaDesign.Spacing.inline) {
                 Circle().fill(Color.red).frame(width: 7, height: 7)
-                screenText("Идёт запись").font(.appFont(size: 16, weight: .semibold))
+                screenText("Идёт запись").font(PisyaDesign.Typography.bodyStrong)
                 Spacer()
-                if let started { screenText(started, style: .timer).font(.appFont(size: 16)).monospacedDigit() }
+                if let started { screenText(started, style: .timer).font(PisyaDesign.Typography.body).monospacedDigit() }
             }
             lane("Микрофон", icon: "mic", track: monitor.microphone, color: .moss)
             lane("Системный звук", icon: "speaker.wave.2", track: monitor.system, color: Color(white: 0.48))
@@ -263,8 +256,8 @@ private struct RecordingWaveformView: View {
         let status = !fresh && !waiting ? "Нет новых данных" : ""
         return HStack(spacing: PisyaDesign.Spacing.content) {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                screenLabel(title, systemImage: icon).font(.appFont(size: 14, weight: .medium))
-                if !status.isEmpty { screenText(status).font(.appFont(size: 12)).foregroundStyle(Color.orange) }
+                screenLabel(title, systemImage: icon).font(PisyaDesign.Typography.detailMedium)
+                if !status.isEmpty { screenText(status).font(PisyaDesign.Typography.footnote).foregroundStyle(Color.orange) }
             }.frame(width: 190, alignment: .leading)
             TimelineView(.animation(minimumInterval: 1.0 / 60)) { timeline in
                 Canvas { context, size in
@@ -280,8 +273,8 @@ private struct RecordingWaveformView: View {
                 }
             }.frame(height: 64).clipped().accessibilityHidden(true)
             VStack(alignment: .trailing, spacing: PisyaDesign.Spacing.inline) {
-                screenText(timecode(track.seconds)).font(.appFont(size: 12)).monospacedDigit()
-                screenText("записано").font(.appFont(size: 12)).foregroundStyle(Color.mutedInk)
+                screenText(timecode(track.seconds)).font(PisyaDesign.Typography.footnote).monospacedDigit()
+                screenText("записано").font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk)
             }.frame(width: 66, alignment: .trailing)
         }.accessibilityElement(children: .ignore)
             .accessibilityLabel("\(title). \(status). Записано \(timecode(track.seconds))")

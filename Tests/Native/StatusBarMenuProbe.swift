@@ -18,7 +18,6 @@ final class AppState: ObservableObject {
 }
 
 enum BrandMark { static var menuIcon: NSImage { NSImage(size: NSSize(width: 16, height: 16)) } }
-enum AppTypography { static func counterFont(size: CGFloat) -> NSFont { .monospacedDigitSystemFont(ofSize: size, weight: .regular) } }
 enum PisyaDesign {
     enum Spacing {
         static let inline: CGFloat = 8

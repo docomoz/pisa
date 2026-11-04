@@ -17,6 +17,7 @@
 		15FF888174A02B8AE8D9924D /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B278DF62917E67995A9B0B57 /* ModelInstaller.swift */; };
 		1A96AB0329240BCF185CE120 /* EchoDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D6274BB0F524455208FA32 /* EchoDiagnostics.swift */; };
 		1B923B1F1AEA6015D2D5C482 /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E01BFA0522999304AB49C2 /* Appearance.swift */; };
+		1EB3CB67E4A82CF80EA3EFEC /* DesignComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D9A6D4429E9E71D9335F19 /* DesignComponents.swift */; };
 		24FC614084878FC2F9729297 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04715BFB01C5131C9A26F890 /* Models.swift */; };
 		31B3EA58BE206A9B53E81D2F /* EchoAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */; };
 		31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4FF1C5BBACF2D807BA97CDB /* PisyaApp.swift */; };
@@ -113,6 +114,7 @@
 		28B8C8390CB5ED142F254257 /* AudioDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDiagnostics.swift; sourceTree = "<group>"; };
 		2E3383FB572B040008A8A958 /* AudioTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTimeline.swift; sourceTree = "<group>"; };
 		30E01BFA0522999304AB49C2 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
+		32D9A6D4429E9E71D9335F19 /* DesignComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignComponents.swift; sourceTree = "<group>"; };
 		339D6D5ECB7F949EB1BF8872 /* EchoReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoReference.swift; sourceTree = "<group>"; };
 		3D39C911B36F059AE59708CE /* MCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCP.swift; sourceTree = "<group>"; };
 		3D56408874268B60F82531DF /* libsherpa-onnx-c-api.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "libsherpa-onnx-c-api.dylib"; path = "Vendor/Sherpa/lib/libsherpa-onnx-c-api.dylib"; sourceTree = "<group>"; };
@@ -220,6 +222,7 @@
 				F6BAEB36AD45E0E5879222A8 /* BrandMark.swift */,
 				1FCB04E139346C9651C66548 /* BrandMoodView.swift */,
 				E15F1BA27798D440B4BD55F1 /* CaptureWindow.swift */,
+				32D9A6D4429E9E71D9335F19 /* DesignComponents.swift */,
 				005ECAE683EDCF4151EFF500 /* EchoAlignment.swift */,
 				1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */,
 				F7D6274BB0F524455208FA32 /* EchoDiagnostics.swift */,
@@ -333,6 +336,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 763ECBC1D46B1D46FA85215A /* Build configuration list for PBXNativeTarget "Pisya" */;
 			buildPhases = (
+				8C4C867B54CE8638E15AAF07 /* Check design tokens */,
 				BBE442B4932F745B6AEAD026 /* Sources */,
 				17EAEE2EFF4B29ADCD5A8211 /* Resources */,
 				7714DB50A6CFB029B98CCC66 /* Frameworks */,
@@ -406,6 +410,28 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		8C4C867B54CE8638E15AAF07 /* Check design tokens */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Check design tokens";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "python3 \"$SRCROOT/scripts/check-design-system.py\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		7FAD433DDFE9F9F6CFBADE8D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -442,6 +468,7 @@
 				C9778B81F97258A3D7A7A345 /* BrandMark.swift in Sources */,
 				00DDF9E8A1C7D681850E38AF /* BrandMoodView.swift in Sources */,
 				FE488DEAE26E87E51EC22C24 /* CaptureWindow.swift in Sources */,
+				1EB3CB67E4A82CF80EA3EFEC /* DesignComponents.swift in Sources */,
 				BFC8DE1BE80F21C3BE8E16DB /* EchoAlignment.swift in Sources */,
 				31B3EA58BE206A9B53E81D2F /* EchoAnalysis.swift in Sources */,
 				7F3A0421A4FFF0C988B70958 /* EchoDetector.swift in Sources */,

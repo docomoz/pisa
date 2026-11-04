@@ -10,12 +10,8 @@ struct LibrarySidebar: View {
     @FocusState private var recordingsFocused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
-            HStack(spacing: PisyaDesign.Spacing.inline) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
-                TextField("Название, текст, участник", text: $state.search).textFieldStyle(.plain)
-                if !state.search.isEmpty { Button { state.search = "" } label: { Image(systemName: "xmark.circle.fill") }.shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск") }
-            }.font(.appFont(size: 12)).padding(PisyaDesign.Spacing.related).plainSurface(radius: 12)
-            ScrollView { VStack(spacing: 2) {
+            SearchField(title: "Название, текст, участник", text: $state.search, compact: true)
+            ScrollView { VStack(spacing: PisyaDesign.Spacing.hairline) {
                 scope("Все записи", icon: "tray", selected: !state.showingTrash && state.folderFilter == nil && !state.unfiledOnly) { state.openFolder() }
                 scope("Без папки", icon: "doc", selected: state.unfiledOnly && !state.showingTrash) { state.openFolder(unfiled: true) }
                 ForEach(state.folders) { folder in
@@ -26,17 +22,17 @@ struct LibrarySidebar: View {
                         }
                 }
                 scope("Новая папка", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
-                    .plainSurface(radius: 9).disabled(state.demo)
+                    .plainSurface(radius: PisyaDesign.Metrics.navigationRadius).disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
                     .contextMenu { screenButton("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
-            }.font(.appFont(size: 12)) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
-            HStack { screenText(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО").tracking(1.3); Spacer(); screenText("\(state.filtered.count)") }.font(.appFont(size: 10, weight: .semibold)).foregroundStyle(Color.mutedInk)
+            }.font(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
+            HStack(spacing: PisyaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.font(PisyaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
             ScrollViewReader { proxy in
               ScrollView {
-              LazyVStack(spacing: 4) {
+              LazyVStack(spacing: PisyaDesign.Spacing.compact) {
                 ForEach(state.filtered) { meeting in
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                        screenText(meeting.title).font(.appFont(size: 13, weight: meeting.hasAutomaticTitle ? .regular : .medium)).lineLimit(1).truncationMode(.tail).screenHelp(meeting.title)
+                        screenText(meeting.title).font(meeting.hasAutomaticTitle ? PisyaDesign.Typography.caption : PisyaDesign.Typography.captionMedium).lineLimit(1).truncationMode(.tail).screenHelp(meeting.title)
                         HStack(spacing: PisyaDesign.Spacing.inline) {
                             if !meeting.hasAutomaticTitle {
                                 screenText(meetingDateLabel(meeting.date)).lineLimit(1).truncationMode(.middle).layoutPriority(1).screenHelp(meetingDateLabel(meeting.date))
@@ -45,7 +41,7 @@ struct LibrarySidebar: View {
                             if state.recordingMeetingID == meeting.id, let started = state.recordingStarted {
                                 Circle().fill(.red).frame(width: 6, height: 6).accessibilityHidden(true)
                                 screenText("Идёт запись").foregroundStyle(Color(red: 0.67, green: 0.20, blue: 0.19))
-                                RecordingElapsed(started: started, size: 11)
+                                RecordingElapsed(started: started)
                             } else { screenText(timecode(meeting.duration)).monospacedDigit().fixedSize() }
                             if let folder = state.folders.first(where: { $0.id == meeting.folderID }) {
                                 screenText("·")
@@ -54,7 +50,7 @@ struct LibrarySidebar: View {
                             }
                             Spacer(minLength: 0)
                             if meeting.status == .processing { ProgressView().controlSize(.mini) }
-                        }.font(.appFont(size: 11)).foregroundStyle(Color.mutedInk).lineLimit(1)
+                        }.font(PisyaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
 
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
                         .plainSelection(state.selection == meeting.id)
@@ -72,7 +68,7 @@ struct LibrarySidebar: View {
                     let next = min(rows.count - 1, max(0, index + (direction == .down ? 1 : -1)))
                     state.select(rows[next].id); proxy.scrollTo(rows[next].id)
                 }
-                .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").font(.appFont(size: 12)).foregroundStyle(Color.mutedInk) } }
+                .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
             }
         }.padding(.horizontal, PisyaDesign.Spacing.content).padding(.top, PisyaDesign.Spacing.content).padding(.bottom, PisyaDesign.Spacing.content).background(Color.sidebarTint)
         .confirmationDialog(typographicText("Очистить корзину? Все записи и их аудио будут удалены без возможности восстановления"), isPresented: $confirmEmptyTrash) {
@@ -93,7 +89,7 @@ struct LibrarySidebar: View {
         }
     }
     private func scope(_ name: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(PisyaDesign.Spacing.inline).plainSelection(selected, radius: 9).contentShape(Rectangle()) }.shapeAwarePlainButton()
+        Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(PisyaDesign.Spacing.inline).plainSelection(selected, radius: PisyaDesign.Metrics.navigationRadius).contentShape(Rectangle()) }.shapeAwarePlainButton()
     }
 }
 struct MeetingActions: View {
@@ -133,12 +129,12 @@ struct NameEditor: View {
     @FocusState private var focused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-            SectionHeading(title, size: 20)
+            SectionHeading(title, style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                 TextField("Название", text: $name).textFieldStyle(PisyaTextFieldStyle()).focused($focused).onSubmit { submit() }
             }
             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction); Spacer(); screenButton("Сохранить") { submit() }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-        }.font(.appFont(size: 15)).actionControls().padding(PisyaDesign.Spacing.sheetInset).frame(width: 420).popupCanvas().onAppear { name = initial; focused = true }
+        }.dialogContent().frame(width: 420).onAppear { name = initial; focused = true }
     }
     private func submit() { guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; save(name); dismiss() }
 }
@@ -164,19 +160,19 @@ private struct FolderEditor: View {
     ]
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-            SectionHeading(folder == nil ? "Новая папка" : "Изменить папку", size: 22)
+            SectionHeading(folder == nil ? "Новая папка" : "Изменить папку", style: .dialog)
             HStack(spacing: PisyaDesign.Spacing.related) {
-                Image(systemName: symbol).font(.appFont(size: 18)).foregroundStyle(Color.ink).frame(width: 32, height: 32)
+                Image(systemName: symbol).font(PisyaDesign.Typography.Icon.medium).foregroundStyle(Color.ink).frame(width: 32, height: 32)
                 TextField("Название папки", text: $name).textFieldStyle(PisyaTextFieldStyle()).focused($nameFocused).onSubmit { submit() }
             }
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-            screenText("Иконка папки").font(.appFont(size: 14, weight: .medium)).foregroundStyle(Color.mutedInk)
+            screenText("Иконка папки").font(PisyaDesign.Typography.detailMedium).foregroundStyle(Color.mutedInk)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(32), spacing: PisyaDesign.Spacing.inline), count: 8), spacing: PisyaDesign.Spacing.inline) {
                 ForEach(icons, id: \.0) { item in
                     Button { symbol = item.0 } label: {
-                        Image(systemName: item.0).font(.appFont(size: 14, weight: .regular)).symbolRenderingMode(.monochrome)
+                        Image(systemName: item.0).font(PisyaDesign.Typography.detail).symbolRenderingMode(.monochrome)
                             .frame(width: 32, height: 32)
-                            .background(symbol == item.0 ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: 8))
+                            .background(symbol == item.0 ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                             .contentShape(Rectangle())
                     }.shapeAwarePlainButton().frame(width: 32, height: 32).foregroundStyle(Color.ink).screenHelp(item.1).accessibilityLabel(item.1)
                         .accessibilityAddTraits(symbol == item.0 ? .isSelected : [])
@@ -189,7 +185,7 @@ private struct FolderEditor: View {
                 screenButton(folder == nil ? "Создать папку" : "Сохранить") { submit() }
                     .actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.font(.appFont(size: 15)).controlSize(.large).padding(PisyaDesign.Spacing.sheetInset).frame(width: 384).actionControls().popupCanvas()
+        }.dialogContent().frame(width: 384)
             .onAppear { name = folder?.name ?? ""; symbol = folder?.iconName ?? "folder"; nameFocused = true }
     }
     private func submit() {

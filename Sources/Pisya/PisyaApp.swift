@@ -38,7 +38,7 @@ struct PisyaApp: App {
                     paragraph.alignment = .center; paragraph.paragraphSpacing = PisyaDesign.Spacing.inline
                     let credits = "Максим Берёзкин\nmaxim@berezkin.ru\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
                     let attributedCredits = NSMutableAttributedString(string: credits, attributes: [
-                        .font: NSFont.systemFont(ofSize: 14),
+                        .font: AppTypography.credits,
                         .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
                     ])
                     attributedCredits.addAttributes([
@@ -69,11 +69,10 @@ private struct MainWindowConnection: View {
 
 struct RecordingElapsed: View {
     let started: Date
-    var size: CGFloat = 13
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { clock in
-            screenText(recordingTimecode(clock.date.timeIntervalSince(started))).font(.system(size: size, design: .monospaced))
-        }.frame(width: size <= 11 ? 58 : 72, height: size <= 11 ? 15 : 20, alignment: .leading)
+            screenText(recordingTimecode(clock.date.timeIntervalSince(started))).font(PisyaDesign.Typography.elapsed)
+        }.frame(width: PisyaDesign.Metrics.elapsedWidth, height: PisyaDesign.Metrics.elapsedHeight, alignment: .leading)
     }
 }
 @MainActor
