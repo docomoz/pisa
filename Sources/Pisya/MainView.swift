@@ -33,7 +33,7 @@ struct MainView: View {
             HStack(spacing: PisyaDesign.Spacing.inline) {
                 Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
                 BrandMoodView()
-            }.accessibilityElement(children: .combine)
+            }.accessibilityElement(children: .combine).layoutPriority(-1)
             Spacer()
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Button { state.showingSettings = true } label: {
@@ -47,7 +47,7 @@ struct MainView: View {
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 }.actionButton(.recording)
                     .disabled(state.starting || state.demo)
-            }.controlSize(.large)
+            }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
 
         }.padding(.horizontal, PisyaDesign.Spacing.page).frame(height: 76)
     }
