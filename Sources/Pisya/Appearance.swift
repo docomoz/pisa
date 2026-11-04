@@ -31,6 +31,7 @@ enum PisyaDesign {
         static let smallPadding: CGFloat = 12
     }
     enum Spacing {
+        static let textLine: CGFloat = 7
         static let inline: CGFloat = 8
         static let related: CGFloat = 12
         static let content: CGFloat = 16

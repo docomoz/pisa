@@ -74,7 +74,7 @@ struct SettingsView: View {
                         }
 
                     }
-                }.padding(.vertical, 4)
+                }.lineSpacing(PisyaDesign.Spacing.textLine).padding(.vertical, 4)
             }
             HStack { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
         }.actionControls().font(.appFont(size: 16)).controlSize(.large).padding(PisyaDesign.Spacing.sheetInset).frame(width: 900, height: 700).popupCanvas()

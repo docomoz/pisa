@@ -160,7 +160,7 @@ struct MeetingView: View {
                                 Button { state.play(segment, in: meeting) } label: { VStack(spacing: PisyaDesign.Spacing.inline) { screenText(timecode(segment.start)).font(.appFont(size: 13)); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").font(.appFont(size: 12)) }.frame(width: 56, alignment: .leading).padding(.top, 3) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.demo || state.recording || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
                                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                     screenText(segment.speaker, highlighting: transcriptSearch).font(.appFont(size: 14, weight: .semibold)).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
-                                    screenText(segment.text, highlighting: transcriptSearch).font(.appFont(size: 16)).lineSpacing(7).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                    screenText(segment.text, highlighting: transcriptSearch).font(.appFont(size: 16)).lineSpacing(PisyaDesign.Spacing.textLine).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 Button { editing = segment } label: { Image(systemName: "pencil").font(.appFont(size: 14)) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.recordingMeetingID == meeting.id || state.processingID == meeting.id).screenHelp("Исправить реплику")
                             }
