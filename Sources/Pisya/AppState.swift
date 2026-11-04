@@ -518,12 +518,25 @@ final class AppState: ObservableObject {
             playbackEnd = player?.duration ?? 0; player?.play(); playingSegmentID = example.id; schedulePlaybackStop()
         } catch { message = "Образец голоса недоступен" }
     }
+    func voiceSample(for segmentID: UUID, in meeting: Meeting, allMatching: Bool) -> TranscriptSegment? {
+        var durations: [String: Double] = [:]
+        for filename in meeting.audioFiles {
+            guard let url = try? library.audioURL(filename), let file = try? AVAudioFile(forReading: url) else { continue }
+            durations[filename] = Double(file.length) / file.processingFormat.sampleRate
+        }
+        return automaticVoiceSample(for: segmentID, in: meeting, allMatching: allMatching, audioDurations: durations)
+    }
     func assignVoice(meetingID: UUID, segmentID: UUID, name: String, allMatching: Bool, remember: Bool) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, var m = meetings.first(where: { $0.id == meetingID }), canModify(m),
               let sample = m.segments.first(where: { $0.id == segmentID }) else { return }
         if remember {
-            do { try storeVoiceSample(sample, name: clean, meeting: m) }
+            do {
+                guard let automatic = voiceSample(for: sample.id, in: m, allMatching: allMatching) else {
+                    throw PisyaError.message("Не найден подходящий образец голоса от 2 секунд без отмеченных наложений. Можно применить имя без запоминания голоса")
+                }
+                try storeVoiceSample(automatic, name: clean, meeting: m)
+            }
             catch { message = "Имя не сохранено: \(error.localizedDescription)"; return }
         }
         for index in m.segments.indices where m.segments[index].id == segmentID || (allMatching && m.segments[index].speaker == sample.speaker) {

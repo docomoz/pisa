@@ -146,7 +146,32 @@ enum Launcher {
                     state.deleteAudio(state.meetings[0])
                     try check(FileManager.default.fileExists(atPath: clipURL.path), "Voice example removed with meeting audio")
                     try check(try state.library.voices().contains { $0.name == "Corrected" }, "Voice profile not persisted")
-                    print("LIBRARY_SELF_TEST_OK voice_clip correction source_track folders trash restore echo_reference")
+                    var automaticMeeting = Meeting(title: "Automatic sample", source: "Synthetic")
+                    automaticMeeting.status = .ready
+                    let automaticFile = "automatic-remote.caf"
+                    let longBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 192000)!
+                    longBuffer.frameLength = 192000
+                    for i in 0..<192000 { longBuffer.floatChannelData![0][i] = Float(i) / 192000 * 0.2 }
+                    do { let file = try AVAudioFile(forWriting: state.library.audioURL(automaticFile), settings: format.settings); try file.write(from: longBuffer); file.close() }
+                    automaticMeeting.audioFiles = [automaticFile]; automaticMeeting.audioOffsets = [automaticFile: 10]
+                    let short = TranscriptSegment(start: 10, end: 11, speaker: "Участник", text: "Да")
+                    var long = TranscriptSegment(start: 10, end: 22, speaker: "Участник", text: "Длинный образец для автоматического выбора")
+                    long.embedding = [0, 1]; automaticMeeting.segments = [short, long]; state.update(automaticMeeting)
+                    state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Automatic", allMatching: true, remember: true)
+                    guard let automaticExample = state.voiceProfiles.first(where: { $0.name == "Automatic" })?.examples?.last else { throw PisyaError.message("Automatic sample was not saved from another reply") }
+                    try check(automaticExample.segmentID == long.id, "Saved the clicked reply instead of the automatic sample")
+                    let automaticClip = try AVAudioFile(forReading: root.appendingPathComponent("VoiceSamples").appendingPathComponent(automaticExample.file))
+                    try check(automaticClip.length == 128000, "Automatic sample must contain eight seconds")
+                    let automaticPCM = try PCMRead.exact(automaticClip, frames: 128000)
+                    try check(abs(automaticPCM.floatChannelData![0][0] - Float(32000) / 192000 * 0.2) < 0.00001, "Automatic clip ignored its centered range or track offset")
+                    state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Must not save", allMatching: false, remember: true)
+                    try check(state.meetings.first { $0.id == automaticMeeting.id }?.segments.first?.speaker == "Automatic", "Missing sample partially changed the speaker")
+                    try check(!state.voiceProfiles.contains { $0.name == "Must not save" }, "Single-reply correction learned another reply")
+                    state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Only this reply", allMatching: false, remember: false)
+                    let renamed = state.meetings.first { $0.id == automaticMeeting.id }!
+                    try check(renamed.segments.map(\.speaker) == ["Only this reply", "Automatic"], "Naming without a usable sample failed")
+                    try check(try state.library.voices().contains { $0.name == "Automatic" }, "Automatic voice was not persisted")
+                    print("LIBRARY_SELF_TEST_OK voice_clip correction source_track folders trash restore echo_reference automatic_sample centered_clip track_offset single_reply")
                     exit(0)
                 } catch { print("LIBRARY_SELF_TEST_FAILED \(error.localizedDescription)"); exit(1) }
             }

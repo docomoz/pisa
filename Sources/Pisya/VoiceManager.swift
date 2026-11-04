@@ -10,6 +10,10 @@ struct VoiceManager: View {
     @State private var remember = true
     private var meeting: Meeting? { state.meetings.first { $0.id == meetingID } }
     private var sample: TranscriptSegment? { meeting?.segments.first { $0.id == selected } }
+    private var automaticSample: TranscriptSegment? {
+        guard let meeting, let selected else { return nil }
+        return state.voiceSample(for: selected, in: meeting, allMatching: allMatching)
+    }
     private func select(_ segment: TranscriptSegment) {
         name = voiceNameForSelection(currentID: selected, currentName: name, segment: segment)
         selected = segment.id
@@ -40,15 +44,23 @@ struct VoiceManager: View {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                     SectionHeading("Кто говорит?")
                     if let sample {
+                        let automaticSample = automaticSample
                         screenText("Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»").font(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk)
                         TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle())
                         screenMenu("Выбрать сохранённое имя") { ForEach(state.voiceProfiles) { profile in screenButton(profile.name) { name = profile.name } } }.actionButton()
                         screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
                         screenToggle("Запомнить голос для будущих встреч", isOn: $remember)
-                            .disabled(sample.embedding == nil || sample.end - sample.start < 2 || meeting?.audioFiles.isEmpty == true)
-                        screenText("Сохраняется выбранный образец до 8 секунд и голосовой слепок. Они останутся после удаления аудио встречи. Выбирайте речь одного человека без наложений.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                            .disabled(automaticSample == nil)
+                        if let automaticSample, remember, let meeting {
+                            screenButton("Послушать образец · \(timecode(automaticSample.start))–\(timecode(automaticSample.end))") {
+                                state.preview(automaticSample, in: meeting)
+                            }.actionButton().disabled(state.recording || state.demo)
+                            screenText("Образец до 8 секунд выбирается автоматически, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                        } else if automaticSample == nil {
+                            screenText("Нет подходящего образца от 2 секунд с голосовым слепком и доступным аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                        }
                         screenButton("Применить имя") {
-                            state.assignVoice(meetingID: meetingID, segmentID: sample.id, name: name, allMatching: allMatching, remember: remember && sample.embedding != nil && sample.end - sample.start >= 2 && meeting?.audioFiles.isEmpty == false)
+                            state.assignVoice(meetingID: meetingID, segmentID: sample.id, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
                         }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     Divider()
