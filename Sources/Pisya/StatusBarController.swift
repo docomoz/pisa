@@ -69,7 +69,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        // AppKit clears its selection after a control click even if the pointer
+        // has not left that row. Keep hover, but let another selected item win.
         automaticControl.menuHighlighted = item === automaticAction
+            || (item == nil && automaticControl.containsMouse)
     }
     func menuDidClose(_ menu: NSMenu) {
         automaticControl.menuHighlighted = false
@@ -114,8 +117,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 private final class PersistentMenuToggle: NSButton {
     private let label: NSTextField
     private let checkbox = MenuCheckboxIndicator()
+    private var hoverTrackingArea: NSTrackingArea?
     var menuHighlighted = false {
         didSet { if oldValue != menuHighlighted { needsDisplay = true } }
+    }
+    var containsMouse: Bool {
+        guard let window else { return false }
+        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     override var state: NSControl.StateValue {
@@ -159,6 +167,20 @@ private final class PersistentMenuToggle: NSButton {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         super.hitTest(point) == nil ? nil : self
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        // After a click, AppKit may already have no selected item to clear.
+        menuHighlighted = false
     }
 
     override func draw(_ dirtyRect: NSRect) {

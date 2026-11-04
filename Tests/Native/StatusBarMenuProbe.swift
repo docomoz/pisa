@@ -30,6 +30,11 @@ enum PisyaDesign {
 }
 func recordingTimecode(_ elapsed: TimeInterval) -> String { "00:01" }
 
+private final class MenuProbeWindow: NSWindow {
+    var pointerLocation = NSPoint(x: -100, y: -100)
+    override var mouseLocationOutsideOfEventStream: NSPoint { pointerLocation }
+}
+
 @main
 enum StatusBarMenuProbe {
     @MainActor
@@ -60,13 +65,21 @@ enum StatusBarMenuProbe {
             fputs("FAIL: automatic recording must remain interactive inside the menu\n", stderr)
             exit(1)
         }
-        let window = NSWindow(contentRect: control.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        let window = MenuProbeWindow(contentRect: control.bounds, styleMask: .borderless, backing: .buffered, defer: false)
         let material = NSVisualEffectView(frame: control.bounds)
         material.material = .menu
         material.state = .active
         material.appearance = NSAppearance(named: .vibrantLight)
         window.contentView = material
         material.addSubview(control)
+        func paintedSelection() -> Bool {
+            control.layoutSubtreeIfNeeded()
+            let bitmap = control.bitmapImageRepForCachingDisplay(in: control.bounds)!
+            control.cacheDisplay(in: control.bounds, to: bitmap)
+            let scale = CGFloat(bitmap.pixelsWide) / control.bounds.width
+            let pixel = bitmap.colorAt(x: Int(PisyaDesign.Spacing.inline * scale), y: bitmap.pixelsHigh / 2)!
+            return pixel.alphaComponent > 0.9
+        }
 
         // A prior click may leave keyboard focus on the checkbox while the mouse
         // moves through other items and separators. Only the menu's current item
@@ -80,18 +93,43 @@ enum StatusBarMenuProbe {
         let originalFrame = control.frame
         for (item, expectedSelection) in transitions {
             controller.menu(menu, willHighlight: item)
-            control.layoutSubtreeIfNeeded()
-            let bitmap = control.bitmapImageRepForCachingDisplay(in: control.bounds)!
-            control.cacheDisplay(in: control.bounds, to: bitmap)
-            let scale = CGFloat(bitmap.pixelsWide) / control.bounds.width
-            let pixel = bitmap.colorAt(x: Int(PisyaDesign.Spacing.inline * scale), y: bitmap.pixelsHigh / 2)!
-            let paintedSelection = pixel.alphaComponent > 0.9
-            guard paintedSelection == expectedSelection, control.frame == originalFrame, menu.size == off else {
+            guard paintedSelection() == expectedSelection, control.frame == originalFrame, menu.size == off else {
                 fputs("FAIL: mouse selection jumps back to the focused checkbox or changes row geometry\n", stderr)
                 exit(1)
             }
         }
         controller.menuDidClose(menu)
+
+        // AppKit clears its selection after a control click. The row must remain
+        // visibly hovered while the pointer stays on it, without requiring a move.
+        window.pointerLocation = control.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
+        for enabled in [true, false] {
+            controller.menu(menu, willHighlight: automatic)
+            NSApp.sendAction(action, to: control.target, from: control)
+            controller.menu(menu, willHighlight: nil)
+            guard paintedSelection(), state.preferences.automaticRecording == enabled else {
+                fputs("FAIL: clicking with a stationary pointer removes the menu row highlight\n", stderr)
+                exit(1)
+            }
+        }
+        controller.menu(menu, willHighlight: normalItem)
+        guard !paintedSelection() else {
+            fputs("FAIL: another menu selection must take precedence over the checkbox pointer\n", stderr)
+            exit(1)
+        }
+        controller.menu(menu, willHighlight: automatic)
+        controller.menu(menu, willHighlight: nil)
+        window.pointerLocation = NSPoint(x: -100, y: -100)
+        // Once AppKit has cleared its selection, moving straight to a separator
+        // sends no further delegate callback. The row must handle pointer exit.
+        let exitEvent = NSEvent.enterExitEvent(with: .mouseExited, location: window.pointerLocation,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, trackingNumber: 0, userData: nil)!
+        control.mouseExited(with: exitEvent)
+        guard !paintedSelection() else {
+            fputs("FAIL: leaving the checkbox must clear its retained click highlight\n", stderr)
+            exit(1)
+        }
         var indicatorsVisible = true
         for expected in [true, false] {
             NSApp.sendAction(action, to: control.target, from: control)
