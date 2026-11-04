@@ -88,23 +88,33 @@ struct MenuContents: View {
                     if let started = state.recordingStarted { RecordingElapsed(started: started) }
                 }
             }
-            screenButton("Открыть Pisya") { showMain() }.shapeAwarePlainButton()
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: showMain) {
+                screenText("Открыть Pisya")
+                    .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.smallHeight, alignment: .leading)
+                    .contentShape(Rectangle())
+            }.shapeAwarePlainButton()
             Divider()
             Button {
                 Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } }
             } label: {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
-                    Image(systemName: state.recording ? "stop.circle" : "record.circle").frame(width: 16, height: 16)
                     screenText(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись")
+                    Spacer(minLength: PisyaDesign.Spacing.inline)
+                    Image(systemName: state.recording ? "stop.circle" : "record.circle")
+                        .frame(width: 16, height: 16).accessibilityHidden(true)
                 }
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.actionButton(.recording).disabled(state.starting || state.demo)
+                    .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.smallHeight, alignment: .leading)
+                    .contentShape(Rectangle())
+            }.shapeAwarePlainButton().disabled(state.starting || state.demo)
             screenToggle("Автоматический старт и стоп", isOn: Binding(get: { state.preferences.automaticRecording }, set: { state.setAutomatic($0) })).toggleStyle(MenuCheckboxStyle())
             Divider()
-            screenButton("Завершить Pisya") {
+            Button {
                 if state.recording || state.processingID != nil { state.message = "Сначала остановите запись или обработку"; showMain() }
                 else { NSApp.terminate(nil) }
+            } label: {
+                screenText("Завершить Pisya")
+                    .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.smallHeight, alignment: .leading)
+                    .contentShape(Rectangle())
             }.shapeAwarePlainButton()
         }.font(.appFont(size: 13)).buttonStyle(.plain).padding(PisyaDesign.Spacing.content).frame(width: 300).popupCanvas()
     }
@@ -114,11 +124,14 @@ private struct MenuCheckboxStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: {
             HStack(spacing: PisyaDesign.Spacing.inline) {
+                configuration.label
+                Spacer(minLength: PisyaDesign.Spacing.inline)
                 Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
                     .foregroundStyle(configuration.isOn ? Color.moss : Color.ink)
                     .frame(width: 16, height: 16)
-                configuration.label
-            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    .accessibilityHidden(true)
+            }.frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.smallHeight, alignment: .leading)
+                .contentShape(Rectangle())
         }.shapeAwarePlainButton().accessibilityValue(configuration.isOn ? "Включено" : "Выключено")
     }
 }
