@@ -24,7 +24,7 @@ struct VoiceManager: View {
                             ForEach(meeting.speakers, id: \.self) { speaker in
                                 LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                     screenText(speaker).font(.appFont(size: 16, weight: .semibold))
-                                    ForEach(meeting.segments.filter { $0.speaker == speaker }) { segment in
+                                    ForEach(voiceSamples(for: speaker, in: meeting.segments)) { segment in
                                         HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
                                             Button { select(segment); state.preview(segment, in: meeting) } label: { Image(systemName: state.playingSegmentID == segment.id ? "stop.circle.fill" : "play.circle.fill").font(.appFont(size: 22, weight: .semibold)) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(meeting.audioFiles.isEmpty || state.recording).screenHelp("Прослушать до 8 секунд")
                                             Button { select(segment) } label: {
