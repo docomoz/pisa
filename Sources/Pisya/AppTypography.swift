@@ -24,7 +24,7 @@ extension PisyaDesign {
         static let micro = Font.system(size: 11)
         static let microMedium = Font.system(size: 11, weight: .medium)
         static let overline = Font.system(size: 10, weight: .semibold)
-        static let code = Font.system(size: 15, design: .monospaced)
+        static let code = Font(NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
         static let elapsed = Font.system(size: 11, design: .monospaced)
         static let button = Font.system(size: 16, weight: .medium)
         static let smallButton = Font.system(size: 13, weight: .medium)

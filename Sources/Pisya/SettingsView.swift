@@ -51,7 +51,7 @@ struct SettingsView: View {
                     case "Экспорт":
                         columns {
                         block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
-                            if let path = state.preferences.exportDisplayPath { screenText(verbatim: path).font(PisyaDesign.Typography.body).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) } else { screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk) }
+                            if let path = state.preferences.exportDisplayPath { screenText(verbatim: path).font(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) } else { screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk) }
                             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Выбрать папку…") { state.chooseExportFolder() }.actionButton(); if state.preferences.exportBookmark != nil { screenButton("Отключить") { state.preferences.exportBookmark = nil; state.preferences.exportDisplayPath = nil; state.savePreferences() }.actionButton() } }
                             SupportingText("После расшифровки и последующих правок файл обновляется автоматически. В него входят текст, участники и временные метки. Аудио остаётся в библиотеке.")
                         }
