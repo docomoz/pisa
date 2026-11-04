@@ -107,21 +107,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 }
 
-/// A standard checkbox inside the system menu, with no independent hover selection.
+/// A persistent checkbox row whose indicator remains legible on the menu selection.
 @MainActor
 private final class PersistentMenuToggle: NSButton {
     private let label: NSTextField
-    private let checkbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let checkbox = MenuCheckboxIndicator()
 
     override var state: NSControl.StateValue {
-        didSet { checkbox.state = state }
+        didSet { needsDisplay = true }
     }
 
     init(title: String) {
         let font = NSFont.menuFont(ofSize: 0)
         label = NSTextField(labelWithString: title)
         label.font = font
-        let width = label.fittingSize.width + checkbox.fittingSize.width
+        let width = label.fittingSize.width + PisyaDesign.Spacing.content
             + PisyaDesign.Spacing.content * 2 + PisyaDesign.Spacing.related
         super.init(frame: NSRect(x: 0, y: 0, width: ceil(width), height: PisyaDesign.Spacing.section))
         self.title = title
@@ -131,10 +131,8 @@ private final class PersistentMenuToggle: NSButton {
         focusRingType = .none
         autoresizingMask = [.width]
         setAccessibilityRole(.checkBox)
-        checkbox.focusRingType = .none
-        checkbox.refusesFirstResponder = true
-        checkbox.target = self
-        checkbox.action = #selector(toggleCheckbox)
+        checkbox.imageScaling = .scaleProportionallyUpOrDown
+        checkbox.image = NSImage(systemSymbolName: "square", accessibilityDescription: nil)
         checkbox.setAccessibilityElement(false)
         label.setAccessibilityElement(false)
         for view in [label, checkbox] {
@@ -146,19 +144,16 @@ private final class PersistentMenuToggle: NSButton {
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             checkbox.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -PisyaDesign.Spacing.content),
             checkbox.centerYAnchor.constraint(equalTo: centerYAnchor),
+            checkbox.widthAnchor.constraint(equalToConstant: PisyaDesign.Spacing.content),
+            checkbox.heightAnchor.constraint(equalToConstant: PisyaDesign.Spacing.content),
             label.trailingAnchor.constraint(lessThanOrEqualTo: checkbox.leadingAnchor, constant: -PisyaDesign.Spacing.related)
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    @objc private func toggleCheckbox() {
-        if let action { NSApp.sendAction(action, to: target, from: self) }
-    }
-
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point) else { return nil }
-        return hit === checkbox ? checkbox : self
+        super.hitTest(point) == nil ? nil : self
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -182,5 +177,18 @@ private final class PersistentMenuToggle: NSButton {
             NSBezierPath(roundedRect: bounds.insetBy(dx: PisyaDesign.Spacing.inline / 2, dy: 0), xRadius: PisyaDesign.Spacing.inline / 2, yRadius: PisyaDesign.Spacing.inline / 2).fill()
         }
         label.textColor = selected ? .selectedMenuItemTextColor : .labelColor
+        let colors: [NSColor] = state == .on
+            ? (selected ? [.selectedContentBackgroundColor, .white] : [.white, .selectedContentBackgroundColor])
+            : [selected ? .white : .secondaryLabelColor]
+        let symbol = NSImage(systemSymbolName: state == .on ? "checkmark.square.fill" : "square", accessibilityDescription: nil)
+        let palette = colors.map { $0.usingColorSpace(.sRGB) ?? $0 }
+        let image = symbol?.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: palette))?.copy() as? NSImage
+        image?.isTemplate = false
+        checkbox.image = image
     }
+}
+
+/// Preserve the indicator's explicit palette instead of applying menu vibrancy.
+private final class MenuCheckboxIndicator: NSImageView {
+    override var allowsVibrancy: Bool { false }
 }

@@ -59,6 +59,14 @@ enum StatusBarMenuProbe {
             fputs("FAIL: automatic recording must remain interactive inside the menu\n", stderr)
             exit(1)
         }
+        let window = NSWindow(contentRect: control.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        let material = NSVisualEffectView(frame: control.bounds)
+        material.material = .menu
+        material.state = .active
+        material.appearance = NSAppearance(named: .vibrantLight)
+        window.contentView = material
+        material.addSubview(control)
+        var indicatorsVisible = true
         for expected in [true, false] {
             NSApp.sendAction(action, to: control.target, from: control)
             guard state.preferences.automaticRecording == expected,
@@ -66,23 +74,52 @@ enum StatusBarMenuProbe {
                 fputs("FAIL: checkbox activation must update the setting and checkmark without changing menu geometry\n", stderr)
                 exit(1)
             }
-            if let index = CommandLine.arguments.firstIndex(of: "--render"), CommandLine.arguments.indices.contains(index + 1) {
-                let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)
-                try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            for selected in [false, true] {
+                window.makeFirstResponder(selected ? control : nil)
+                control.needsDisplay = true
                 control.layoutSubtreeIfNeeded()
                 let bitmap = control.bitmapImageRepForCachingDisplay(in: control.bounds)!
                 control.cacheDisplay(in: control.bounds, to: bitmap)
-                let image = NSImage(size: control.bounds.size)
-                image.lockFocus()
-                NSColor.white.setFill()
-                control.bounds.fill()
-                let cached = NSImage(size: control.bounds.size)
-                cached.addRepresentation(bitmap)
-                cached.draw(in: control.bounds, from: .zero, operation: .sourceOver, fraction: 1)
-                image.unlockFocus()
-                let opaque = NSBitmapImageRep(data: image.tiffRepresentation!)!
-                try! opaque.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent(expected ? "automatic-on.png" : "automatic-off.png"))
+                do {
+                    let checkbox = control.subviews.first { !($0 is NSTextField) }!
+                    let rect = checkbox.convert(checkbox.bounds.insetBy(dx: 2, dy: 2), to: control)
+                    let scale = CGFloat(bitmap.pixelsWide) / control.bounds.width
+                    var visiblePixels = 0
+                    for y in Int(rect.minY * scale)..<Int(rect.maxY * scale) {
+                        for x in Int(rect.minX * scale)..<Int(rect.maxX * scale) {
+                            if let color = bitmap.colorAt(x: x, y: bitmap.pixelsHigh - y - 1)?.usingColorSpace(.sRGB) {
+                                let channel = min(color.redComponent, color.greenComponent, color.blueComponent)
+                                let visible = selected
+                                    ? color.alphaComponent > 0.9 && channel > 0.85
+                                    : channel * color.alphaComponent + 1 - color.alphaComponent < 0.75
+                                if visible { visiblePixels += 1 }
+                            }
+                        }
+                    }
+                    print("INDICATOR_VISIBLE_PIXELS on=\(expected) selected=\(selected) count=\(visiblePixels)")
+                    indicatorsVisible = indicatorsVisible && visiblePixels >= 10
+                }
+                if let index = CommandLine.arguments.firstIndex(of: "--render"), CommandLine.arguments.indices.contains(index + 1) {
+                    let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)
+                    try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    let image = NSImage(size: control.bounds.size)
+                    image.lockFocus()
+                    NSColor.white.setFill()
+                    control.bounds.fill()
+                    let cached = NSImage(size: control.bounds.size)
+                    cached.addRepresentation(bitmap)
+                    cached.draw(in: control.bounds, from: .zero, operation: .sourceOver, fraction: 1)
+                    image.unlockFocus()
+                    let opaque = NSBitmapImageRep(data: image.tiffRepresentation!)!
+                    let name = "automatic-\(expected ? "on" : "off")-\(selected ? "selected" : "normal").png"
+                    try! opaque.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent(name))
+                }
             }
+        }
+        window.makeFirstResponder(nil)
+        guard indicatorsVisible else {
+            fputs("FAIL: checkbox indicator must remain visible in every checked and selected state\n", stderr)
+            exit(1)
         }
         state.recording = true
         state.recordingStarted = Date()
