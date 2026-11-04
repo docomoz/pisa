@@ -48,11 +48,13 @@
 		760FB62906453F1C046D202D /* AudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E7D840A11300B4B35A42627 /* AudioCapture.swift */; };
 		76C8F12E768DF0333089517A /* PCMRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = 829890694CC528DAFC4CCB21 /* PCMRead.swift */; };
 		77AB76F599A7CAF35DCD2761 /* AudioPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66782C763742FA0DA6D66EB7 /* AudioPipelineTests.swift */; };
+		7933543E2A3D6A3D333944CF /* VoiceProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC2FE419AB9523F095EAE72 /* VoiceProfileTests.swift */; };
 		7BBE50B94E1CD91B09B8E242 /* MLXAudioSTT in Frameworks */ = {isa = PBXBuildFile; productRef = BB05F724ED941553089ED300 /* MLXAudioSTT */; };
 		7F2E3DB1CFC124C8EB1970A3 /* EditingFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6209E71D097B66F41ED17ECE /* EditingFocus.swift */; };
 		7F3A0421A4FFF0C988B70958 /* EchoDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6585D6825AB0F029B1B85B64 /* EchoDetector.swift */; };
 		866AC88D6DE7932CFDB566F6 /* MCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D39C911B36F059AE59708CE /* MCP.swift */; };
 		89C70A687B730E608D191530 /* models.json in Resources */ = {isa = PBXBuildFile; fileRef = 02CE9090C01C5E36995452C8 /* models.json */; };
+		8BCC3A9C1558ECDF652ABFF0 /* SavedVoicesSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE0BDE0998CADB5C051301D /* SavedVoicesSettings.swift */; };
 		8DF05F7404B6BA355E8B9CA6 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = 6FC7F640D1CAE370E4E83486 /* MLXAudioCore */; };
 		8E4EF95AD5D77069EEEC1B34 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44679205B2926073F8B63DF5 /* MainView.swift */; };
 		97F0683AA62AD156246FD303 /* libsherpa-onnx-c-api.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 3D56408874268B60F82531DF /* libsherpa-onnx-c-api.dylib */; };
@@ -118,6 +120,7 @@
 		339D6D5ECB7F949EB1BF8872 /* EchoReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoReference.swift; sourceTree = "<group>"; };
 		3D39C911B36F059AE59708CE /* MCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCP.swift; sourceTree = "<group>"; };
 		3D56408874268B60F82531DF /* libsherpa-onnx-c-api.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "libsherpa-onnx-c-api.dylib"; path = "Vendor/Sherpa/lib/libsherpa-onnx-c-api.dylib"; sourceTree = "<group>"; };
+		3EE0BDE0998CADB5C051301D /* SavedVoicesSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedVoicesSettings.swift; sourceTree = "<group>"; };
 		43F02F43645CD740786B0DC2 /* EchoRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoRegressionTests.swift; sourceTree = "<group>"; };
 		44679205B2926073F8B63DF5 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		4A42438A746594B86FB1F148 /* VoiceSampleSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSampleSelection.swift; sourceTree = "<group>"; };
@@ -158,6 +161,7 @@
 		F7D6274BB0F524455208FA32 /* EchoDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoDiagnostics.swift; sourceTree = "<group>"; };
 		FD67044B45B65F4105496FF0 /* VoiceNameDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNameDraft.swift; sourceTree = "<group>"; };
 		FED06F84C4C7BB8FAFCDC049 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
+		FFC2FE419AB9523F095EAE72 /* VoiceProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -238,6 +242,7 @@
 				A697488CF0DDBEB0150E6F5B /* ModelSetupTests.swift */,
 				829890694CC528DAFC4CCB21 /* PCMRead.swift */,
 				A4FF1C5BBACF2D807BA97CDB /* PisyaApp.swift */,
+				3EE0BDE0998CADB5C051301D /* SavedVoicesSettings.swift */,
 				8E1BA91977928C54281807B8 /* ScreenTypography.swift */,
 				BEF61299E592DACDA66C9038 /* SettingsView.swift */,
 				E6601E0D6722B292A4DA886E /* SlimScrollbars.swift */,
@@ -247,6 +252,7 @@
 				745A4E7E341A29520582E0AC /* SystemAudioTap.swift */,
 				19696248CFDC35ECF633842B /* Transcriber.swift */,
 				08350AD7CF259E6666895C75 /* VoiceManager.swift */,
+				FFC2FE419AB9523F095EAE72 /* VoiceProfileTests.swift */,
 			);
 			name = Pisya;
 			path = Sources/Pisya;
@@ -490,6 +496,7 @@
 				24FC614084878FC2F9729297 /* Models.swift in Sources */,
 				76C8F12E768DF0333089517A /* PCMRead.swift in Sources */,
 				31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */,
+				8BCC3A9C1558ECDF652ABFF0 /* SavedVoicesSettings.swift in Sources */,
 				3C9EB3B08457BB0D5DD8132F /* ScreenTypography.swift in Sources */,
 				CBAFCE5C4DA223C7EDAA20AD /* SettingsView.swift in Sources */,
 				600A4F30255AE54741635070 /* SlimScrollbars.swift in Sources */,
@@ -501,6 +508,7 @@
 				BE90CF5FF64D22E9381DE0C1 /* Transcriber.swift in Sources */,
 				041A85D5F0FD29F87F4BF60D /* VoiceManager.swift in Sources */,
 				BFFB0E18456A5437555373C6 /* VoiceNameDraft.swift in Sources */,
+				7933543E2A3D6A3D333944CF /* VoiceProfileTests.swift in Sources */,
 				3DBE4D69BA42D37646A94F29 /* VoiceSampleSelection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

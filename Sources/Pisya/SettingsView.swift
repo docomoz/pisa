@@ -5,10 +5,14 @@ struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
+    init(initialSection: String = "Запись") {
+        _section = State(initialValue: initialSection)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             HStack(spacing: PisyaDesign.Spacing.inline) { SectionHeading("Настройки", style: .window); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(PisyaDesign.Typography.Icon.close).foregroundStyle(Color.mutedInk) }.shapeAwarePlainButton(Circle()).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
             SettingsSectionPicker(selection: $section)
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                     switch section {
@@ -42,6 +46,8 @@ struct SettingsView: View {
 
                             }
                         }
+                    case "Голоса":
+                        SavedVoicesSettings(scrollTo: { id in proxy.scrollTo(id, anchor: .center) })
                     case "Экспорт":
                         columns {
                         block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
@@ -83,6 +89,7 @@ struct SettingsView: View {
                     }
                 }.lineSpacing(PisyaDesign.Spacing.textLine).padding(.vertical, PisyaDesign.Spacing.compact)
             }.id(section)
+            }
             HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").font(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
@@ -149,7 +156,7 @@ struct SettingsView: View {
 private struct SettingsSectionPicker: View {
     @Binding var selection: String
     @FocusState private var focused: String?
-    private let sections = ["Запись", "Модель", "Экспорт", "MCP"]
+    private let sections = ["Запись", "Модель", "Голоса", "Экспорт", "MCP"]
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.compact) {
             ForEach(sections, id: \.self) { item in

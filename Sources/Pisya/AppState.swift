@@ -618,11 +618,27 @@ final class AppState: ObservableObject {
         else { voiceProfiles.append(.init(name: clean, samples: samples)) }
         do { try library.saveVoices(voiceProfiles) } catch { message = error.localizedDescription }
     }
-    func forgetVoice(_ id: UUID) {
+    func renameVoice(_ id: UUID, to name: String) throws {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { throw PisyaError.message("Введите имя") }
+        guard let index = voiceProfiles.firstIndex(where: { $0.id == id }) else { throw PisyaError.message("Голос уже удалён") }
+        guard !voiceProfiles.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(clean) == .orderedSame }) else {
+            throw PisyaError.message("Голос с таким именем уже сохранён. Укажите другое имя")
+        }
+        var updated = voiceProfiles
+        updated[index].name = clean
+        try library.saveVoices(updated)
+        voiceProfiles = updated
+    }
+    func forgetVoice(_ id: UUID) throws {
         let previous = voiceProfiles
         let updated = voiceProfiles.filter { $0.id != id }
-        do { try library.saveVoices(updated); voiceProfiles = updated; cleanupVoiceExamples(previous: previous, current: updated) }
-        catch { message = error.localizedDescription }
+        try library.saveVoices(updated)
+        if let playingSegmentID, previous.first(where: { $0.id == id })?.examples?.contains(where: { $0.id == playingSegmentID }) == true {
+            stopPlayback()
+        }
+        voiceProfiles = updated
+        cleanupVoiceExamples(previous: previous, current: updated)
     }
     private func cleanupVoiceExamples(previous: [VoiceProfile], current: [VoiceProfile]) {
         let retained = Set(current.flatMap { $0.examples ?? [] }.map(\.file))
