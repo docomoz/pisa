@@ -10,7 +10,7 @@ enum PisyaDesign {
         static let ink = Color(red: 0.08727, green: 0.09624, blue: 0.10585)
         static let actionInk = Color(red: 0.13376, green: 0.45195, blue: 0.13214)
         static let brandAccent = Color(red: 0.26624, green: 0.72562, blue: 0.26006)
-        static let brandAccentInk = Color(red: 0.02877, green: 0.07336, blue: 0.02674)
+        static let brandAccentInk = Color.white
         static let primaryHover = Color(red: 0.21844, green: 0.65153, blue: 0.21485)
         static let primaryPressed = Color(red: 0.18, green: 0.59, blue: 0.18)
         static let secondary = Color(red: 0.95243, green: 0.95896, blue: 0.96604)
