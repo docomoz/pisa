@@ -20,7 +20,7 @@ struct SettingsView: View {
                             screenToggle("Тихая обработка", isOn: Binding(get: { state.preferences.usesQuietProcessing }, set: { state.preferences.quietProcessing = $0; state.savePreferences() }))
                             screenText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                             screenLabel(state.modelReady ? "Модель готова" : "Модели ещё не установлены", systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive").foregroundStyle(Color.moss)
-                            if let url = state.modelURL() { screenText(verbatim: url.path).font(.appFont(size: 15)).fixedSize(horizontal: false, vertical: true).foregroundStyle(Color.mutedInk).textSelection(.enabled) }
+                            if let url = state.modelURL() { screenText(verbatim: url.path).font(Font(NSFont.monospacedSystemFont(ofSize: 15, weight: .regular))).fixedSize(horizontal: false, vertical: true).foregroundStyle(Color.mutedInk).textSelection(.enabled) }
                             screenButton("Выбрать папку модели…") { state.chooseModel() }.actionButton()
                             screenButton(state.modelReady ? "Проверить и установить модели…" : "Загрузить модели…") {
                                 dismiss()
