@@ -40,11 +40,11 @@ struct MainView: View {
                     Image(systemName: "gearshape").font(.appFont(size: 14, weight: .medium))
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
-                    screenLabel("Импорт", systemImage: "arrow.down.doc").font(.appFont(size: 14, weight: .medium))
+                    screenLabel("Импорт", systemImage: "arrow.down.doc")
                 }.actionButton().disabled(state.demo)
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
-                        .font(.appFont(size: 14, weight: .semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 }.actionButton(.recording)
                     .disabled(state.starting || state.demo)
             }.controlSize(.large)
@@ -61,7 +61,7 @@ struct MainView: View {
             screenText("Вы разговариваете.\nPisya записывает.").font(.appFont(size: 40, weight: .medium)).tracking(-0.8).lineSpacing(2)
             screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).lineSpacing(6).padding(.top, PisyaDesign.Spacing.content)
             HStack(spacing: PisyaDesign.Spacing.related) {
-                Button { state.showingSettings = true } label: { screenText(state.modelReady ? "Настроить автозапись" : "Подготовить к первой встрече").font(.appFont(size: 14, weight: .medium)) }.actionButton(.primary)
+                Button { state.showingSettings = true } label: { screenText(state.modelReady ? "Настроить автозапись" : "Подготовить к первой встрече") }.actionButton(.primary)
             }.padding(.top, PisyaDesign.Spacing.section)
             Spacer()
             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
@@ -114,7 +114,7 @@ struct MeetingView: View {
                     HStack(spacing: PisyaDesign.Spacing.related) {
                         ForEach(meeting.speakers, id: \.self) { speaker in
                             Button { state.voiceMeeting = meeting } label: {
-                                screenLabel(speaker, systemImage: "person.crop.circle").font(.appFont(size: 13))
+                                screenLabel(speaker, systemImage: "person.crop.circle")
                             }.speakerChip()
                         }
                     }
@@ -138,7 +138,7 @@ struct MeetingView: View {
             } else if state.processingID == meeting.id && !state.liveStatus.isEmpty {
                 HStack { screenText(state.liveStatus); Spacer(); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.font(.appFont(size: 13)).padding(.vertical, PisyaDesign.Spacing.content)
             } else if state.processingID == meeting.id {
-                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { screenText(state.phase).font(.appFont(size: 13)); ProgressView(value: state.progress); screenButton("Остановить обработку") { state.cancelProcessing() }.font(.appFont(size: 13)).actionButton(size: .small) }.padding(.vertical, PisyaDesign.Spacing.section)
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { screenText(state.phase).font(.appFont(size: 13)); ProgressView(value: state.progress); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.padding(.vertical, PisyaDesign.Spacing.section)
             }
             if meeting.status == .failed && meeting.liveCommittedUntil != nil && !meeting.segments.isEmpty && !state.recording {
                 HStack { screenText("Расшифровка не завершена").foregroundStyle(Color.mutedInk); Spacer(); screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small) }.font(.appFont(size: 13)).padding(.vertical, PisyaDesign.Spacing.content)

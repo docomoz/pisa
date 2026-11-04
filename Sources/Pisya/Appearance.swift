@@ -1,6 +1,10 @@
 import SwiftUI
 
 enum PisyaDesign {
+    enum Typography {
+        static let button = Font.appFont(size: 16, weight: .medium)
+        static let smallButton = Font.appFont(size: 13, weight: .medium)
+    }
     enum Colors {
         // Bronegis light-theme OKLCH tokens converted to sRGB.
         static let ink = Color(red: 0.08727, green: 0.09624, blue: 0.10585)
@@ -163,6 +167,7 @@ private struct ActionButtonContent<Label: View>: View {
     }
     var body: some View {
         label
+            .font(size == .small ? PisyaDesign.Typography.smallButton : PisyaDesign.Typography.button)
             .foregroundStyle(foreground)
             .padding(.horizontal, size == .small ? PisyaDesign.Metrics.smallPadding : PisyaDesign.Metrics.regularPadding)
             .frame(minHeight: size == .small ? PisyaDesign.Metrics.smallHeight : PisyaDesign.Metrics.regularHeight)
