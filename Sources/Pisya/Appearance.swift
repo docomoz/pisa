@@ -17,22 +17,40 @@ extension View {
             }
         }
     }
-    func plainControls() -> some View { buttonStyle(PlainActionStyle()) }
-    func plainButton(prominent: Bool = false, color: Color = .moss) -> some View {
-        buttonStyle(PlainActionStyle(prominent: prominent, color: color))
+    func plainControls() -> some View { buttonStyle(PlainActionStyle()).contentShape(.focusEffect, Capsule()) }
+    func plainButton(prominent: Bool = false, color: Color = .moss, neutral: Bool = false) -> some View {
+        buttonStyle(PlainActionStyle(prominent: prominent, color: color, neutral: neutral)).contentShape(.focusEffect, Capsule())
     }
 }
 private struct PlainActionStyle: ButtonStyle {
     var prominent = false
     var color: Color = .moss
+    var neutral = false
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(minHeight: 18)
-            .foregroundStyle(prominent ? Color.white : Color.ink)
+            .foregroundStyle(enabled ? (prominent ? Color.white : (neutral ? Color.ink : color)) : Color.disabledInk)
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(prominent ? color : Color.white, in: Capsule())
-            .overlay { Capsule().strokeBorder(prominent ? color : Color.black.opacity(0.14), lineWidth: 1) }
-            .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.38)
+            .background(enabled ? (prominent ? color : (neutral ? Color.white : Color.actionTint)) : Color.disabledTint, in: Capsule())
+            .overlay { Capsule().strokeBorder(enabled ? (neutral ? Color.black.opacity(0.14) : color.opacity(prominent ? 1 : 0.24)) : Color.disabledInk.opacity(0.22), lineWidth: 1) }
+            .contentShape(.focusEffect, Capsule())
+            .brightness(enabled && configuration.isPressed ? -0.045 : 0)
+    }
+}
+
+extension View {
+    func shapeAwarePlainButton<Outline: Shape>(_ shape: Outline = RoundedRectangle(cornerRadius: 8)) -> some View {
+        buttonStyle(.plain).contentShape(.focusEffect, shape)
+    }
+}
+
+struct AccentIconStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(enabled ? Color.moss : Color.disabledInk)
+            .brightness(enabled && configuration.isPressed ? -0.05 : 0)
+            .contentShape(.focusEffect, Circle())
     }
 }

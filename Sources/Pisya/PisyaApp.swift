@@ -36,10 +36,16 @@ struct PisyaApp: App {
                     let paragraph = NSMutableParagraphStyle()
                     paragraph.alignment = .center; paragraph.paragraphSpacing = 8
                     let credits = typographicText("Автор: Максим Берёзкин · maxim@berezkin.ru") + "\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
-                    options[.credits] = NSAttributedString(string: credits, attributes: [
+                    let attributedCredits = NSMutableAttributedString(string: credits, attributes: [
                         .font: NSFont.systemFont(ofSize: 14),
                         .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
                     ])
+                    attributedCredits.addAttributes([
+                        .link: URL(string: "mailto:maxim@berezkin.ru")!,
+                        .foregroundColor: NSColor(Color.moss),
+                        .underlineStyle: NSUnderlineStyle.single.rawValue
+                    ], range: (credits as NSString).range(of: "maxim@berezkin.ru"))
+                    options[.credits] = attributedCredits
                     NSApp.orderFrontStandardAboutPanel(options: options)
                 }
             }
@@ -81,7 +87,7 @@ struct MenuContents: View {
                     if let started = state.recordingStarted { RecordingElapsed(started: started) }
                 }
             }
-            screenButton("Открыть Pisya") { showMain() }
+            screenButton("Открыть Pisya") { showMain() }.shapeAwarePlainButton()
                 .frame(maxWidth: .infinity, alignment: .leading)
             Divider()
             Button {
@@ -89,16 +95,16 @@ struct MenuContents: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: state.recording ? "stop.circle" : "record.circle").frame(width: 16, height: 16)
-                    screenText(state.starting ? "Подготовка…" : state.recording ? "Остановить запись" : "Записать встречу")
+                    screenText(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись")
                 }
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.disabled(state.starting).foregroundStyle(Color.ink)
+            }.plainButton(prominent: true, color: .recordingRed).disabled(state.starting || state.demo)
             screenToggle("Автоматический старт и стоп", isOn: Binding(get: { state.preferences.automaticRecording }, set: { state.setAutomatic($0) })).toggleStyle(MenuCheckboxStyle())
             Divider()
             screenButton("Завершить Pisya") {
                 if state.recording || state.processingID != nil { state.message = "Сначала остановите запись или обработку"; showMain() }
                 else { NSApp.terminate(nil) }
-            }
+            }.shapeAwarePlainButton()
         }.font(.appFont(size: 13)).buttonStyle(.plain).padding(16).frame(width: 300).popupCanvas()
     }
 }
@@ -112,7 +118,7 @@ private struct MenuCheckboxStyle: ToggleStyle {
                     .frame(width: 16, height: 16)
                 configuration.label
             }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityValue(configuration.isOn ? "Включено" : "Выключено")
+        }.shapeAwarePlainButton().accessibilityValue(configuration.isOn ? "Включено" : "Выключено")
     }
 }
 

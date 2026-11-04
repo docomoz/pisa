@@ -137,8 +137,8 @@ struct ModelSetupView: View {
                     .font(.appFont(size: 14)).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
             }
             HStack {
-                if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.plainButton() }
-                else if !setup.ready { screenButton("Позже") { setup.dismiss() }.plainButton().disabled(setup.busy) }
+                if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.plainButton(neutral: true) }
+                else if !setup.ready { screenButton("Позже") { setup.dismiss() }.plainButton(neutral: true).disabled(setup.busy) }
                 Spacer()
                 if setup.ready { screenButton("Начать работу") { setup.dismiss() }.plainButton(prominent: true).keyboardShortcut(.defaultAction) }
                 else if setup.phase != .downloading {

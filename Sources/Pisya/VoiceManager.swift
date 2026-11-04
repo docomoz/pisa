@@ -16,7 +16,7 @@ struct VoiceManager: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack { VStack(alignment: .leading, spacing: 5) { screenText("Голоса встречи").font(.appFont(size: 22, weight: .semibold)); screenText("Послушайте фрагмент, назначьте имя и сохраните образец для следующих встреч").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk) }; Spacer(); screenButton("Готово") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { VStack(alignment: .leading, spacing: 5) { screenText("Голоса встречи").font(.appFont(size: 22, weight: .semibold)); screenText("Послушайте фрагмент, назначьте имя и сохраните образец для следующих встреч").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk) }; Spacer(); screenButton("Готово") { dismiss() }.plainButton(prominent: true).keyboardShortcut(.cancelAction) }
             HSplitView {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 22) {
@@ -26,10 +26,10 @@ struct VoiceManager: View {
                                     screenText(speaker).font(.appFont(size: 16, weight: .semibold))
                                     ForEach(meeting.segments.filter { $0.speaker == speaker }) { segment in
                                         HStack(alignment: .top, spacing: 10) {
-                                            Button { select(segment); state.preview(segment, in: meeting) } label: { Image(systemName: state.playingSegmentID == segment.id ? "stop.circle.fill" : "play.circle.fill").font(.appFont(size: 22, weight: .semibold)) }.buttonStyle(.plain).disabled(meeting.audioFiles.isEmpty || state.recording).screenHelp("Прослушать до 8 секунд")
+                                            Button { select(segment); state.preview(segment, in: meeting) } label: { Image(systemName: state.playingSegmentID == segment.id ? "stop.circle.fill" : "play.circle.fill").font(.appFont(size: 22, weight: .semibold)) }.buttonStyle(AccentIconStyle()).contentShape(.focusEffect, Circle()).disabled(meeting.audioFiles.isEmpty || state.recording).screenHelp("Прослушать до 8 секунд")
                                             Button { select(segment) } label: {
                                                 VStack(alignment: .leading, spacing: 4) { screenText("\(timecode(segment.start)) · \(timecode(segment.end - segment.start))").font(.appFont(size: 12)); screenText(segment.text).font(.appFont(size: 15)).lineLimit(2) }.frame(maxWidth: .infinity, alignment: .leading)
-                                            }.buttonStyle(.plain)
+                                            }.shapeAwarePlainButton()
                                         }.padding(10).background(selected == segment.id ? Color.moss.opacity(0.12) : Color.sidebarTint.opacity(0.48), in: RoundedRectangle(cornerRadius: 8))
                                     }
                                 }

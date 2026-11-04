@@ -7,7 +7,7 @@ struct SettingsView: View {
     @State private var showRecordingDetails = false
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            HStack { screenText("Настройки").font(.appFont(size: 26, weight: .semibold)); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.appFont(size: 20, weight: .semibold)).foregroundStyle(Color.mutedInk) }.buttonStyle(.plain).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
+            HStack { screenText("Настройки").font(.appFont(size: 26, weight: .semibold)); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.appFont(size: 20, weight: .semibold)).foregroundStyle(Color.mutedInk) }.shapeAwarePlainButton(Circle()).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
             Picker("Раздел", selection: $section) { ForEach(["Запись", "Модель", "Экспорт", "MCP"], id: \.self) { screenText($0) } }.pickerStyle(.segmented).labelsHidden()
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -95,7 +95,7 @@ struct SettingsView: View {
                             screenText("Как работает и ограничения")
                             Spacer(minLength: 0)
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5).contentShape(Rectangle())
-                    }.buttonStyle(.plain).foregroundStyle(Color.moss)
+                    }.shapeAwarePlainButton().foregroundStyle(Color.moss)
                         .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
                     if showRecordingDetails {
                         screenText("Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если вы начали запись вручную до встречи, автостоп включится только после обнаружения звонка.")

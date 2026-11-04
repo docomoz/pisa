@@ -3,7 +3,11 @@ import AppKit
 
 extension Color {
     static let ink = Color(white: 0.10)
-    static let moss = Color(white: 0.22)
+    static let moss = Color(red: 0.16, green: 0.38, blue: 0.27)
+    static let actionTint = Color(red: 0.91, green: 0.96, blue: 0.92)
+    static let recordingRed = Color(red: 0.69, green: 0.20, blue: 0.18)
+    static let disabledInk = Color(white: 0.42)
+    static let disabledTint = Color(white: 0.94)
     static let paper = Color.white
     static let sidebarTint = Color(white: 0.96)
     static let selectionTint = Color(white: 0.84)
@@ -36,7 +40,7 @@ struct MainView: View {
     }
     private var sidebar: some View { LibrarySidebar() }
     private var topbar: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             HStack(spacing: 7) {
                 Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
                 BrandMoodView()
@@ -44,15 +48,15 @@ struct MainView: View {
             Spacer()
             HStack(spacing: 10) {
                 Button { state.showingSettings = true } label: {
-                    screenLabel("Настройки", systemImage: "gearshape").font(.appFont(size: 14, weight: .medium))
-                }.plainButton().foregroundStyle(Color.ink).screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
+                    Image(systemName: "gearshape").font(.appFont(size: 14, weight: .medium))
+                }.plainButton(neutral: true).screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
                     screenLabel("Импорт", systemImage: "arrow.down.doc").font(.appFont(size: 14, weight: .medium))
-                }.plainButton().foregroundStyle(Color.ink).disabled(state.demo)
+                }.plainButton().disabled(state.demo)
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
-                    screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Завершить" : "Записать", systemImage: state.recording ? "stop.fill" : "record.circle")
-                        .font(.appFont(size: 14, weight: .semibold)).padding(.horizontal, 5)
-                }.plainButton(prominent: true, color: state.recording ? Color(red: 0.67, green: 0.29, blue: 0.24) : Color.moss)
+                    screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
+                        .font(.appFont(size: 14, weight: .semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                }.plainButton(prominent: true, color: .recordingRed)
                     .disabled(state.starting || state.demo)
             }.controlSize(.large)
 
@@ -68,7 +72,7 @@ struct MainView: View {
             screenText("Вы разговариваете.\nPisya записывает.").font(.appFont(size: 40, weight: .medium)).tracking(-0.8).lineSpacing(2)
             screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).lineSpacing(6).padding(.top, 20)
             HStack(spacing: 12) {
-                Button { state.showingSettings = true } label: { screenText(state.modelReady ? "Настроить автозапись" : "Подготовить к первой встрече").font(.appFont(size: 13, weight: .medium)).padding(.horizontal, 20).padding(.vertical, 13).background(Color.moss).foregroundStyle(.white).clipShape(Capsule()) }.buttonStyle(.plain)
+                Button { state.showingSettings = true } label: { screenText(state.modelReady ? "Настроить автозапись" : "Подготовить к первой встрече").font(.appFont(size: 13, weight: .medium)).padding(.horizontal, 20).padding(.vertical, 13).background(Color.moss).foregroundStyle(.white).clipShape(Capsule()) }.shapeAwarePlainButton(Capsule())
             }.padding(.top, 30)
             Spacer()
             HStack(alignment: .top, spacing: 28) {
@@ -123,8 +127,8 @@ struct MeetingView: View {
                             Button { state.voiceMeeting = meeting } label: {
                                 screenLabel(speaker, systemImage: "person.crop.circle").font(.appFont(size: 13))
                                     .padding(.horizontal, 12).padding(.vertical, 8)
-                                    .background(Color.sidebarTint, in: Capsule()).overlay { Capsule().stroke(.white.opacity(0.45), lineWidth: 0.5) }
-                            }.buttonStyle(.plain)
+                                    .background(Color.actionTint, in: Capsule()).overlay { Capsule().stroke(.white.opacity(0.45), lineWidth: 0.5) }
+                            }.shapeAwarePlainButton(Capsule()).foregroundStyle(Color.moss)
                         }
                     }
                 }.background(HorizontalWheelScroll()).padding(.bottom, 24)
@@ -133,7 +137,7 @@ struct MeetingView: View {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
                 TextField("Поиск внутри записи", text: $transcriptSearch).textFieldStyle(.plain).focused($focusedField, equals: .search)
-                if !transcriptSearch.isEmpty { Button { transcriptSearch = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain) }
+                if !transcriptSearch.isEmpty { Button { transcriptSearch = "" } label: { Image(systemName: "xmark.circle.fill") }.shapeAwarePlainButton(Circle()) }
             }.font(.appFont(size: 14)).padding(.vertical, 14).disabled(meeting.segments.isEmpty || state.recordingMeetingID == meeting.id)
             Divider()
             if state.recordingMeetingID == meeting.id && state.processingID == meeting.id {
@@ -164,12 +168,12 @@ struct MeetingView: View {
                     LazyVStack(alignment: .leading, spacing: 28) {
                         ForEach(meeting.segments.filter { transcriptSearch.isEmpty || $0.text.localizedCaseInsensitiveContains(transcriptSearch) || $0.speaker.localizedCaseInsensitiveContains(transcriptSearch) }) { segment in
                             HStack(alignment: .top, spacing: 22) {
-                                Button { state.play(segment, in: meeting) } label: { VStack(spacing: 7) { screenText(timecode(segment.start)).font(.appFont(size: 13)); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").font(.appFont(size: 12)) }.foregroundStyle(Color.mutedInk).frame(width: 56, alignment: .leading).padding(.top, 3) }.buttonStyle(.plain).disabled(state.demo || state.recording || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
+                                Button { state.play(segment, in: meeting) } label: { VStack(spacing: 7) { screenText(timecode(segment.start)).font(.appFont(size: 13)); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").font(.appFont(size: 12)) }.frame(width: 56, alignment: .leading).padding(.top, 3) }.buttonStyle(AccentIconStyle()).contentShape(.focusEffect, RoundedRectangle(cornerRadius: 8)).disabled(state.demo || state.recording || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
                                 VStack(alignment: .leading, spacing: 9) {
                                     screenText(segment.speaker).font(.appFont(size: 14, weight: .semibold)).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
                                     screenText(typographicText(segment.text)).font(.appFont(size: 16)).lineSpacing(7).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                Button { editing = segment } label: { Image(systemName: "pencil").font(.appFont(size: 14)).foregroundStyle(Color.mutedInk) }.buttonStyle(.plain).disabled(state.recordingMeetingID == meeting.id || state.processingID == meeting.id).screenHelp("Исправить реплику")
+                                Button { editing = segment } label: { Image(systemName: "pencil").font(.appFont(size: 14)) }.buttonStyle(AccentIconStyle()).contentShape(.focusEffect, Circle()).disabled(state.recordingMeetingID == meeting.id || state.processingID == meeting.id).screenHelp("Исправить реплику")
                             }
                         }
                     }.padding(.vertical, 27).padding(.trailing, 10)
@@ -207,8 +211,10 @@ struct MeetingView: View {
                 Divider()
                 ForEach(state.folders) { folder in Button { state.move(meeting, to: folder.id) } label: { screenLabel(folder.name, systemImage: folder.iconName) } }
             } label: {
-                screenLabel(state.folders.first(where: { $0.id == meeting.folderID })?.name ?? "В папку", systemImage: state.folders.first(where: { $0.id == meeting.folderID })?.iconName ?? "folder").lineLimit(1)
+                screenLabel(state.folders.first(where: { $0.id == meeting.folderID })?.name ?? "Папка", systemImage: state.folders.first(where: { $0.id == meeting.folderID })?.iconName ?? "folder")
+                    .lineLimit(1).truncationMode(.tail).frame(maxWidth: 220, alignment: .leading)
             }.disabled(!state.canModify(meeting)).fixedSize()
+                .screenHelp(state.folders.first(where: { $0.id == meeting.folderID })?.name ?? "Переместить в папку")
         }
     }
     private var exportControl: some View {
@@ -221,7 +227,7 @@ struct MeetingView: View {
                     Divider()
                     screenButton("Удалить аудио…", role: .destructive) { confirmDeleteAudio = true }
                 }
-            } label: { Image(systemName: "ellipsis").frame(width: 24) }.fixedSize().disabled(!state.canModify(meeting))
+            } label: { Image(systemName: "ellipsis").frame(width: 24) }.plainButton(neutral: true).fixedSize().disabled(!state.canModify(meeting))
         }
     }
 
@@ -235,7 +241,7 @@ private struct SegmentEditor: View {
             screenText("Исправить реплику").font(.appFont(size: 20, weight: .semibold))
             TextField("Участник", text: $segment.speaker)
             TextEditor(text: $segment.text).font(.appFont(size: 15)).frame(height: 180).border(.quaternary)
-            HStack { screenButton("Отмена") { dismiss() }; Spacer(); screenButton("Сохранить") { save(segment) }.plainButton(prominent: true) }
+            HStack { screenButton("Отмена") { dismiss() }.plainButton(neutral: true); Spacer(); screenButton("Сохранить") { save(segment) }.plainButton(prominent: true) }
         }.font(.appFont(size: 15)).plainControls().padding(28).frame(width: 520).popupCanvas()
     }
 }

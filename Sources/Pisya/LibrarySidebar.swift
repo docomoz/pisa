@@ -13,7 +13,7 @@ struct LibrarySidebar: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
                 TextField("Название, текст, участник", text: $state.search).textFieldStyle(.plain)
-                if !state.search.isEmpty { Button { state.search = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).screenHelp("Очистить поиск") }
+                if !state.search.isEmpty { Button { state.search = "" } label: { Image(systemName: "xmark.circle.fill") }.shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск") }
             }.font(.appFont(size: 12)).padding(11).plainSurface(radius: 12)
             ScrollView { VStack(spacing: 2) {
                 scope("Все записи", icon: "tray", selected: !state.showingTrash && state.folderFilter == nil && !state.unfiledOnly) { state.openFolder() }
@@ -25,7 +25,7 @@ struct LibrarySidebar: View {
                             screenButton("Удалить папку…", role: .destructive) { deletingFolder = folder }
                         }
                 }
-                Button { editingFolder = nil; folderName = ""; folderEditor = true } label: { navigationLabel("Новая папка", icon: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading).padding(8).contentShape(Rectangle()) }.buttonStyle(.plain).foregroundStyle(Color.moss).disabled(state.demo)
+                Button { editingFolder = nil; folderName = ""; folderEditor = true } label: { navigationLabel("Новая папка", icon: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }.plainButton().disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
                     .contextMenu { screenButton("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
             }.font(.appFont(size: 12)) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
@@ -92,7 +92,7 @@ struct LibrarySidebar: View {
         }
     }
     private func scope(_ name: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(8).plainSelection(selected, radius: 9).contentShape(Rectangle()) }.buttonStyle(.plain)
+        Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(8).plainSelection(selected, radius: 9).contentShape(Rectangle()) }.shapeAwarePlainButton()
     }
 }
 struct MeetingActions: View {
@@ -134,7 +134,7 @@ struct NameEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             screenText(title).font(.appFont(size: 20, weight: .semibold))
             TextField("Название", text: $name).textFieldStyle(.roundedBorder).focused($focused).onSubmit { submit() }
-            HStack { screenButton("Отмена") { dismiss() }.keyboardShortcut(.cancelAction); Spacer(); screenButton("Сохранить") { submit() }.plainButton(prominent: true).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack { screenButton("Отмена") { dismiss() }.plainButton(neutral: true).keyboardShortcut(.cancelAction); Spacer(); screenButton("Сохранить") { submit() }.plainButton(prominent: true).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
         }.font(.appFont(size: 15)).plainControls().padding(28).frame(width: 420).popupCanvas().onAppear { name = initial; focused = true }
     }
     private func submit() { guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; save(name); dismiss() }
@@ -175,12 +175,12 @@ private struct FolderEditor: View {
                             .background(symbol == item.0 ? Color.moss.opacity(0.12) : Color.sidebarTint.opacity(0.48), in: RoundedRectangle(cornerRadius: 8))
                             .overlay { RoundedRectangle(cornerRadius: 8).stroke(symbol == item.0 ? Color.moss : .clear, lineWidth: 1.5) }
                             .contentShape(Rectangle())
-                    }.buttonStyle(.plain).frame(width: 32, height: 32).foregroundStyle(Color.ink).screenHelp(item.1).accessibilityLabel(item.1)
+                    }.shapeAwarePlainButton().frame(width: 32, height: 32).foregroundStyle(Color.ink).screenHelp(item.1).accessibilityLabel(item.1)
                         .accessibilityAddTraits(symbol == item.0 ? .isSelected : [])
                 }
             }
             HStack {
-                screenButton("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
+                screenButton("Отмена") { dismiss() }.plainButton(neutral: true).keyboardShortcut(.cancelAction)
                 Spacer()
                 screenButton(folder == nil ? "Создать папку" : "Сохранить") { submit() }
                     .plainButton(prominent: true).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
