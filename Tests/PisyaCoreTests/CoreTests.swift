@@ -274,20 +274,31 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(try String(contentsOf: second).contains("00:12 · Даша"))
         XCTAssertThrowsError(try lib.audioURL("../secret"))
     }
-    func testMCPRequiresOptInAndRevokesDuringSession() throws {
+    func testMCPEnabledByDefaultAndRevokesDuringSession() throws {
         let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
         let m = Meeting(title: "Встреча", source: "Толк"); try lib.save(m)
         let handler = MCPHandler(library: lib)
         func call(_ method: String, _ params: [String: Any] = [:]) -> [String: Any] { handler.handle(["jsonrpc": "2.0", "id": 1, "method": method, "params": params])! }
         XCTAssertNotNil(call("tools/list")["error"])
         XCTAssertNotNil(call("initialize")["result"])
-        XCTAssertNotNil(call("tools/list")["error"])
-        var prefs = Preferences(); prefs.mcpEnabled = true; try lib.savePreferences(prefs)
         XCTAssertNotNil(call("tools/list")["result"])
+        XCTAssertNotNil(call("tools/call", ["name": "list_meetings"])["result"])
         XCTAssertNotNil(call("tools/call", ["name": "read_transcript", "arguments": ["meeting_id": "../../etc/passwd"]])["error"])
         var deleted = m; deleted.deletedAt = Date(); try lib.save(deleted)
         XCTAssertNotNil(call("tools/call", ["name": "read_transcript", "arguments": ["meeting_id": m.id.uuidString]])["error"])
-        prefs.mcpEnabled = false; try lib.savePreferences(prefs)
+        var prefs = try lib.preferences(); prefs.mcpEnabled = false; try lib.savePreferences(prefs)
+        XCTAssertNotNil(call("tools/list")["error"])
         XCTAssertNotNil(call("tools/call", ["name": "list_meetings"])["error"])
+        prefs.mcpEnabled = true; try lib.savePreferences(prefs)
+        XCTAssertNotNil(call("tools/list")["result"])
+    }
+    func testMCPPreferencesPreserveSavedAccessChoice() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        XCTAssertTrue(try lib.preferences().mcpEnabled)
+        var prefs = Preferences(); prefs.mcpEnabled = false; try lib.savePreferences(prefs)
+        let reopened = try MeetingLibrary(root: lib.root)
+        XCTAssertFalse(try reopened.preferences().mcpEnabled)
+        prefs.mcpEnabled = true; try reopened.savePreferences(prefs)
+        XCTAssertTrue(try lib.preferences().mcpEnabled)
     }
 }

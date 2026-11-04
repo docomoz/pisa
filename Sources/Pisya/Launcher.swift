@@ -50,6 +50,22 @@ enum Launcher {
             }
             dispatchMain()
         }
+        if CommandLine.arguments.contains("--settings-preview") {
+            // Check settings against a disposable library without changing the user's access choices.
+            MainActor.assumeIsolated {
+                let app = NSApplication.shared
+                app.setActivationPolicy(.regular)
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Settings-Preview-" + UUID().uuidString)
+                defer { try? FileManager.default.removeItem(at: root) }
+                let state = AppState(rootURL: root)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+                window.title = "Pisya · Настройки"
+                window.contentView = NSHostingView(rootView: SettingsView().environmentObject(state).preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU")))
+                window.center(); window.makeKeyAndOrderFront(nil); app.activate(ignoringOtherApps: true)
+                app.run()
+            }
+            return
+        }
         if CommandLine.arguments.contains("--setup-preview") {
             // An isolated window for checking first-run layout without opening the user's library.
             MainActor.assumeIsolated {

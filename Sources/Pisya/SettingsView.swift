@@ -76,6 +76,8 @@ struct SettingsView: View {
                             SupportingText("Инструменты: list_meetings, search_meetings, read_transcript. Выключатель отзывает доступ и у уже запущенного клиента.")
                         }
                             }
+                            .disabled(!state.preferences.mcpEnabled)
+                            .opacity(state.preferences.mcpEnabled ? 1 : 0.45)
                         }
 
                     }
