@@ -136,7 +136,7 @@ struct SettingsView: View {
                 block("Разрешения macOS", "Нужны для записи вашего голоса и собеседников") {
                     Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон…", systemImage: "mic") }.actionButton()
                     Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук…", systemImage: "speaker.wave.2") }.actionButton()
-                }
+                }.labelStyle(PermissionButtonLabelStyle())
                 block("Хранение аудио", "На этом Mac") {
                     screenText("Оригиналы сохраняются без автоматического удаления. В папку экспорта отправляется только текст.")
                         .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
@@ -161,6 +161,15 @@ struct SettingsView: View {
             SectionHeading(title, subtitle: subtitle)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { content() }
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct PermissionButtonLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: PisyaDesign.Spacing.inline) {
+            configuration.icon.frame(width: 24)
+            configuration.title
+        }
     }
 }
 
