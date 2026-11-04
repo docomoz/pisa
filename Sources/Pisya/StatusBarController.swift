@@ -166,12 +166,12 @@ private final class PersistentMenuToggle: NSButton {
         // A retained button focus must never reselect this row when the pointer leaves it.
         let selected = menuHighlighted
         if selected {
-            NSColor.selectedContentBackgroundColor.setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: PisyaDesign.Spacing.inline / 2, dy: 0), xRadius: PisyaDesign.Spacing.inline / 2, yRadius: PisyaDesign.Spacing.inline / 2).fill()
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: PisyaDesign.Spacing.menuItemInset, dy: 0), xRadius: PisyaDesign.Metrics.cornerRadius, yRadius: PisyaDesign.Metrics.cornerRadius).fill()
         }
         label.textColor = selected ? .selectedMenuItemTextColor : .labelColor
         let colors: [NSColor] = state == .on
-            ? (selected ? [.selectedContentBackgroundColor, .white] : [.white, .selectedContentBackgroundColor])
+            ? (selected ? [.controlAccentColor, .white] : [.white, .controlAccentColor])
             : [selected ? .white : .secondaryLabelColor]
         let symbol = NSImage(systemSymbolName: state == .on ? "checkmark.square.fill" : "square", accessibilityDescription: nil)
         let palette = colors.map { $0.usingColorSpace(.sRGB) ?? $0 }

@@ -19,7 +19,9 @@ final class AppState: ObservableObject {
 
 enum BrandMark { static var menuIcon: NSImage { NSImage(size: NSSize(width: 16, height: 16)) } }
 enum PisyaDesign {
+    enum Metrics { static let cornerRadius: CGFloat = 8 }
     enum Spacing {
+        static let menuItemInset: CGFloat = 5
         static let inline: CGFloat = 8
         static let related: CGFloat = 12
         static let content: CGFloat = 16

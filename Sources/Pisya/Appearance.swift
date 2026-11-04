@@ -39,6 +39,7 @@ enum PisyaDesign {
         static let none: CGFloat = 0
         static let hairline: CGFloat = 2
         static let compact: CGFloat = 4
+        static let menuItemInset: CGFloat = 5
         static let textLine: CGFloat = 7
         static let inline: CGFloat = 8
         static let related: CGFloat = 12
