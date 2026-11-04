@@ -41,39 +41,67 @@ struct VoiceManager: View {
                         }
                     }.padding(.trailing, PisyaDesign.Spacing.section)
                 }.frame(minWidth: 340)
-                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                    SectionHeading("Кто говорит?")
-                    if let sample {
-                        let automaticSample = automaticSample
-                        screenText("Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»").font(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk)
-                        TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle())
-                        screenMenu("Выбрать сохранённое имя") { ForEach(state.voiceProfiles) { profile in screenButton(profile.name) { name = profile.name } } }.actionButton()
-                        screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
-                        screenToggle("Запомнить голос для будущих встреч", isOn: $remember)
-                            .disabled(automaticSample == nil)
-                        if let automaticSample, remember, let meeting {
-                            screenButton("Послушать образец · \(timecode(automaticSample.start))–\(timecode(automaticSample.end))") {
-                                state.preview(automaticSample, in: meeting)
-                            }.actionButton().disabled(state.recording || state.demo)
-                            screenText("Образец до 8 секунд выбирается автоматически, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
-                        } else if automaticSample == nil {
-                            screenText("Нет подходящего образца от 2 секунд с голосовым слепком и доступным аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
-                        }
-                        screenButton("Применить имя") {
-                            state.assignVoice(meetingID: meetingID, segmentID: sample.id, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
-                        }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
-                    Divider()
-                    SectionHeading("Сохранённые голоса")
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                            ForEach(state.voiceProfiles) { profile in
-                                HStack(spacing: PisyaDesign.Spacing.inline) { screenText(profile.name); Spacer(); if let example = profile.examples?.last { Button { state.playExample(example) } label: { Image(systemName: state.playingSegmentID == example.id ? "stop.fill" : "play.fill") }.actionButton().screenHelp("Послушать сохранённый образец") } else { screenText("слепок").font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
+                        if let sample {
+                            let automaticSample = automaticSample
+                            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                                SectionHeading("Кто говорит?", subtitle: "Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»")
+                                TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle())
                             }
-                        }
-                    }
-                }.font(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350)
+                            if !state.voiceProfiles.isEmpty { savedVoices }
+                            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                                screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
+                                screenToggle("Запомнить голос для будущих встреч", isOn: $remember)
+                                    .disabled(automaticSample == nil)
+                                if let automaticSample, remember, let meeting {
+                                    screenButton("Послушать образец · \(timecode(automaticSample.start))–\(timecode(automaticSample.end))") {
+                                        state.preview(automaticSample, in: meeting)
+                                    }.actionButton().disabled(state.recording || state.demo)
+                                    screenText("Образец до 8 секунд выбирается автоматически, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                                } else if automaticSample == nil {
+                                    screenText("Нет подходящего образца от 2 секунд с голосовым слепком и доступным аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                                }
+                                screenButton("Применить имя") {
+                                    state.assignVoice(meetingID: meetingID, segmentID: sample.id, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
+                                }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                        } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.id(selected).font(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350)
             }
         }.dialogContent().frame(width: 940, height: 660).background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
+    }
+
+    private var savedVoices: some View {
+        FormSection("Сохранённые голоса") {
+            ForEach(state.voiceProfiles) { profile in
+                HStack(spacing: PisyaDesign.Spacing.inline) {
+                    Button { name = profile.name } label: {
+                        HStack(spacing: PisyaDesign.Spacing.inline) {
+                            screenText(profile.name).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: PisyaDesign.Spacing.none)
+                            if name == profile.name {
+                                Image(systemName: "checkmark").font(PisyaDesign.Typography.Icon.checkmark)
+                            }
+                        }
+                        .padding(.horizontal, PisyaDesign.Spacing.related)
+                        .padding(.vertical, PisyaDesign.Spacing.inline)
+                        .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.regularHeight, alignment: .leading)
+                        .background(name == profile.name ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary,
+                                    in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                    }.shapeAwarePlainButton()
+                        .accessibilityValue(name == profile.name ? "Выбрано" : "")
+                        .screenHelp("Выбрать имя «\(profile.name)»")
+                    if let example = profile.examples?.last {
+                        Button { state.playExample(example) } label: {
+                            Image(systemName: state.playingSegmentID == example.id ? "stop.fill" : "play.fill")
+                        }.actionButton().disabled(state.recording)
+                            .accessibilityLabel("\(state.playingSegmentID == example.id ? "Остановить" : "Послушать") образец «\(profile.name)»")
+                            .screenHelp("Послушать сохранённый образец «\(profile.name)»")
+                    }
+                }
+            }
+        }
     }
 }
