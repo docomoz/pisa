@@ -42,11 +42,11 @@ actor MeetingTitleModel {
             if english {
                 instruction = summary
                     ? "Summarize this meeting excerpt IN ENGLISH in up to 5 sentences. Preserve main topics, decisions, next steps and project names. Return only the summary."
-                    : "Write a concise meeting title IN ENGLISH, 3 to 8 words, at most 80 characters. Name the main topic or decision. Return ONLY the title on one line, with no label, quotes, date, explanation or final period."
+                    : "Write an English title in 3 to 8 words: specific subject plus main decision. Start with the subject, product or feature, using its name from the text. Return only the title on one line, at most 80 characters."
             } else {
                 instruction = summary
                     ? "Кратко перескажи фрагмент встречи: основные темы, решения и следующие шаги. До 5 предложений. Сохрани конкретные названия проектов и факты. Только пересказ, без вступления. Отвечай на языке беседы."
-                    : "Напиши короткий заголовок по содержанию беседы, от 3 до 8 слов, максимум 80 символов. Отрази главную тему или решение. Только сам заголовок в одну строку, без слов «Название» и «Встреча», без кавычек, даты, пояснений и точки в конце. Отвечай на языке беседы."
+                    : "Заголовок в 3–8 словах: конкретный предмет беседы и главное решение. Начни с названия предмета, продукта или функции, используя слова из текста. Верни только заголовок в одну строку, максимум 80 символов."
             }
             // Each chunk gets a fresh session, so earlier contexts and KV caches do not accumulate.
             let session = ChatSession(model,
@@ -54,7 +54,7 @@ actor MeetingTitleModel {
                 generateParameters: .init(maxTokens: summary ? 220 : 64, temperature: 0),
                 additionalContext: ["enable_thinking": false])
             do {
-                let response = try await session.respond(to: "\(instruction)\n\n<transcript>\n\(request.text)\n</transcript>\n/no_think")
+                let response = try await session.respond(to: "<transcript>\n\(request.text)\n</transcript>\n\n\(instruction)\n/no_think")
                 await session.synchronize()
                 return response
             } catch {

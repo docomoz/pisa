@@ -31,7 +31,7 @@ Files: Sources/PisyaCore/Models.swift, Sources/PisyaCore/MeetingTitles.swift, Te
 - [x] Add failing tests for provenance, persistence, invalid output, all chunks and provider failure
 - [x] Run swift test --filter MeetingTitleTests; confirm expected failures
 - [x] Implement title policy and sequential summary reduction
-- [ ] Run swift test
+- [x] Run swift test
 
 ### Task 2: Native inference and completion integration
 
@@ -42,5 +42,5 @@ Files: Sources/Pisya/MeetingTitleModel.swift, Sources/Pisya/MeetingTitleTests.sw
 - [x] Integrate both full and live completion, preserving saved transcript on failure
 - [x] Run isolated native checks with the real model and synthetic Russian/English conversations
 - [x] Build Release; verify packaging and signature
-- [ ] Inspect title display and manual rename in an isolated final build
+- [x] Inspect title display and manual rename in an isolated final build
 - [x] Review task diff and commit only task changes

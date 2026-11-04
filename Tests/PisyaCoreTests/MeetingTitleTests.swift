@@ -74,6 +74,11 @@ final class MeetingTitleTests: XCTestCase {
         XCTAssertNil(MeetingTitleComposer.cleanTitle("12345"))
     }
 
+    func testRejectsSummaryProseInsteadOfAShortTitle() {
+        XCTAssertNil(MeetingTitleComposer.cleanTitle("Ошибка в сценариях адреса и названия. Решение: перенести запуск на декабрь"))
+        XCTAssertEqual(MeetingTitleComposer.cleanTitle("Запуск поиска: проверка качества, исправление ошибок"), "Запуск поиска: проверка качества, исправление ошибок")
+    }
+
     func testShortTranscriptGeneratesATitleAndEmptyTranscriptSkipsModel() async throws {
         let composer = MeetingTitleComposer { request in
             guard request.kind == .title, request.text.contains("нового поиска") else { throw TestFailure.unexpectedInput }

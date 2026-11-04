@@ -67,7 +67,7 @@ public struct MeetingTitleComposer: Sendable {
         }
         text = text.trimmingCharacters(in: CharacterSet(charactersIn: "#*`\"«»“”‘’. \t"))
         text = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        guard (3...80).contains(text.count), text.split(separator: " ").count <= 12,
+        guard (3...80).contains(text.count), text.split(separator: " ").count <= 8,
               text.unicodeScalars.contains(where: CharacterSet.letters.contains) else { return nil }
         return text
     }
