@@ -111,13 +111,13 @@ struct MeetingView: View {
             }.actionControls().font(PisyaDesign.Typography.detailMedium).controlSize(.large).padding(.top, PisyaDesign.Spacing.section).padding(.bottom, PisyaDesign.Spacing.section)
             if !meeting.speakers.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: PisyaDesign.Spacing.related) {
+                    HStack(spacing: PisyaDesign.Spacing.section) {
                         ForEach(meeting.speakers, id: \.self) { speaker in
-                            Button { state.voiceMeeting = meeting } label: {
-                                screenLabel(speaker, systemImage: "person.crop.circle")
-                            }.speakerChip()
+                            screenLabel(speaker, systemImage: "person.crop.circle")
+                                .fixedSize()
+                                .accessibilityElement(children: .combine)
                         }
-                    }
+                    }.font(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk)
                 }.background(HorizontalWheelScroll()).padding(.bottom, PisyaDesign.Spacing.section)
             }
             HStack(spacing: PisyaDesign.Spacing.inline) { screenText("РАСШИФРОВКА").tracking(PisyaDesign.Typography.overlineTracking); Spacer(); screenText(fragmentCount(meeting.segments.count)) }.font(PisyaDesign.Typography.footnoteMedium).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
