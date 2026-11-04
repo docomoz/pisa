@@ -22,6 +22,7 @@ struct PisyaApp: App {
                 .sheet(isPresented: Binding(get: { state.modelSetup.presented }, set: { state.modelSetup.presented = $0 })) {
                     ModelSetupView(setup: state.modelSetup, onReady: { state.modelInstallationCompleted() })
                 }
+                .focusEffectDisabled()
         }
         .defaultSize(width: 1200, height: 800)
         .windowStyle(.hiddenTitleBar)
@@ -34,7 +35,7 @@ struct PisyaApp: App {
                         options[.applicationIcon] = icon
                     }
                     let paragraph = NSMutableParagraphStyle()
-                    paragraph.alignment = .center; paragraph.paragraphSpacing = 8
+                    paragraph.alignment = .center; paragraph.paragraphSpacing = PisyaDesign.Spacing.inline
                     let credits = "Максим Берёзкин\nmaxim@berezkin.ru\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
                     let attributedCredits = NSMutableAttributedString(string: credits, attributes: [
                         .font: NSFont.systemFont(ofSize: 14),
@@ -79,7 +80,7 @@ struct MenuContents: View {
     @EnvironmentObject var state: AppState
     let showMain: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
             if state.recording {
                 HStack {
                     screenText("Идёт запись").font(.appFont(size: 14, weight: .semibold))
@@ -93,7 +94,7 @@ struct MenuContents: View {
             Button {
                 Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: PisyaDesign.Spacing.inline) {
                     Image(systemName: state.recording ? "stop.circle" : "record.circle").frame(width: 16, height: 16)
                     screenText(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись")
                 }
@@ -105,14 +106,14 @@ struct MenuContents: View {
                 if state.recording || state.processingID != nil { state.message = "Сначала остановите запись или обработку"; showMain() }
                 else { NSApp.terminate(nil) }
             }.shapeAwarePlainButton()
-        }.font(.appFont(size: 13)).buttonStyle(.plain).padding(16).frame(width: 300).popupCanvas()
+        }.font(.appFont(size: 13)).buttonStyle(.plain).padding(PisyaDesign.Spacing.content).frame(width: 300).popupCanvas()
     }
 }
 
 private struct MenuCheckboxStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: PisyaDesign.Spacing.inline) {
                 Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
                     .foregroundStyle(configuration.isOn ? Color.moss : Color.ink)
                     .frame(width: 16, height: 16)

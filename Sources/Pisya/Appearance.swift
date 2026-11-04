@@ -29,6 +29,32 @@ enum PisyaDesign {
         static let regularPadding: CGFloat = 16
         static let smallPadding: CGFloat = 12
     }
+    enum Spacing {
+        static let inline: CGFloat = 8
+        static let related: CGFloat = 12
+        static let content: CGFloat = 16
+        static let section: CGFloat = 24
+        static let sheetInset: CGFloat = 28
+        static let page: CGFloat = 32
+    }
+}
+
+struct SectionHeading: View {
+    let title: String
+    var subtitle: String?
+    var size: CGFloat = 19
+    init(_ title: String, subtitle: String? = nil, size: CGFloat = 19) {
+        self.title = title; self.subtitle = subtitle; self.size = size
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
+            screenText(title).font(.appFont(size: size, weight: .semibold))
+            if let subtitle {
+                screenText(subtitle).foregroundStyle(Color.mutedInk)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }.fixedSize(horizontal: false, vertical: true)
+    }
 }
 
 extension Color {
@@ -52,6 +78,7 @@ extension View {
     func popupCanvas() -> some View {
         foregroundStyle(Color.ink).tint(Color.brandAccent).background(Color.paper)
             .background(SlimScrollbars().allowsHitTesting(false))
+            .focusEffectDisabled()
     }
     func plainSurface(radius: CGFloat = 12) -> some View {
         background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: radius))
@@ -64,14 +91,34 @@ extension View {
             }
         }
     }
-    func actionControls() -> some View { buttonStyle(ActionButtonStyle()) }
+    func actionControls() -> some View { buttonStyle(ActionButtonStyle()).focusEffectDisabled() }
     func actionButton(_ role: ActionButtonRole = .secondary, size: ActionButtonSize = .regular) -> some View {
         buttonStyle(ActionButtonStyle(role: role, size: size))
-            .contentShape(.focusEffect, RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+            .controlKeyboardFocus()
     }
     func speakerChip() -> some View { actionButton(.secondary, size: .small) }
     func shapeAwarePlainButton<Outline: Shape>(_ shape: Outline = RoundedRectangle(cornerRadius: 8)) -> some View {
-        buttonStyle(.plain).contentShape(.focusEffect, shape)
+        buttonStyle(PlainControlStyle()).controlKeyboardFocus()
+    }
+    func controlKeyboardFocus() -> some View { modifier(ControlKeyboardFocus()) }
+}
+
+private struct ControlFocusedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+extension EnvironmentValues {
+    var controlFocused: Bool {
+        get { self[ControlFocusedKey.self] }
+        set { self[ControlFocusedKey.self] = newValue }
+    }
+}
+private struct ControlKeyboardFocus: ViewModifier {
+    // Bind the control itself: macOS doesn't propagate its focus into a ButtonStyle label.
+    @FocusState private var focused: Bool
+    func body(content: Content) -> some View {
+        content.focused($focused)
+            .environment(\.controlFocused, focused)
+            .focusEffectDisabled()
     }
 }
 
@@ -92,15 +139,16 @@ private struct ActionButtonContent<Label: View>: View {
     let enabled: Bool
     let pressed: Bool
     @State private var hovered = false
+    @Environment(\.controlFocused) private var focused
     private var background: Color {
         guard enabled else { return PisyaDesign.Colors.disabledSurface }
         switch role {
         case .primary:
-            return pressed ? PisyaDesign.Colors.primaryPressed : hovered ? PisyaDesign.Colors.primaryHover : PisyaDesign.Colors.brandAccent
+            return pressed ? PisyaDesign.Colors.primaryPressed : (hovered || focused) ? PisyaDesign.Colors.primaryHover : PisyaDesign.Colors.brandAccent
         case .secondary:
-            return pressed ? PisyaDesign.Colors.secondaryPressed : hovered ? PisyaDesign.Colors.secondaryHover : PisyaDesign.Colors.secondary
+            return (pressed || focused) ? PisyaDesign.Colors.secondaryPressed : hovered ? PisyaDesign.Colors.secondaryHover : PisyaDesign.Colors.secondary
         case .recording:
-            return pressed ? PisyaDesign.Colors.recordingPressed : hovered ? PisyaDesign.Colors.recordingHover : PisyaDesign.Colors.recording
+            return pressed ? PisyaDesign.Colors.recordingPressed : (hovered || focused) ? PisyaDesign.Colors.recordingHover : PisyaDesign.Colors.recording
         }
     }
     private var foreground: Color {
@@ -118,7 +166,7 @@ private struct ActionButtonContent<Label: View>: View {
             .frame(minHeight: size == .small ? PisyaDesign.Metrics.smallHeight : PisyaDesign.Metrics.regularHeight)
             .background(background, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
             .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
-            .contentShape(.focusEffect, RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+            .focusEffectDisabled()
             .onHover { hovered = $0 }
     }
 }
@@ -141,7 +189,30 @@ struct AccentIconStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(enabled ? Color.moss : Color.disabledInk)
+            .modifier(ControlFocusFill())
             .brightness(enabled && configuration.isPressed ? -0.05 : 0)
-            .contentShape(.focusEffect, Circle())
+            .focusEffectDisabled()
+    }
+}
+
+private struct PlainControlStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.modifier(ControlFocusFill())
+            .brightness(configuration.isPressed ? -0.05 : 0)
+            .focusEffectDisabled()
+    }
+}
+
+private struct ControlFocusFill: ViewModifier {
+    @Environment(\.controlFocused) private var focused
+    @Environment(\.isEnabled) private var enabled
+    func body(content: Content) -> some View {
+        content.overlay {
+            if focused && enabled {
+                RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)
+                    .fill(Color.moss.opacity(0.12))
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }

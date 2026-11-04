@@ -101,24 +101,24 @@ struct ModelSetupView: View {
     let onReady: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: PisyaDesign.Spacing.related) {
                 Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 26, height: 26)
                 screenText("Pisya").font(.appFont(size: 23, weight: .semibold))
                 Spacer()
                 screenText("НА ЭТОМ MAC").font(.appFont(size: 10, weight: .semibold)).tracking(1.5).foregroundStyle(Color.mutedInk)
-            }.padding(.bottom, 30)
+            }.padding(.bottom, PisyaDesign.Spacing.page)
             screenText(setup.ready ? "Всё готово к первой встрече" : "Подготовим Pisya к работе")
-                .font(.appFont(size: 29, weight: .semibold)).fixedSize(horizontal: false, vertical: true).padding(.bottom, 12)
+                .font(.appFont(size: 29, weight: .semibold)).fixedSize(horizontal: false, vertical: true).padding(.bottom, PisyaDesign.Spacing.inline)
             screenText(setup.ready ? "Модели установлены. Перед записью macOS попросит доступ к микрофону и системному звуку." : "Один раз загрузим модели для распознавания речи и участников. Затем встречи можно расшифровывать без интернета.")
-                .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true).padding(.bottom, 24)
-            VStack(alignment: .leading, spacing: 16) {
+                .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true).padding(.bottom, PisyaDesign.Spacing.content)
+            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
                 item("waveform", "Речь и участники", "Qwen3-ASR · локальная обработка")
                 Divider().opacity(0.5)
                 item("internaldrive", "Около 3 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
-            }.padding(20).plainSurface().padding(.bottom, 24)
+            }.padding(PisyaDesign.Spacing.content).plainSurface().padding(.bottom, PisyaDesign.Spacing.section)
             if setup.busy {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                    HStack(spacing: PisyaDesign.Spacing.related) {
                         screenText(setup.phase == .checking ? "Проверяем установленные модели…" : setup.progress?.verifying == true ? "Проверяем целостность…" : "Загружаем модели…")
                         Spacer()
                         if let p = setup.progress, p.expectedBytes > 0 { screenText("\(Int(p.fraction * 100)) %").monospacedDigit() }
@@ -136,7 +136,7 @@ struct ModelSetupView: View {
                 screenLabel(setup.ready ? "Можно начинать" : "Понадобится интернет только для загрузки", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
                     .font(.appFont(size: 14)).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
             }
-            HStack {
+            HStack(spacing: PisyaDesign.Spacing.related) {
                 if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.actionButton() }
                 else if !setup.ready { screenButton("Позже") { setup.dismiss() }.actionButton().disabled(setup.busy) }
                 Spacer()
@@ -144,13 +144,13 @@ struct ModelSetupView: View {
                 else if setup.phase != .downloading {
                     screenButton(setup.phase == .failed ? "Повторить загрузку" : "Загрузить модели") { setup.install(onReady: onReady) }.actionButton(.primary).disabled(setup.busy).keyboardShortcut(.defaultAction)
                 }
-            }.padding(.top, 16)
-        }.padding(36).frame(width: 600).popupCanvas().interactiveDismissDisabled(setup.busy)
+            }.padding(.top, PisyaDesign.Spacing.section)
+        }.padding(PisyaDesign.Spacing.sheetInset).frame(width: 600).popupCanvas().interactiveDismissDisabled(setup.busy)
     }
     private func item(_ symbol: String, _ title: String, _ subtitle: String) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: PisyaDesign.Spacing.related) {
             Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(Color.moss).frame(width: 28)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                 screenText(title).font(.appFont(size: 16, weight: .semibold))
                 screenText(subtitle).font(.appFont(size: 13)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
             }

@@ -11,8 +11,26 @@ func screenButton(_ title: String, role: ButtonRole? = nil, action: @escaping ()
 func screenLabel(_ title: String, systemImage: String) -> Label<Text, Image> {
     Label { screenText(title) } icon: { Image(systemName: systemImage) }
 }
-func screenToggle(_ title: String, isOn: Binding<Bool>) -> Toggle<Text> {
-    Toggle(isOn: isOn) { screenText(title) }
+func screenToggle(_ title: String, isOn: Binding<Bool>) -> some View {
+    FocusFillToggle(title: title, isOn: isOn)
+}
+
+private struct FocusFillToggle: View {
+    let title: String
+    @Binding var isOn: Bool
+    @FocusState private var focused: Bool
+    @Environment(\.isEnabled) private var enabled
+    var body: some View {
+        Toggle(isOn: $isOn) { screenText(title) }
+            .focused($focused)
+            .background {
+                if focused && enabled {
+                    RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)
+                        .fill(Color.moss.opacity(0.12)).allowsHitTesting(false)
+                }
+            }
+            .focusEffectDisabled()
+    }
 }
 func screenMenu<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> Menu<Text, Content> {
     Menu(content: content) { screenText(title) }
