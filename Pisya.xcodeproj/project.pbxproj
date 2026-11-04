@@ -17,6 +17,7 @@
 		15FF888174A02B8AE8D9924D /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B278DF62917E67995A9B0B57 /* ModelInstaller.swift */; };
 		1A96AB0329240BCF185CE120 /* EchoDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D6274BB0F524455208FA32 /* EchoDiagnostics.swift */; };
 		1B923B1F1AEA6015D2D5C482 /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E01BFA0522999304AB49C2 /* Appearance.swift */; };
+		1E68A7277D6783115F030439 /* title-model.json in Resources */ = {isa = PBXBuildFile; fileRef = 824AF412AFF73F8747886FA1 /* title-model.json */; };
 		1EB3CB67E4A82CF80EA3EFEC /* DesignComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D9A6D4429E9E71D9335F19 /* DesignComponents.swift */; };
 		24FC614084878FC2F9729297 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04715BFB01C5131C9A26F890 /* Models.swift */; };
 		31B3EA58BE206A9B53E81D2F /* EchoAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */; };
@@ -31,6 +32,8 @@
 		3DBE4D69BA42D37646A94F29 /* VoiceSampleSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A42438A746594B86FB1F148 /* VoiceSampleSelection.swift */; };
 		3F6BA10B65F06C8802346D3A /* Silero-LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 0F647C2920C1980D7FD05429 /* Silero-LICENSE */; };
 		447555F4160B7AAF85B9187E /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 76501685FA39B87B9D14185B /* libc++.tbd */; };
+		44F6CEC9DA361BC772CF7F71 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 26025720E1F08DF4A6D9A89D /* MLXLLM */; };
+		4975DAE1B4F37A312F602A8D /* MeetingTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86EAE0DD35522A2219AE9975 /* MeetingTitleTests.swift */; };
 		497D877330ED251DADAC7CFF /* SpeakerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D51E3A5735C65E4C6695131 /* SpeakerEngine.swift */; };
 		4DAC4E2D09BD62303E9E6FF3 /* LiveTranscriptionSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F65EBDA94C5680BD47C9F64 /* LiveTranscriptionSchedule.swift */; };
 		4F41F71B6C20E38A1450158C /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA472AA9B1DDD428B612D2D /* StatusBarController.swift */; };
@@ -50,6 +53,8 @@
 		77AB76F599A7CAF35DCD2761 /* AudioPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66782C763742FA0DA6D66EB7 /* AudioPipelineTests.swift */; };
 		7933543E2A3D6A3D333944CF /* VoiceProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC2FE419AB9523F095EAE72 /* VoiceProfileTests.swift */; };
 		7BBE50B94E1CD91B09B8E242 /* MLXAudioSTT in Frameworks */ = {isa = PBXBuildFile; productRef = BB05F724ED941553089ED300 /* MLXAudioSTT */; };
+		7C215BE79833443DBC34DEF3 /* MeetingTitles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BD15BAEA2D3ED5B6D8816C /* MeetingTitles.swift */; };
+		7D4728E1022BA680F4873477 /* MeetingTitleModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD71002B72F9BE98287243E9 /* MeetingTitleModel.swift */; };
 		7F2E3DB1CFC124C8EB1970A3 /* EditingFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6209E71D097B66F41ED17ECE /* EditingFocus.swift */; };
 		7F3A0421A4FFF0C988B70958 /* EchoDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6585D6825AB0F029B1B85B64 /* EchoDetector.swift */; };
 		866AC88D6DE7932CFDB566F6 /* MCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D39C911B36F059AE59708CE /* MCP.swift */; };
@@ -60,9 +65,11 @@
 		97F0683AA62AD156246FD303 /* libsherpa-onnx-c-api.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 3D56408874268B60F82531DF /* libsherpa-onnx-c-api.dylib */; };
 		9D887993F0B0A0014F6426C8 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7D9BA3CD5E71CD3D7A94AF /* Library.swift */; };
 		9F332A21E70A795F48284A2D /* AcousticEcho.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5133E0FE5AA8906E2BD7D958 /* AcousticEcho.swift */; };
+		A1E91D885C9E99BE76BA911D /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 47C0F1BCA11C140C205401E7 /* MLXLMCommon */; };
 		A50422B5670055545EDF9F33 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B278DF62917E67995A9B0B57 /* ModelInstaller.swift */; };
 		A594AAD95C34387CCD16F920 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8434C08566169642C267590E /* AppState.swift */; };
 		A69A4EC3F53D8A7F0077F944 /* PisyaPlain.icns in Resources */ = {isa = PBXBuildFile; fileRef = 933F1E681ACA1BD9B2705BA1 /* PisyaPlain.icns */; };
+		A97BE1A791DE88091328BFA3 /* MeetingTitles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BD15BAEA2D3ED5B6D8816C /* MeetingTitles.swift */; };
 		B6B0B392E461E1BDE14766A4 /* VoiceNameDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD67044B45B65F4105496FF0 /* VoiceNameDraft.swift */; };
 		BA178B3A513D47B1EECD2947 /* HorizontalWheelScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77FC5B696CF82D53B33A9E7E /* HorizontalWheelScroll.swift */; };
 		BE90CF5FF64D22E9381DE0C1 /* Transcriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19696248CFDC35ECF633842B /* Transcriber.swift */; };
@@ -137,8 +144,10 @@
 		76501685FA39B87B9D14185B /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		77FC5B696CF82D53B33A9E7E /* HorizontalWheelScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalWheelScroll.swift; sourceTree = "<group>"; };
 		7B93F0BF5AA174BAD09403D6 /* Launcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Launcher.swift; sourceTree = "<group>"; };
+		824AF412AFF73F8747886FA1 /* title-model.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "title-model.json"; sourceTree = "<group>"; };
 		829890694CC528DAFC4CCB21 /* PCMRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMRead.swift; sourceTree = "<group>"; };
 		8434C08566169642C267590E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		86EAE0DD35522A2219AE9975 /* MeetingTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTitleTests.swift; sourceTree = "<group>"; };
 		8E1BA91977928C54281807B8 /* ScreenTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTypography.swift; sourceTree = "<group>"; };
 		8F9511027F13DA6F25E99C2C /* libonnxruntime.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libonnxruntime.dylib; path = Vendor/Sherpa/lib/libonnxruntime.dylib; sourceTree = "<group>"; };
 		928FA6C25326860B1A818AC4 /* AppTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTypography.swift; sourceTree = "<group>"; };
@@ -146,6 +155,7 @@
 		9579F92753C9B8CE3CE01838 /* PisyaMCP */ = {isa = PBXFileReference; includeInIndex = 0; path = PisyaMCP; sourceTree = BUILT_PRODUCTS_DIR; };
 		9D0403C059496E9F8503E765 /* LibrarySidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySidebar.swift; sourceTree = "<group>"; };
 		9FA472AA9B1DDD428B612D2D /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
+		A1BD15BAEA2D3ED5B6D8816C /* MeetingTitles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTitles.swift; sourceTree = "<group>"; };
 		A4FF1C5BBACF2D807BA97CDB /* PisyaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PisyaApp.swift; sourceTree = "<group>"; };
 		A697488CF0DDBEB0150E6F5B /* ModelSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupTests.swift; sourceTree = "<group>"; };
 		B278DF62917E67995A9B0B57 /* ModelInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelInstaller.swift; sourceTree = "<group>"; };
@@ -154,6 +164,7 @@
 		BEF61299E592DACDA66C9038 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		C0952B28A7DF2AC5D07C9A55 /* silero_vad.onnx */ = {isa = PBXFileReference; path = silero_vad.onnx; sourceTree = "<group>"; };
 		CB0D64311CB7A53B966F9C31 /* SpeechDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDetector.swift; sourceTree = "<group>"; };
+		DD71002B72F9BE98287243E9 /* MeetingTitleModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTitleModel.swift; sourceTree = "<group>"; };
 		DD7AF6950D9FFD20B57A50ED /* ModelSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetup.swift; sourceTree = "<group>"; };
 		E15F1BA27798D440B4BD55F1 /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
 		E6601E0D6722B292A4DA886E /* SlimScrollbars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlimScrollbars.swift; sourceTree = "<group>"; };
@@ -178,6 +189,8 @@
 				FEBCBFA39AF3949C7227BB71 /* libonnxruntime.dylib in Frameworks */,
 				7BBE50B94E1CD91B09B8E242 /* MLXAudioSTT in Frameworks */,
 				8DF05F7404B6BA355E8B9CA6 /* MLXAudioCore in Frameworks */,
+				44F6CEC9DA361BC772CF7F71 /* MLXLLM in Frameworks */,
+				A1E91D885C9E99BE76BA911D /* MLXLMCommon in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -192,6 +205,7 @@
 				0A7D9BA3CD5E71CD3D7A94AF /* Library.swift */,
 				0F65EBDA94C5680BD47C9F64 /* LiveTranscriptionSchedule.swift */,
 				3D39C911B36F059AE59708CE /* MCP.swift */,
+				A1BD15BAEA2D3ED5B6D8816C /* MeetingTitles.swift */,
 				B278DF62917E67995A9B0B57 /* ModelInstaller.swift */,
 				04715BFB01C5131C9A26F890 /* Models.swift */,
 				02730430AA4A692599107B47 /* SpeakerClustering.swift */,
@@ -241,6 +255,8 @@
 				9D0403C059496E9F8503E765 /* LibrarySidebar.swift */,
 				F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */,
 				44679205B2926073F8B63DF5 /* MainView.swift */,
+				DD71002B72F9BE98287243E9 /* MeetingTitleModel.swift */,
+				86EAE0DD35522A2219AE9975 /* MeetingTitleTests.swift */,
 				DD7AF6950D9FFD20B57A50ED /* ModelSetup.swift */,
 				A697488CF0DDBEB0150E6F5B /* ModelSetupTests.swift */,
 				829890694CC528DAFC4CCB21 /* PCMRead.swift */,
@@ -273,6 +289,7 @@
 			isa = PBXGroup;
 			children = (
 				02CE9090C01C5E36995452C8 /* models.json */,
+				824AF412AFF73F8747886FA1 /* title-model.json */,
 			);
 			path = scripts;
 			sourceTree = "<group>";
@@ -359,6 +376,8 @@
 			packageProductDependencies = (
 				BB05F724ED941553089ED300 /* MLXAudioSTT */,
 				6FC7F640D1CAE370E4E83486 /* MLXAudioCore */,
+				26025720E1F08DF4A6D9A89D /* MLXLLM */,
+				47C0F1BCA11C140C205401E7 /* MLXLMCommon */,
 			);
 			productName = Pisya;
 			productReference = B43E43321EFB64C8319BF650 /* Pisya.app */;
@@ -391,6 +410,7 @@
 			mainGroup = 7A9EB90F0AB4D8FECBED1DA2;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				2D40EB37DD097FCF7AA8D831 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				9305460B6286A7D93368AF0B /* XCLocalSwiftPackageReference "Vendor/mlx-audio-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -414,6 +434,7 @@
 				3F6BA10B65F06C8802346D3A /* Silero-LICENSE in Resources */,
 				89C70A687B730E608D191530 /* models.json in Resources */,
 				3CF285DCAACCA8C25D4BB977 /* silero_vad.onnx in Resources */,
+				1E68A7277D6783115F030439 /* title-model.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -451,6 +472,7 @@
 				354C668ECB695B99A3A0F080 /* Library.swift in Sources */,
 				FEADC40A879F8C137986D832 /* LiveTranscriptionSchedule.swift in Sources */,
 				F213075828582EAD1BCF4290 /* MCP.swift in Sources */,
+				7C215BE79833443DBC34DEF3 /* MeetingTitles.swift in Sources */,
 				A50422B5670055545EDF9F33 /* ModelInstaller.swift in Sources */,
 				08318E52F67D3E31293557AE /* Models.swift in Sources */,
 				BEFAE7C58FF04A2925AF1A7B /* SpeakerClustering.swift in Sources */,
@@ -494,6 +516,9 @@
 				4DAC4E2D09BD62303E9E6FF3 /* LiveTranscriptionSchedule.swift in Sources */,
 				866AC88D6DE7932CFDB566F6 /* MCP.swift in Sources */,
 				8E4EF95AD5D77069EEEC1B34 /* MainView.swift in Sources */,
+				7D4728E1022BA680F4873477 /* MeetingTitleModel.swift in Sources */,
+				4975DAE1B4F37A312F602A8D /* MeetingTitleTests.swift in Sources */,
+				A97BE1A791DE88091328BFA3 /* MeetingTitles.swift in Sources */,
 				15FF888174A02B8AE8D9924D /* ModelInstaller.swift in Sources */,
 				5D6D25E673E99D77313610AC /* ModelSetup.swift in Sources */,
 				3AB3853FBED0B46305463AD8 /* ModelSetupTests.swift in Sources */,
@@ -765,7 +790,28 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		2D40EB37DD097FCF7AA8D831 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = revision;
+				revision = 2fdad9ea16f763688897182b7db3f581b47d5808;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		26025720E1F08DF4A6D9A89D /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2D40EB37DD097FCF7AA8D831 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+		47C0F1BCA11C140C205401E7 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2D40EB37DD097FCF7AA8D831 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
 		6FC7F640D1CAE370E4E83486 /* MLXAudioCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MLXAudioCore;

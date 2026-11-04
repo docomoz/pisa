@@ -43,6 +43,7 @@ final class AppState: ObservableObject {
     private var meterTask: Task<Void, Never>?
     private var offsetTask: Task<Void, Never>?
     private let transcriber = Transcriber()
+    private let titleModel = MeetingTitleModel()
     private var processingTask: Task<Void, Never>?
     private var liveTask: Task<Void, Never>?
     private var liveStopped = false
@@ -70,7 +71,7 @@ final class AppState: ObservableObject {
     func rename(_ m: Meeting, to title: String) {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
-        latest.title = title; update(latest)
+        latest.rename(to: title); update(latest)
     }
     func move(_ m: Meeting, to folder: UUID?) {
         guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
@@ -341,6 +342,8 @@ final class AppState: ObservableObject {
                         latest.duration = max(latest.duration, available)
                         latest.status = .ready; latest.error = nil; latest.liveCommittedUntil = nil
                         try library.save(latest); upsert(latest); exportIfConfigured(latest)
+                        await transcriber.finishLive()
+                        await nameCompletedMeeting(id)
                         break
                     }
                     liveStatus = "Готовлю черновик"
@@ -468,6 +471,7 @@ final class AppState: ObservableObject {
                     }
                 }
                 try library.save(latest); persisted = true; upsert(latest); exportIfConfigured(latest)
+                await nameCompletedMeeting(id)
                 let shared = Set(meetings.filter { $0.id != id }.flatMap(\.audioFiles))
                 for name in obsolete where !shared.contains(name) {
                     if let url = try? library.audioURL(name) { try? FileManager.default.removeItem(at: url) }
@@ -481,6 +485,25 @@ final class AppState: ObservableObject {
     }
     private func updateProcessingProgress(_ fraction: Double, _ description: String) {
         progress = fraction; phase = description
+    }
+    /// Failure here never changes the successful transcription's status or text.
+    func nameCompletedMeeting(_ id: UUID) async {
+        do {
+            let snapshot = try library.read(id)
+            guard snapshot.deletedAt == nil, snapshot.needsGeneratedTitle else { return }
+            liveStatus = ""
+            let title = try await titleModel.title(for: snapshot.segments, root: library.root.appendingPathComponent("Models")) { [weak self] description in
+                await self?.updateProcessingProgress(1, description)
+            }
+            try Task.checkCancellation()
+            guard let title, var latest = try? library.read(id), latest.deletedAt == nil,
+                  latest.segments == snapshot.segments, latest.applyGeneratedTitle(title) else { return }
+            try library.save(latest); upsert(latest); exportIfConfigured(latest)
+        } catch {
+            if !(error is CancellationError) {
+                message = "Расшифровка сохранена. Не удалось придумать название: " + error.localizedDescription
+            }
+        }
     }
     func stopPlayback() { player?.stop(); playingSegmentID = nil; playbackTimer?.invalidate(); playbackTimer = nil }
     func play(_ segment: TranscriptSegment, in meeting: Meeting) {

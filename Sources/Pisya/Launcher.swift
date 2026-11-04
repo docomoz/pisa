@@ -6,6 +6,13 @@ import SwiftUI
 @main
 enum Launcher {
     static func main() {
+        if CommandLine.arguments.contains("--title-inference-smoke-test") {
+            Task { @MainActor in
+                do { try await MeetingTitleTests.smoke(); exit(0) }
+                catch { print("TITLE_INFERENCE_SMOKE_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--meeting-title-self-test") {
             Task { @MainActor in
                 do { try await MeetingTitleTests.run(); exit(0) }

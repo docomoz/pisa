@@ -13,6 +13,7 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     }
 }
 public enum MeetingStatus: String, Codable, Sendable { case recorded, processing, ready, failed }
+public enum MeetingTitleOrigin: String, Codable, Sendable { case generated, custom }
 public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID = UUID()
     public var title: String
@@ -31,7 +32,9 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public var folderID: UUID?
     public var deletedAt: Date?
     public var automaticTitle: String?
+    public var titleOrigin: MeetingTitleOrigin?
     public var hasAutomaticTitle: Bool {
+        guard titleOrigin == nil else { return false }
         if let automaticTitle { return title == automaticTitle }
         func normalized(_ text: String) -> String { text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
         let stamps = [meetingDateLabel(date), date.formatted(date: .abbreviated, time: .shortened), date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "ru_RU")))]
@@ -48,6 +51,22 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
         let changed = title != defaultTitle || automaticTitle != defaultTitle
         title = defaultTitle; automaticTitle = title
         return changed
+    }
+    public var needsGeneratedTitle: Bool {
+        status == .ready && liveCommittedUntil == nil &&
+        (hasAutomaticTitle || titleOrigin == .generated) &&
+        segments.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    @discardableResult public mutating func applyGeneratedTitle(_ value: String) -> Bool {
+        guard needsGeneratedTitle, let clean = MeetingTitleComposer.cleanTitle(value) else { return false }
+        title = clean; titleOrigin = .generated; automaticTitle = nil
+        return true
+    }
+    @discardableResult public mutating func rename(to value: String) -> Bool {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return false }
+        title = clean; titleOrigin = .custom; automaticTitle = nil
+        return true
     }
     public init(title: String, source: String) { self.title = title; self.source = source }
     public var speakers: [String] { Array(Set(segments.map(\.speaker))).sorted() }
