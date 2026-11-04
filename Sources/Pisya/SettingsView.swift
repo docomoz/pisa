@@ -59,7 +59,14 @@ struct SettingsView: View {
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента") {
-                            screenText(verbatim: "[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"").font(.appFont(size: 15)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(PisyaDesign.Spacing.content).frame(maxWidth: .infinity, alignment: .leading).background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                            screenText(verbatim: "[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"")
+                                .font(Font(NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)))
+                                .foregroundStyle(PisyaDesign.Colors.paper)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                                .padding(PisyaDesign.Spacing.content)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(PisyaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                             screenButton("Скопировать конфигурацию") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString("[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"", forType: .string) }.actionButton()
                             screenText("Инструменты: list_meetings, search_meetings, read_transcript. Выключатель отзывает доступ и у уже запущенного клиента.").font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                         }
