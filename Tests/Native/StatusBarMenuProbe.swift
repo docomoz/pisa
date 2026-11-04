@@ -1,0 +1,98 @@
+import AppKit
+import Combine
+
+// Keep the real status-menu controller; replace audio and library services for this layout probe.
+@MainActor
+final class AppState: ObservableObject {
+    struct Preferences { var automaticRecording = false }
+    @Published var recording = false
+    @Published var recordingStarted: Date?
+    @Published var starting = false
+    @Published var demo = false
+    @Published var preferences = Preferences()
+    var processingID: UUID?
+    var message: String?
+    func setAutomatic(_ enabled: Bool) { preferences.automaticRecording = enabled }
+    func startRecording() async { recording = true }
+    func stopRecording(manual: Bool) async { recording = false }
+}
+
+enum BrandMark { static var menuIcon: NSImage { NSImage(size: NSSize(width: 16, height: 16)) } }
+enum AppTypography { static func counterFont(size: CGFloat) -> NSFont { .monospacedDigitSystemFont(ofSize: size, weight: .regular) } }
+enum PisyaDesign {
+    enum Spacing {
+        static let inline: CGFloat = 8
+        static let related: CGFloat = 12
+        static let content: CGFloat = 16
+        static let section: CGFloat = 24
+    }
+}
+func recordingTimecode(_ elapsed: TimeInterval) -> String { "00:01" }
+
+@main
+enum StatusBarMenuProbe {
+    @MainActor
+    static func main() {
+        _ = NSApplication.shared
+        let state = AppState()
+        let controller = StatusBarController(state: state, openMain: {})
+        let menu = Mirror(reflecting: controller).children.compactMap { $0.value as? NSMenu }.first!
+        let automatic = menu.items.first { $0.title == "Автоматическая запись" }!
+
+        func measure(_ enabled: Bool) -> NSSize {
+            state.setAutomatic(enabled)
+            controller.menuWillOpen(menu)
+            menu.update()
+            let size = menu.size
+            controller.menuDidClose(menu)
+            return size
+        }
+        let off = measure(false)
+        let on = measure(true)
+        let offAgain = measure(false)
+        print("MENU_SIZES off=\(off) on=\(on) offAgain=\(offAgain)")
+        guard off == on, on == offAgain else {
+            fputs("FAIL: toggling automatic recording changes the menu geometry\n", stderr)
+            exit(1)
+        }
+        guard let control = automatic.view as? NSButton, let action = control.action else {
+            fputs("FAIL: automatic recording must remain interactive inside the menu\n", stderr)
+            exit(1)
+        }
+        for expected in [true, false] {
+            NSApp.sendAction(action, to: control.target, from: control)
+            guard state.preferences.automaticRecording == expected,
+                  control.state == (expected ? .on : .off), menu.size == off else {
+                fputs("FAIL: checkbox activation must update the setting and checkmark without changing menu geometry\n", stderr)
+                exit(1)
+            }
+            if let index = CommandLine.arguments.firstIndex(of: "--render"), CommandLine.arguments.indices.contains(index + 1) {
+                let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)
+                try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                control.layoutSubtreeIfNeeded()
+                let bitmap = control.bitmapImageRepForCachingDisplay(in: control.bounds)!
+                control.cacheDisplay(in: control.bounds, to: bitmap)
+                let image = NSImage(size: control.bounds.size)
+                image.lockFocus()
+                NSColor.white.setFill()
+                control.bounds.fill()
+                let cached = NSImage(size: control.bounds.size)
+                cached.addRepresentation(bitmap)
+                cached.draw(in: control.bounds, from: .zero, operation: .sourceOver, fraction: 1)
+                image.unlockFocus()
+                let opaque = NSBitmapImageRep(data: image.tiffRepresentation!)!
+                try! opaque.representation(using: .png, properties: [:])!.write(to: directory.appendingPathComponent(expected ? "automatic-on.png" : "automatic-off.png"))
+            }
+        }
+        state.recording = true
+        state.recordingStarted = Date()
+        controller.menuWillOpen(menu)
+        menu.update()
+        guard menu.size == off, menu.items.contains(where: { $0.title == "Остановить запись" }) else {
+            fputs("FAIL: starting a recording must preserve menu geometry and expose the stop action\n", stderr)
+            exit(1)
+        }
+        controller.menuDidClose(menu)
+        print("STATUS_MENU_LAYOUT_OK repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
+    }
+}

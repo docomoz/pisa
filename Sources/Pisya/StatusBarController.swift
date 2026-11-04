@@ -6,10 +6,9 @@ import Combine
 final class StatusBarController: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
-    private let recordingStatus = NSMenuItem(title: "Идёт запись", action: nil, keyEquivalent: "")
     private let recordAction = NSMenuItem(title: "Начать запись", action: #selector(toggleRecording), keyEquivalent: "")
-    private let automaticAction = NSMenuItem(title: "Автоматический старт и стоп", action: #selector(toggleAutomatic), keyEquivalent: "")
-    private let automaticControl = PersistentMenuToggle(title: "Автоматический старт и стоп")
+    private let automaticAction = NSMenuItem(title: "Автоматическая запись", action: #selector(toggleAutomatic), keyEquivalent: "")
+    private let automaticControl = PersistentMenuToggle(title: "Автоматическая запись")
     private let state: AppState
     private let openMain: () -> Void
     private var timer: Timer?
@@ -26,7 +25,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         // Let AppKit draw the same compact, translucent menu used by other menu-bar apps.
         menu.delegate = self
         menu.autoenablesItems = false
-        menu.addItem(recordingStatus)
+        // The checkbox is a control inside the row, rather than a native menu state.
+        // Keeping menu states empty prevents the title column from shifting.
+        menu.showsStateColumn = false
         menu.addItem(withTitle: "Открыть Pisya", action: #selector(showMainWindow), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(recordAction)
@@ -55,7 +56,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         // Native AppKit measures a plain string once per second; no hosted clock view.
         button.setAccessibilityLabel(text.isEmpty ? "Pisya" : "Pisya · идёт запись · \(text)")
         button.toolTip = text.isEmpty ? "Pisya" : "Идёт запись · \(text)"
-        recordingStatus.title = text.isEmpty ? "Идёт запись" : "Идёт запись · \(text)"
     }
     func menuWillOpen(_ menu: NSMenu) {
         updateMenu()
@@ -67,20 +67,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             return nil
         }
     }
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        automaticControl.needsDisplay = true
+    }
     func menuDidClose(_ menu: NSMenu) {
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = nil
     }
 
     private func updateMenu() {
-        recordingStatus.isHidden = !state.recording
-        recordingStatus.isEnabled = false
         recordAction.title = state.starting
             ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…")
             : (state.recording ? "Остановить запись" : "Начать запись")
         recordAction.isEnabled = !state.starting && !state.demo
-        automaticAction.state = state.preferences.automaticRecording ? .on : .off
-        automaticControl.state = automaticAction.state
+        automaticControl.state = state.preferences.automaticRecording ? .on : .off
         automaticControl.needsDisplay = true
     }
     func showMenu() { item.button?.performClick(nil) }
@@ -107,15 +107,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 }
 
-/// Keeps the system menu's material while allowing repeated checkbox clicks.
+/// A standard checkbox inside the system menu, with no independent hover selection.
 @MainActor
 private final class PersistentMenuToggle: NSButton {
-    private var hovered = false
+    private let label: NSTextField
+    private let checkbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+
+    override var state: NSControl.StateValue {
+        didSet { checkbox.state = state }
+    }
 
     init(title: String) {
         let font = NSFont.menuFont(ofSize: 0)
-        let width = (title as NSString).size(withAttributes: [.font: font]).width
-            + PisyaDesign.Spacing.section + PisyaDesign.Spacing.content
+        label = NSTextField(labelWithString: title)
+        label.font = font
+        let width = label.fittingSize.width + checkbox.fittingSize.width
+            + PisyaDesign.Spacing.content * 2 + PisyaDesign.Spacing.related
         super.init(frame: NSRect(x: 0, y: 0, width: ceil(width), height: PisyaDesign.Spacing.section))
         self.title = title
         self.font = font
@@ -124,35 +131,56 @@ private final class PersistentMenuToggle: NSButton {
         focusRingType = .none
         autoresizingMask = [.width]
         setAccessibilityRole(.checkBox)
+        checkbox.focusRingType = .none
+        checkbox.refusesFirstResponder = true
+        checkbox.target = self
+        checkbox.action = #selector(toggleCheckbox)
+        checkbox.setAccessibilityElement(false)
+        label.setAccessibilityElement(false)
+        for view in [label, checkbox] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: PisyaDesign.Spacing.content),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            checkbox.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -PisyaDesign.Spacing.content),
+            checkbox.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: checkbox.leadingAnchor, constant: -PisyaDesign.Spacing.related)
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    @objc private func toggleCheckbox() {
+        if let action { NSApp.sendAction(action, to: target, from: self) }
     }
 
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
-    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); hovered = false; needsDisplay = true }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        return hit === checkbox ? checkbox : self
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        needsDisplay = true
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        needsDisplay = true
+        return accepted
+    }
 
     override func draw(_ dirtyRect: NSRect) {
-        let selected = hovered || isHighlighted || enclosingMenuItem?.isHighlighted == true || window?.firstResponder === self
+        let nativeSelection = enclosingMenuItem?.menu?.highlightedItem
+        let selected = (nativeSelection != nil && nativeSelection === enclosingMenuItem)
+            || (window?.firstResponder === self && nativeSelection == nil)
         if selected {
             NSColor.selectedContentBackgroundColor.setFill()
             NSBezierPath(roundedRect: bounds.insetBy(dx: PisyaDesign.Spacing.inline / 2, dy: 0), xRadius: PisyaDesign.Spacing.inline / 2, yRadius: PisyaDesign.Spacing.inline / 2).fill()
         }
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font ?? NSFont.menuFont(ofSize: 0),
-            .foregroundColor: selected ? NSColor.selectedMenuItemTextColor : NSColor.labelColor
-        ]
-        let height = (title as NSString).size(withAttributes: attributes).height
-        let y = (bounds.height - height) / 2
-        (title as NSString).draw(at: NSPoint(x: PisyaDesign.Spacing.section, y: y), withAttributes: attributes)
-        if state == .on {
-            ("✓" as NSString).draw(at: NSPoint(x: PisyaDesign.Spacing.inline, y: y), withAttributes: attributes)
-        }
+        label.textColor = selected ? .selectedMenuItemTextColor : .labelColor
     }
 }
