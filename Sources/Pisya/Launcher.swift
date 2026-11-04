@@ -6,6 +6,13 @@ import SwiftUI
 @main
 enum Launcher {
     static func main() {
+        if CommandLine.arguments.contains("--capture-self-test") {
+            Task { @MainActor in
+                do { try await AudioCaptureTests.run(); exit(0) }
+                catch { print("CAPTURE_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--model-setup-self-test") {
             Task { @MainActor in
                 do { try await ModelSetupTests.run(); exit(0) }

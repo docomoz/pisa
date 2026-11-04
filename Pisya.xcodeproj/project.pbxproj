@@ -24,6 +24,7 @@
 		354C668ECB695B99A3A0F080 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7D9BA3CD5E71CD3D7A94AF /* Library.swift */; };
 		397576242484470CC0422651 /* libPisyaAEC.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BA458164DDDE065767309A3 /* libPisyaAEC.a */; };
 		3AB3853FBED0B46305463AD8 /* ModelSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A697488CF0DDBEB0150E6F5B /* ModelSetupTests.swift */; };
+		3B8BC86998CA6A01AA4B981D /* SystemAudioTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745A4E7E341A29520582E0AC /* SystemAudioTap.swift */; };
 		3C9EB3B08457BB0D5DD8132F /* ScreenTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1BA91977928C54281807B8 /* ScreenTypography.swift */; };
 		3CF285DCAACCA8C25D4BB977 /* silero_vad.onnx in Resources */ = {isa = PBXBuildFile; fileRef = C0952B28A7DF2AC5D07C9A55 /* silero_vad.onnx */; };
 		3DBE4D69BA42D37646A94F29 /* VoiceSampleSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A42438A746594B86FB1F148 /* VoiceSampleSelection.swift */; };
@@ -70,6 +71,7 @@
 		C9778B81F97258A3D7A7A345 /* BrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BAEB36AD45E0E5879222A8 /* BrandMark.swift */; };
 		CBAFCE5C4DA223C7EDAA20AD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF61299E592DACDA66C9038 /* SettingsView.swift */; };
 		D1626134BEE0985B1B54AC2F /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0403C059496E9F8503E765 /* LibrarySidebar.swift */; };
+		D2F70CEA6A01FA1EB8A392CF /* AudioCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09969B370892AC83AE29E503 /* AudioCaptureTests.swift */; };
 		E1BC92CB83D8D573A6EDDCB6 /* LivePipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */; };
 		E70D48433B80740BFBC1CC0E /* BrandMark.json in Resources */ = {isa = PBXBuildFile; fileRef = 617B477E74AC92F686705696 /* BrandMark.json */; };
 		F213075828582EAD1BCF4290 /* MCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D39C911B36F059AE59708CE /* MCP.swift */; };
@@ -99,6 +101,7 @@
 		02CE9090C01C5E36995452C8 /* models.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = models.json; sourceTree = "<group>"; };
 		04715BFB01C5131C9A26F890 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		08350AD7CF259E6666895C75 /* VoiceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceManager.swift; sourceTree = "<group>"; };
+		09969B370892AC83AE29E503 /* AudioCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureTests.swift; sourceTree = "<group>"; };
 		0A7D9BA3CD5E71CD3D7A94AF /* Library.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Library.swift; sourceTree = "<group>"; };
 		0D51E3A5735C65E4C6695131 /* SpeakerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEngine.swift; sourceTree = "<group>"; };
 		0F647C2920C1980D7FD05429 /* Silero-LICENSE */ = {isa = PBXFileReference; path = "Silero-LICENSE"; sourceTree = "<group>"; };
@@ -124,6 +127,7 @@
 		652A3742B6BB73EF82795BF0 /* AudioWindowReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWindowReader.swift; sourceTree = "<group>"; };
 		6585D6825AB0F029B1B85B64 /* EchoDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoDetector.swift; sourceTree = "<group>"; };
 		66782C763742FA0DA6D66EB7 /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
+		745A4E7E341A29520582E0AC /* SystemAudioTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioTap.swift; sourceTree = "<group>"; };
 		76501685FA39B87B9D14185B /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		77FC5B696CF82D53B33A9E7E /* HorizontalWheelScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalWheelScroll.swift; sourceTree = "<group>"; };
 		7B93F0BF5AA174BAD09403D6 /* Launcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Launcher.swift; sourceTree = "<group>"; };
@@ -209,6 +213,7 @@
 				8434C08566169642C267590E /* AppState.swift */,
 				928FA6C25326860B1A818AC4 /* AppTypography.swift */,
 				1E7D840A11300B4B35A42627 /* AudioCapture.swift */,
+				09969B370892AC83AE29E503 /* AudioCaptureTests.swift */,
 				28B8C8390CB5ED142F254257 /* AudioDiagnostics.swift */,
 				66782C763742FA0DA6D66EB7 /* AudioPipelineTests.swift */,
 				652A3742B6BB73EF82795BF0 /* AudioWindowReader.swift */,
@@ -236,6 +241,7 @@
 				0D51E3A5735C65E4C6695131 /* SpeakerEngine.swift */,
 				CB0D64311CB7A53B966F9C31 /* SpeechDetector.swift */,
 				9FA472AA9B1DDD428B612D2D /* StatusBarController.swift */,
+				745A4E7E341A29520582E0AC /* SystemAudioTap.swift */,
 				19696248CFDC35ECF633842B /* Transcriber.swift */,
 				08350AD7CF259E6666895C75 /* VoiceManager.swift */,
 			);
@@ -428,6 +434,7 @@
 				535134151030E62BA2CA8029 /* AppTypography.swift in Sources */,
 				1B923B1F1AEA6015D2D5C482 /* Appearance.swift in Sources */,
 				760FB62906453F1C046D202D /* AudioCapture.swift in Sources */,
+				D2F70CEA6A01FA1EB8A392CF /* AudioCaptureTests.swift in Sources */,
 				C807E5C802ED610ACC40A178 /* AudioDiagnostics.swift in Sources */,
 				77AB76F599A7CAF35DCD2761 /* AudioPipelineTests.swift in Sources */,
 				753D50F4388FCA2162533376 /* AudioTimeline.swift in Sources */,
@@ -463,6 +470,7 @@
 				497D877330ED251DADAC7CFF /* SpeakerEngine.swift in Sources */,
 				0E426ACCEE9BE5E3F10E9B35 /* SpeechDetector.swift in Sources */,
 				4F41F71B6C20E38A1450158C /* StatusBarController.swift in Sources */,
+				3B8BC86998CA6A01AA4B981D /* SystemAudioTap.swift in Sources */,
 				BE90CF5FF64D22E9381DE0C1 /* Transcriber.swift in Sources */,
 				041A85D5F0FD29F87F4BF60D /* VoiceManager.swift in Sources */,
 				BFFB0E18456A5437555373C6 /* VoiceNameDraft.swift in Sources */,

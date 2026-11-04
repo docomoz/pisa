@@ -148,7 +148,7 @@ struct MeetingView: View {
                     Spacer()
                     if state.recordingMeetingID != meeting.id { Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform").font(.appFont(size: 34, weight: .light)).foregroundStyle(Color.moss) }
                     screenText(state.recordingMeetingID == meeting.id ? (state.processingID == meeting.id ? "Здесь появится черновик" : "Расшифровка появится после записи") : meeting.status == .processing ? "Слушаю и превращаю в текст" : meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено").font(.appFont(size: 21, weight: .medium))
-                    if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.screen.localizedDescription : error).font(.appFont(size: 12)).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
+                    if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error).font(.appFont(size: 12)).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
                     if !state.recording && meeting.status != .processing && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
                     Spacer()
                 }.frame(maxWidth: .infinity)

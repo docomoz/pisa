@@ -118,7 +118,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                 block("Разрешения macOS", "Нужны для записи вашего голоса и собеседников") {
                     Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон…", systemImage: "mic") }.actionButton()
-                    Button { NSWorkspace.shared.open(CapturePermission.screen.settingsURL) } label: { screenLabel("Системный звук…", systemImage: "speaker.wave.2") }.actionButton()
+                    Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук…", systemImage: "speaker.wave.2") }.actionButton()
                 }
                 block("Хранение аудио", "На этом Mac") {
                     screenText("Оригиналы сохраняются без автоматического удаления. В папку экспорта отправляется только текст.")

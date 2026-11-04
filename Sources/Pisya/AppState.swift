@@ -194,9 +194,9 @@ final class AppState: ObservableObject {
         // Journal expected paths before capture, so interrupted sessions remain discoverable.
         m.audioFiles = ["\(m.id.uuidString)-mic.caf", "\(m.id.uuidString)-remote.caf"]
         do {
-            let filter = try await capture.prepare()
+            try await capture.prepare()
             try library.save(m)
-            try await capture.start(folder: library.audioDirectory, id: m.id, filter: filter)
+            try await capture.start(folder: library.audioDirectory, id: m.id)
             activeMeeting = m; recording = true; recordingStarted = Date(); automaticallyStarted = automatic
             recordingMonitor.reset()
             meterTask = Task { [weak self] in
