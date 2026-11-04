@@ -32,7 +32,28 @@ private struct FocusFillToggle: View {
     @FocusState private var focused: Bool
     @Environment(\.isEnabled) private var enabled
     var body: some View {
-        Toggle(isOn: $isOn) { screenText(title) }
+        Button { isOn.toggle() } label: {
+            HStack(spacing: PisyaDesign.Spacing.inline) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(isOn ? Color.brandAccent : Color.paper)
+                    .overlay {
+                        if isOn {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color.white)
+                        } else {
+                            // This is the checkbox boundary, independent of keyboard focus.
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(Color.mutedInk.opacity(0.65), lineWidth: 1.5)
+                        }
+                    }
+                    .frame(width: 18, height: 18)
+                    .opacity(enabled ? 1 : 0.45)
+                screenText(title)
+                    .foregroundStyle(enabled ? Color.ink : Color.disabledInk)
+            }.contentShape(Rectangle())
+        }
+            .buttonStyle(.plain)
             .focused($focused)
             .background {
                 if focused && enabled {
@@ -41,6 +62,9 @@ private struct FocusFillToggle: View {
                 }
             }
             .focusEffectDisabled()
+            .accessibilityRepresentation {
+                Toggle(isOn: $isOn) { screenText(title) }.toggleStyle(.checkbox)
+            }
     }
 }
 func screenMenu<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> Menu<Text, Content> {
