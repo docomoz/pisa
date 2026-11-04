@@ -65,6 +65,31 @@ enum StatusBarMenuProbe {
         material.appearance = NSAppearance(named: .vibrantLight)
         window.contentView = material
         material.addSubview(control)
+
+        // A prior click may leave keyboard focus on the checkbox while the mouse
+        // moves through other items and separators. Only the menu's current item
+        // may paint the selection background.
+        window.makeFirstResponder(control)
+        let normalItem = menu.items.first { !$0.isSeparatorItem && $0 !== automatic }!
+        let transitions: [(NSMenuItem?, Bool)] = [
+            (automatic, true), (normalItem, false), (nil, false),
+            (automatic, true), (nil, false), (normalItem, false), (automatic, true)
+        ]
+        let originalFrame = control.frame
+        for (item, expectedSelection) in transitions {
+            controller.menu(menu, willHighlight: item)
+            control.layoutSubtreeIfNeeded()
+            let bitmap = control.bitmapImageRepForCachingDisplay(in: control.bounds)!
+            control.cacheDisplay(in: control.bounds, to: bitmap)
+            let scale = CGFloat(bitmap.pixelsWide) / control.bounds.width
+            let pixel = bitmap.colorAt(x: Int(PisyaDesign.Spacing.inline * scale), y: bitmap.pixelsHigh / 2)!
+            let paintedSelection = pixel.alphaComponent > 0.9
+            guard paintedSelection == expectedSelection, control.frame == originalFrame, menu.size == off else {
+                fputs("FAIL: mouse selection jumps back to the focused checkbox or changes row geometry\n", stderr)
+                exit(1)
+            }
+        }
+        controller.menuDidClose(menu)
         var indicatorsVisible = true
         for expected in [true, false] {
             NSApp.sendAction(action, to: control.target, from: control)
@@ -75,6 +100,7 @@ enum StatusBarMenuProbe {
             }
             for selected in [false, true] {
                 window.makeFirstResponder(selected ? control : nil)
+                controller.menu(menu, willHighlight: selected ? automatic : nil)
                 control.needsDisplay = true
                 control.layoutSubtreeIfNeeded()
                 let bitmap = control.bitmapImageRepForCachingDisplay(in: control.bounds)!
@@ -129,6 +155,6 @@ enum StatusBarMenuProbe {
             exit(1)
         }
         controller.menuDidClose(menu)
-        print("STATUS_MENU_LAYOUT_OK repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
+        print("STATUS_MENU_LAYOUT_OK pointer_transitions repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
     }
 }

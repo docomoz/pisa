@@ -58,6 +58,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         button.toolTip = text.isEmpty ? "Pisya" : "Идёт запись · \(text)"
     }
     func menuWillOpen(_ menu: NSMenu) {
+        automaticControl.menuHighlighted = false
         updateMenu()
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.menu.highlightedItem === self.automaticAction,
@@ -68,9 +69,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        automaticControl.needsDisplay = true
+        automaticControl.menuHighlighted = item === automaticAction
     }
     func menuDidClose(_ menu: NSMenu) {
+        automaticControl.menuHighlighted = false
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = nil
     }
@@ -112,6 +114,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 private final class PersistentMenuToggle: NSButton {
     private let label: NSTextField
     private let checkbox = MenuCheckboxIndicator()
+    var menuHighlighted = false {
+        didSet { if oldValue != menuHighlighted { needsDisplay = true } }
+    }
 
     override var state: NSControl.StateValue {
         didSet { needsDisplay = true }
@@ -156,22 +161,10 @@ private final class PersistentMenuToggle: NSButton {
         super.hitTest(point) == nil ? nil : self
     }
 
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        needsDisplay = true
-        return accepted
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let accepted = super.resignFirstResponder()
-        needsDisplay = true
-        return accepted
-    }
-
     override func draw(_ dirtyRect: NSRect) {
-        let nativeSelection = enclosingMenuItem?.menu?.highlightedItem
-        let selected = (nativeSelection != nil && nativeSelection === enclosingMenuItem)
-            || (window?.firstResponder === self && nativeSelection == nil)
+        // The delegate supplies the incoming item before AppKit updates highlightedItem.
+        // A retained button focus must never reselect this row when the pointer leaves it.
+        let selected = menuHighlighted
         if selected {
             NSColor.selectedContentBackgroundColor.setFill()
             NSBezierPath(roundedRect: bounds.insetBy(dx: PisyaDesign.Spacing.inline / 2, dy: 0), xRadius: PisyaDesign.Spacing.inline / 2, yRadius: PisyaDesign.Spacing.inline / 2).fill()
