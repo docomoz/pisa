@@ -119,7 +119,7 @@ struct MeetingView: View {
                     }
                 }.background(HorizontalWheelScroll()).padding(.bottom, 24)
             }
-            HStack { screenText("РАСШИФРОВКА").tracking(1.5); Spacer(); screenText(fragmentCount(meeting.segments.count)) }.font(.appFont(size: 12, weight: .medium)).foregroundStyle(Color.mutedInk)
+            HStack { screenText("РАСШИФРОВКА").tracking(1.5); Spacer(); screenText(fragmentCount(meeting.segments.count)) }.font(.appFont(size: 12, weight: .medium)).foregroundStyle(Color.mutedInk).padding(.bottom, 12)
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
                 TextField("Поиск внутри записи", text: $transcriptSearch).textFieldStyle(.plain).focused($focusedField, equals: .search)
