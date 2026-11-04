@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject screen-local font construction and spacing outside the shared scale."""
+"""Keep font, leading and tracking together in the shared text styles."""
 from pathlib import Path
 import re
 import sys
@@ -9,7 +9,7 @@ paths = [Path(value) for value in sys.argv[1:]] or sorted((root / 'Sources/Pisya
 failures = []
 for path in paths:
     # Definitions live here. Tests and diagnostics contain no product screens.
-    if path.name in {'AppTypography.swift', 'Appearance.swift'} or path.stem.endswith(('Tests', 'Diagnostics')):
+    if path.name == 'AppTypography.swift' or path.stem.endswith(('Tests', 'Diagnostics')):
         continue
     source = path.read_text()
     # Preserve newlines for diagnostics while ignoring strings and comments.
@@ -18,9 +18,10 @@ for path in paths:
     rules = [
         (r'\b(?:NSFont|Font)\s*(?:\(|\.\w+\s*\()|\.appFont\s*\(', 'Use PisyaDesign.Typography'),
         (r'\.font\(\s*\.', 'Use a named typography role'),
-        (r'\.(?:padding|lineSpacing)\((?![^)]*PisyaDesign\.Spacing)[^)]*\)', 'Use PisyaDesign.Spacing'),
+        (r'\.padding\((?![^)]*PisyaDesign\.Spacing)[^)]*\)', 'Use PisyaDesign.Spacing'),
+        (r'\bfont\((?!\s*PisyaDesign\.Typography\.Icon\.)[^)]*\)', 'Use textStyle so font and leading cannot diverge'),
+        (r'\.(?:lineSpacing|tracking)\(', 'Leading and tracking belong to the shared text style'),
         (r'\bspacing:\s*(?!PisyaDesign\b|subtitle\b)[0-9.-]+', 'Use PisyaDesign.Spacing'),
-        (r'\.tracking\((?!PisyaDesign\.Typography)[^)]*\)', 'Use a typography tracking token'),
         (r'SectionHeading\([^\n]*\bsize:', 'Choose a SectionHeading.Style'),
     ]
     for pattern, message in rules:

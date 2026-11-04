@@ -28,9 +28,9 @@ struct BrandMoodView: View {
 
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
-            screenText("Pisya").font(PisyaDesign.Typography.detailStrong).fixedSize()
+            screenText("Pisya").textStyle(PisyaDesign.Typography.detailStrong).fixedSize()
             screenText("\(Self.phrases[phraseIndex]) \(Self.emojis[emojiIndex])")
-                .font(PisyaDesign.Typography.detail).foregroundStyle(Self.colors[colorIndex])
+                .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Self.colors[colorIndex])
                 .lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: 340, alignment: .leading)

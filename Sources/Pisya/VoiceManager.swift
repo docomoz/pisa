@@ -27,12 +27,12 @@ struct VoiceManager: View {
                         if let meeting {
                             ForEach(meeting.speakers, id: \.self) { speaker in
                                 LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                                    screenText(speaker).font(PisyaDesign.Typography.bodyStrong)
+                                    screenText(speaker).textStyle(PisyaDesign.Typography.bodyStrong)
                                     ForEach(voiceSamples(for: speaker, in: meeting.segments)) { segment in
                                         HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
                                             Button { select(segment); state.preview(segment, in: meeting) } label: { Image(systemName: state.playingSegmentID == segment.id ? "stop.circle.fill" : "play.circle.fill").font(PisyaDesign.Typography.Icon.featured) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(meeting.audioFiles.isEmpty || state.recording).screenHelp("Прослушать до 8 секунд")
                                             Button { select(segment) } label: {
-                                                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) { screenText("\(timecode(segment.start)) · \(timecode(segment.end - segment.start))").font(PisyaDesign.Typography.footnote); screenText(segment.text).font(PisyaDesign.Typography.secondary).lineLimit(2) }.frame(maxWidth: .infinity, alignment: .leading)
+                                                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) { screenText("\(timecode(segment.start)) · \(timecode(segment.end - segment.start))").textStyle(PisyaDesign.Typography.footnote); screenText(segment.text).textStyle(PisyaDesign.Typography.secondary).lineLimit(2) }.frame(maxWidth: .infinity, alignment: .leading)
                                             }.shapeAwarePlainButton()
                                         }.padding(PisyaDesign.Spacing.related).background(selected == segment.id ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                                     }
@@ -58,9 +58,9 @@ struct VoiceManager: View {
                                     screenButton("Послушать образец · \(timecode(automaticSample.start))–\(timecode(automaticSample.end))") {
                                         state.preview(automaticSample, in: meeting)
                                     }.actionButton().disabled(state.recording || state.demo)
-                                    screenText("Образец до 8 секунд выбирается автоматически, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                                    screenText("Образец до 8 секунд выбирается автоматически, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 } else if automaticSample == nil {
-                                    screenText("Нет подходящего образца от 2 секунд с голосовым слепком и доступным аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                                    screenText("Нет подходящего образца от 2 секунд с голосовым слепком и доступным аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 }
                                 screenButton("Применить имя") {
                                     state.assignVoice(meetingID: meetingID, segmentID: sample.id, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
@@ -68,7 +68,7 @@ struct VoiceManager: View {
                             }
                         } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                }.id(selected).font(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350)
+                }.id(selected).textStyle(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350)
             }
         }.dialogContent().frame(width: 940, height: 660).background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
     }

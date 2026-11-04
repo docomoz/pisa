@@ -2,34 +2,38 @@ import SwiftUI
 import AppKit
 
 extension PisyaDesign {
-    /// Text roles own size and weight; screens choose a role instead of a point size.
+    /// A text role always applies its font, leading and tracking together.
     enum Typography {
-        static let hero = Font.system(size: 40, weight: .medium)
-        static let pageTitle = Font.system(size: 29, weight: .semibold)
-        static let automaticTitle = Font.system(size: 29)
-        static let windowTitle = Font.system(size: 26, weight: .semibold)
-        static let brand = Font.system(size: 23, weight: .semibold)
-        static let dialogTitle = Font.system(size: 22, weight: .semibold)
-        static let sectionTitle = Font.system(size: 19, weight: .semibold)
-        static let body = Font.system(size: 16)
-        static let bodyStrong = Font.system(size: 16, weight: .semibold)
-        static let secondary = Font.system(size: 15)
-        static let detail = Font.system(size: 14)
-        static let detailMedium = Font.system(size: 14, weight: .medium)
-        static let detailStrong = Font.system(size: 14, weight: .semibold)
-        static let caption = Font.system(size: 13)
-        static let captionMedium = Font.system(size: 13, weight: .medium)
-        static let footnote = Font.system(size: 12)
-        static let footnoteMedium = Font.system(size: 12, weight: .medium)
-        static let micro = Font.system(size: 11)
-        static let microMedium = Font.system(size: 11, weight: .medium)
-        static let overline = Font.system(size: 10, weight: .semibold)
-        static let code = Font(NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
-        static let elapsed = Font.system(size: 11, design: .monospaced)
-        static let button = Font.system(size: 16, weight: .medium)
-        static let smallButton = Font.system(size: 13, weight: .medium)
-        static let overlineTracking: CGFloat = 1.5
-        static let heroTracking: CGFloat = -0.8
+        struct Style {
+            let font: Font
+            let lineSpacing: CGFloat
+            var tracking: CGFloat = 0
+        }
+        static let hero = Style(font: .system(size: 40, weight: .medium), lineSpacing: Spacing.hairline, tracking: -0.8)
+        static let pageTitle = Style(font: .system(size: 29, weight: .semibold), lineSpacing: Spacing.compact)
+        static let automaticTitle = Style(font: .system(size: 29), lineSpacing: Spacing.compact)
+        static let windowTitle = Style(font: .system(size: 26, weight: .semibold), lineSpacing: Spacing.compact)
+        static let brand = Style(font: .system(size: 23, weight: .semibold), lineSpacing: Spacing.compact)
+        static let dialogTitle = Style(font: .system(size: 22, weight: .semibold), lineSpacing: Spacing.compact)
+        static let sectionTitle = Style(font: .system(size: 19, weight: .semibold), lineSpacing: Spacing.compact)
+        static let body = Style(font: .system(size: 16), lineSpacing: Spacing.textLine)
+        static let bodyStrong = Style(font: .system(size: 16, weight: .semibold), lineSpacing: Spacing.textLine)
+        static let secondary = Style(font: .system(size: 15), lineSpacing: Spacing.textLine)
+        static let detail = Style(font: .system(size: 14), lineSpacing: Spacing.compact)
+        static let detailMedium = Style(font: .system(size: 14, weight: .medium), lineSpacing: Spacing.compact)
+        static let detailStrong = Style(font: .system(size: 14, weight: .semibold), lineSpacing: Spacing.compact)
+        static let caption = Style(font: .system(size: 13), lineSpacing: Spacing.compact)
+        static let captionMedium = Style(font: .system(size: 13, weight: .medium), lineSpacing: Spacing.compact)
+        static let footnote = Style(font: .system(size: 12), lineSpacing: Spacing.compact)
+        static let footnoteMedium = Style(font: .system(size: 12, weight: .medium), lineSpacing: Spacing.compact)
+        static let micro = Style(font: .system(size: 11), lineSpacing: Spacing.hairline)
+        static let microMedium = Style(font: .system(size: 11, weight: .medium), lineSpacing: Spacing.hairline)
+        static let overline = Style(font: .system(size: 10, weight: .semibold), lineSpacing: Spacing.hairline, tracking: 1.5)
+        static let transcriptHeading = Style(font: .system(size: 12, weight: .medium), lineSpacing: Spacing.compact, tracking: 1.5)
+        static let code = Style(font: Font(NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)), lineSpacing: Spacing.compact)
+        static let elapsed = Style(font: .system(size: 11, design: .monospaced), lineSpacing: Spacing.none)
+        static let button = Style(font: .system(size: 16, weight: .medium), lineSpacing: Spacing.none)
+        static let smallButton = Style(font: .system(size: 13, weight: .medium), lineSpacing: Spacing.none)
 
         enum Icon {
             static let small = Font.system(size: 12)
@@ -41,6 +45,12 @@ extension PisyaDesign {
             static let disclosure = Font.system(size: 11, weight: .semibold)
             static let emptyState = Font.system(size: 34, weight: .light)
         }
+    }
+}
+
+extension View {
+    func textStyle(_ style: PisyaDesign.Typography.Style) -> some View {
+        font(style.font).lineSpacing(style.lineSpacing).tracking(style.tracking)
     }
 }
 

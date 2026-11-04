@@ -6,6 +6,27 @@ import SwiftUI
 @main
 enum Launcher {
     static func main() {
+        if CommandLine.arguments.contains("--meeting-title-self-test") {
+            Task { @MainActor in
+                do { try await MeetingTitleTests.run(); exit(0) }
+                catch { print("MEETING_TITLES_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
+        if CommandLine.arguments.contains("--meeting-title-preview") {
+            MainActor.assumeIsolated {
+                do { try MeetingTitleTests.preview() }
+                catch { print("MEETING_TITLES_PREVIEW_FAILED", error.localizedDescription) }
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--interface-preview") || Bundle.main.object(forInfoDictionaryKey: "PisyaInterfacePreview") as? Bool == true {
+            MainActor.assumeIsolated {
+                do { try InterfacePreview.run() }
+                catch { print("INTERFACE_PREVIEW_FAILED", error.localizedDescription) }
+            }
+            return
+        }
         if CommandLine.arguments.contains("--voice-profiles-self-test") {
             Task { @MainActor in
                 do { try VoiceProfileTests.run(); exit(0) }

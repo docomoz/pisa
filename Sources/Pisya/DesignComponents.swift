@@ -3,7 +3,7 @@ import SwiftUI
 struct SectionHeading: View {
     enum Style {
         case section, dialog, window, page
-        var font: Font {
+        var textStyle: PisyaDesign.Typography.Style {
             switch self {
             case .section: return PisyaDesign.Typography.sectionTitle
             case .dialog: return PisyaDesign.Typography.dialogTitle
@@ -20,7 +20,7 @@ struct SectionHeading: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-            screenText(title).font(style.font)
+            screenText(title).textStyle(style.textStyle)
             if let subtitle { SupportingText(subtitle) }
         }.fixedSize(horizontal: false, vertical: true)
     }
@@ -30,7 +30,7 @@ struct SupportingText: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        screenText(text).font(PisyaDesign.Typography.body).foregroundStyle(Color.mutedInk)
+        screenText(text).textStyle(PisyaDesign.Typography.body).foregroundStyle(Color.mutedInk)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -62,7 +62,7 @@ struct SearchField: View {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск")
             }
-        }.font(compact ? PisyaDesign.Typography.footnote : PisyaDesign.Typography.detail)
+        }.textStyle(compact ? PisyaDesign.Typography.footnote : PisyaDesign.Typography.detail)
             .padding(PisyaDesign.Spacing.related)
             .plainSurface(radius: compact ? PisyaDesign.Metrics.surfaceRadius : PisyaDesign.Metrics.cornerRadius)
     }
@@ -72,7 +72,7 @@ struct FormTextEditor: View {
     @Binding var text: String
     var outlined = false
     var body: some View {
-        TextEditor(text: $text).font(PisyaDesign.Typography.body)
+        TextEditor(text: $text).textStyle(PisyaDesign.Typography.body)
             .scrollContentBackground(.hidden)
             .frame(height: PisyaDesign.Metrics.editorHeight)
             .padding(PisyaDesign.Spacing.related)
@@ -99,14 +99,14 @@ struct Eyebrow: View {
     let title: String
     init(_ title: String) { self.title = title }
     var body: some View {
-        screenText(title).font(PisyaDesign.Typography.overline)
-            .tracking(PisyaDesign.Typography.overlineTracking).foregroundStyle(Color.mutedInk)
+        screenText(title).textStyle(PisyaDesign.Typography.overline)
+            .foregroundStyle(Color.mutedInk)
     }
 }
 
 extension View {
     func dialogContent() -> some View {
-        font(PisyaDesign.Typography.body).controlSize(.large).actionControls()
+        textStyle(PisyaDesign.Typography.body).controlSize(.large).actionControls()
             .padding(PisyaDesign.Spacing.sheetInset).popupCanvas()
     }
 }

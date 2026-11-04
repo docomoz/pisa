@@ -155,7 +155,7 @@ private struct ActionButtonContent<Label: View>: View {
     }
     var body: some View {
         label
-            .font(size == .small ? PisyaDesign.Typography.smallButton : PisyaDesign.Typography.button)
+            .textStyle(size == .small ? PisyaDesign.Typography.smallButton : PisyaDesign.Typography.button)
             .foregroundStyle(foreground)
             .padding(.horizontal, size == .small ? PisyaDesign.Spacing.related : PisyaDesign.Spacing.content)
             .frame(minHeight: size == .small ? PisyaDesign.Metrics.smallHeight : PisyaDesign.Metrics.regularHeight)
@@ -170,7 +170,7 @@ struct PisyaTextFieldStyle: TextFieldStyle {
     @Environment(\.isEnabled) private var enabled
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration.textFieldStyle(.plain)
-            .font(PisyaDesign.Typography.body)
+            .textStyle(PisyaDesign.Typography.body)
             .foregroundStyle(enabled ? PisyaDesign.Colors.ink : PisyaDesign.Colors.disabledInk)
             .padding(.horizontal, PisyaDesign.Spacing.related)
             .frame(minHeight: PisyaDesign.Metrics.regularHeight)

@@ -24,7 +24,7 @@ struct SettingsView: View {
                             screenToggle("Тихая обработка", isOn: Binding(get: { state.preferences.usesQuietProcessing }, set: { state.preferences.quietProcessing = $0; state.savePreferences() }))
                             SupportingText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
                             screenLabel(state.modelReady ? "Модель готова" : "Модели ещё не установлены", systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive").foregroundStyle(Color.moss)
-                            if let url = state.modelURL() { screenText(verbatim: url.path).font(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).foregroundStyle(Color.mutedInk).textSelection(.enabled) }
+                            if let url = state.modelURL() { screenText(verbatim: url.path).textStyle(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).foregroundStyle(Color.mutedInk).textSelection(.enabled) }
                             screenButton("Выбрать папку модели…") { state.chooseModel() }.actionButton()
                             screenButton(state.modelReady ? "Проверить и установить модели…" : "Загрузить модели…") {
                                 dismiss()
@@ -51,7 +51,7 @@ struct SettingsView: View {
                     case "Экспорт":
                         columns {
                         block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
-                            if let path = state.preferences.exportDisplayPath { screenText(verbatim: path).font(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) } else { screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk) }
+                            if let path = state.preferences.exportDisplayPath { screenText(verbatim: path).textStyle(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) } else { screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk) }
                             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Выбрать папку…") { state.chooseExportFolder() }.actionButton(); if state.preferences.exportBookmark != nil { screenButton("Отключить") { state.preferences.exportBookmark = nil; state.preferences.exportDisplayPath = nil; state.savePreferences() }.actionButton() } }
                             SupportingText("После расшифровки и последующих правок файл обновляется автоматически. В него входят текст, участники и временные метки. Аудио остаётся в библиотеке.")
                         }
@@ -71,7 +71,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента") {
                             screenText(verbatim: "[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"")
-                                .font(PisyaDesign.Typography.code)
+                                .textStyle(PisyaDesign.Typography.code)
                                 .foregroundStyle(PisyaDesign.Colors.paper)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .textSelection(.enabled)
@@ -87,10 +87,10 @@ struct SettingsView: View {
                         }
 
                     }
-                }.lineSpacing(PisyaDesign.Spacing.textLine).padding(.vertical, PisyaDesign.Spacing.compact)
+                }.padding(.vertical, PisyaDesign.Spacing.compact)
             }.id(section)
             }
-            HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").font(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
+            HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").textStyle(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
@@ -106,7 +106,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                         screenLabel("Старт — через 3 секунды", systemImage: "record.circle")
                         screenLabel("Стоп — через 45 секунд без микрофона", systemImage: "stop.circle").fixedSize(horizontal: false, vertical: true)
-                    }.font(PisyaDesign.Typography.body).fixedSize(horizontal: false, vertical: true)
+                    }.textStyle(PisyaDesign.Typography.body).fixedSize(horizontal: false, vertical: true)
                     SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука.")
                     // Keep the disclosure and its text together so the block's row spacing
                     // cannot add a second gap between the heading and its content.
@@ -158,7 +158,7 @@ private struct SettingsSectionPicker: View {
         HStack(spacing: PisyaDesign.Spacing.compact) {
             ForEach(sections, id: \.self) { item in
                 Button { selection = item } label: {
-                    screenText(item).font(selection == item ? PisyaDesign.Typography.detailStrong : PisyaDesign.Typography.detailMedium)
+                    screenText(item).textStyle(selection == item ? PisyaDesign.Typography.detailStrong : PisyaDesign.Typography.detailMedium)
                         .padding(.horizontal, PisyaDesign.Spacing.content).frame(height: 32)
                         .foregroundStyle(Color.ink)
                         .background(selection == item ? Color.paper : .clear, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))

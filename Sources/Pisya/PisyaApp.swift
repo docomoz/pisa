@@ -71,7 +71,7 @@ struct RecordingElapsed: View {
     let started: Date
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { clock in
-            screenText(recordingTimecode(clock.date.timeIntervalSince(started))).font(PisyaDesign.Typography.elapsed)
+            screenText(recordingTimecode(clock.date.timeIntervalSince(started))).textStyle(PisyaDesign.Typography.elapsed)
         }.frame(width: PisyaDesign.Metrics.elapsedWidth, height: PisyaDesign.Metrics.elapsedHeight, alignment: .leading)
     }
 }

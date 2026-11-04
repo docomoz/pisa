@@ -27,7 +27,7 @@ struct SavedVoicesSettings: View {
                 ForEach(state.voiceProfiles) { profile in
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                         HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
-                            screenText(profile.name).font(PisyaDesign.Typography.bodyStrong)
+                            screenText(profile.name).textStyle(PisyaDesign.Typography.bodyStrong)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             screenButton("Переименовать") { renaming = profile }

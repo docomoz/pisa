@@ -103,7 +103,7 @@ struct ModelSetupView: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 26, height: 26)
-                screenText("Pisya").font(PisyaDesign.Typography.brand)
+                screenText("Pisya").textStyle(PisyaDesign.Typography.brand)
                 Spacer()
                 Eyebrow("НА ЭТОМ MAC")
             }.padding(.bottom, PisyaDesign.Spacing.page)
@@ -122,19 +122,19 @@ struct ModelSetupView: View {
                         screenText(setup.phase == .checking ? "Проверяем установленные модели…" : setup.progress?.verifying == true ? "Проверяем целостность…" : "Загружаем модели…")
                         Spacer()
                         if let p = setup.progress, p.expectedBytes > 0 { screenText("\(Int(p.fraction * 100)) %").monospacedDigit() }
-                    }.font(PisyaDesign.Typography.detailMedium)
+                    }.textStyle(PisyaDesign.Typography.detailMedium)
                     if let p = setup.progress { ProgressView(value: p.fraction).tint(Color.moss) }
                     else { ProgressView().controlSize(.small) }
                     if let p = setup.progress {
                         screenText(p.verifying ? "Большой файл проверяется на Mac. Это может занять немного времени" : "Файл \(min(p.completedFiles + 1, p.totalFiles)) из \(p.totalFiles) · \(ByteCountFormatter.string(fromByteCount: p.downloadedBytes, countStyle: .file))")
-                            .font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                            .textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                     }
                 }.frame(minHeight: 66, alignment: .top)
             } else if let error = setup.error {
-                screenText(error).font(PisyaDesign.Typography.detail).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
+                screenText(error).textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
             } else {
                 screenLabel(setup.ready ? "Можно начинать" : "Понадобится интернет только для загрузки", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
-                    .font(PisyaDesign.Typography.detail).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
+                    .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
             }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.actionButton() }
@@ -151,8 +151,8 @@ struct ModelSetupView: View {
         HStack(spacing: PisyaDesign.Spacing.related) {
             Image(systemName: symbol).font(PisyaDesign.Typography.Icon.featured).foregroundStyle(Color.moss).frame(width: 28)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                screenText(title).font(PisyaDesign.Typography.bodyStrong)
-                screenText(subtitle).font(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                screenText(title).textStyle(PisyaDesign.Typography.bodyStrong)
+                screenText(subtitle).textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

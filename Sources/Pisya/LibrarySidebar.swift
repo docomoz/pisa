@@ -25,14 +25,14 @@ struct LibrarySidebar: View {
                     .plainSurface(radius: PisyaDesign.Metrics.navigationRadius).disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
                     .contextMenu { screenButton("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
-            }.font(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
-            HStack(spacing: PisyaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.font(PisyaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
+            }.textStyle(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
+            HStack(spacing: PisyaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.textStyle(PisyaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
             ScrollViewReader { proxy in
               ScrollView {
               LazyVStack(spacing: PisyaDesign.Spacing.compact) {
                 ForEach(state.filtered) { meeting in
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                        screenText(meeting.title).font(meeting.hasAutomaticTitle ? PisyaDesign.Typography.caption : PisyaDesign.Typography.captionMedium).lineLimit(1).truncationMode(.tail).screenHelp(meeting.title)
+                        screenText(meeting.title).textStyle(meeting.hasAutomaticTitle ? PisyaDesign.Typography.caption : PisyaDesign.Typography.captionMedium).lineLimit(1).truncationMode(.tail).screenHelp(meeting.title)
                         HStack(spacing: PisyaDesign.Spacing.inline) {
                             if !meeting.hasAutomaticTitle {
                                 screenText(meetingDateLabel(meeting.date)).lineLimit(1).truncationMode(.middle).layoutPriority(1).screenHelp(meetingDateLabel(meeting.date))
@@ -50,7 +50,7 @@ struct LibrarySidebar: View {
                             }
                             Spacer(minLength: 0)
                             if meeting.status == .processing { ProgressView().controlSize(.mini) }
-                        }.font(PisyaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
+                        }.textStyle(PisyaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
 
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
                         .plainSelection(state.selection == meeting.id)
@@ -68,7 +68,7 @@ struct LibrarySidebar: View {
                     let next = min(rows.count - 1, max(0, index + (direction == .down ? 1 : -1)))
                     state.select(rows[next].id); proxy.scrollTo(rows[next].id)
                 }
-                .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").font(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
+                .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
             }
         }.padding(.horizontal, PisyaDesign.Spacing.content).padding(.top, PisyaDesign.Spacing.content).padding(.bottom, PisyaDesign.Spacing.content).background(Color.sidebarTint)
         .confirmationDialog(typographicText("Очистить корзину? Все записи и их аудио будут удалены без возможности восстановления"), isPresented: $confirmEmptyTrash) {
@@ -166,11 +166,11 @@ private struct FolderEditor: View {
                 TextField("Название папки", text: $name).textFieldStyle(PisyaTextFieldStyle()).focused($nameFocused).onSubmit { submit() }
             }
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-            screenText("Иконка папки").font(PisyaDesign.Typography.detailMedium).foregroundStyle(Color.mutedInk)
+            screenText("Иконка папки").textStyle(PisyaDesign.Typography.detailMedium).foregroundStyle(Color.mutedInk)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(32), spacing: PisyaDesign.Spacing.inline), count: 8), spacing: PisyaDesign.Spacing.inline) {
                 ForEach(icons, id: \.0) { item in
                     Button { symbol = item.0 } label: {
-                        Image(systemName: item.0).font(PisyaDesign.Typography.detail).symbolRenderingMode(.monochrome)
+                        Image(systemName: item.0).textStyle(PisyaDesign.Typography.detail).symbolRenderingMode(.monochrome)
                             .frame(width: 32, height: 32)
                             .background(symbol == item.0 ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                             .contentShape(Rectangle())
