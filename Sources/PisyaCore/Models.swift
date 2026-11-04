@@ -8,6 +8,11 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     public var embedding: [Float]?
     public var audioFile: String?
     public var text: String
+    /// Renaming a speaker must not change the microphone track's visual identity.
+    public var isMicrophoneSpeaker: Bool {
+        if let audioFile { return audioFile.contains("-mic.") }
+        return speaker == "Я"
+    }
     public init(start: Double, end: Double, speaker: String, text: String) {
         self.start = start; self.end = end; self.speaker = speaker; self.text = text
     }
