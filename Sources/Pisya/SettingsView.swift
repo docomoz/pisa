@@ -30,8 +30,25 @@ struct SettingsView: View {
                         }
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-                        block("Контекстный словарь", "Названия, имена и термины, которые часто встречаются в разговорах") {
-                            TextEditor(text: $state.preferences.vocabulary).font(.appFont(size: 16)).frame(height: 180).padding(8).background(.white).clipShape(RoundedRectangle(cornerRadius: 8)).onChange(of: state.preferences.vocabulary) { state.savePreferences() }
+                        block("Контекстный словарь", "Подсказки модели для написания названий, имён и терминов") {
+                            TextEditor(text: $state.preferences.vocabulary)
+                                .font(.appFont(size: 16))
+                                .scrollContentBackground(.hidden)
+                                .frame(height: 180)
+                                .padding(PisyaDesign.Spacing.inline)
+                                .background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)
+                                        .strokeBorder(Color.mutedInk.opacity(0.25), lineWidth: 1)
+                                        .allowsHitTesting(false)
+                                }
+                                .accessibilityLabel("Контекстный словарь")
+                                .accessibilityHint("Введите слова через запятую или с новой строки")
+                                .onChange(of: state.preferences.vocabulary) { state.savePreferences() }
+                            screenText("Введите слова через запятую или с новой строки. Можно оставить поле пустым.")
+                                .font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                            screenText("Применяется к речи собеседников из системного звука. На ваш микрофон не влияет.")
+                                .font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                         }
 
 
