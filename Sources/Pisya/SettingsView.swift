@@ -131,9 +131,6 @@ struct SettingsView: View {
                     Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон…", systemImage: "mic") }.actionButton()
                     Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук…", systemImage: "speaker.wave.2") }.actionButton()
                 }.labelStyle(AlignedIconLabelStyle())
-                block("Хранение аудио", "На этом Mac") {
-                    SupportingText("Оригиналы сохраняются без автоматического удаления. В папку экспорта отправляется только текст.")
-                }
                 block("Фоновая расшифровка", "Черновик во время звонка") {
                     screenToggle("Расшифровывать во время записи", isOn: Binding(get: { state.preferences.usesBackgroundTranscription }, set: { state.setBackgroundTranscription($0) }))
                     SupportingText("После остановки обрабатывается оставшийся хвост. Пауза распознавания не останавливает запись.")
