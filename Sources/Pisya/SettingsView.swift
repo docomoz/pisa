@@ -75,7 +75,7 @@ struct SettingsView: View {
 
                     }
                 }.lineSpacing(PisyaDesign.Spacing.textLine).padding(.vertical, 4)
-            }
+            }.id(section)
             HStack { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
         }.actionControls().font(.appFont(size: 16)).controlSize(.large).padding(PisyaDesign.Spacing.sheetInset).frame(width: 900, height: 700).popupCanvas()
             .background(SettingsInitialFocus().allowsHitTesting(false))
@@ -96,17 +96,21 @@ struct SettingsView: View {
                     }.font(.appFont(size: 16)).fixedSize(horizontal: false, vertical: true)
                     screenText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука.")
                         .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
-                    Button { showRecordingDetails.toggle() } label: {
-                        HStack(spacing: PisyaDesign.Spacing.inline) {
-                            Image(systemName: showRecordingDetails ? "chevron.down" : "chevron.right").font(.appFont(size: 11, weight: .semibold)).frame(width: 12)
-                            screenText("Как работает и ограничения")
-                            Spacer(minLength: 0)
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5).contentShape(Rectangle())
-                    }.shapeAwarePlainButton().foregroundStyle(Color.moss)
-                        .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
-                    if showRecordingDetails {
-                        screenText("Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если вы начали запись вручную до встречи, автостоп включится только после обнаружения звонка.")
-                            .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true).padding(.top, PisyaDesign.Spacing.inline)
+                    // Keep the disclosure and its text together so the block's row spacing
+                    // cannot add a second gap between the heading and its content.
+                    VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
+                        Button { showRecordingDetails.toggle() } label: {
+                            HStack(spacing: PisyaDesign.Spacing.inline) {
+                                Image(systemName: showRecordingDetails ? "chevron.down" : "chevron.right").font(.appFont(size: 11, weight: .semibold)).frame(width: 12)
+                                screenText("Как работает и ограничения")
+                                Spacer(minLength: 0)
+                            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        }.shapeAwarePlainButton().foregroundStyle(Color.moss)
+                            .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
+                        if showRecordingDetails {
+                            screenText("Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если вы начали запись вручную до встречи, автостоп включится только после обнаружения звонка.")
+                                .font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
