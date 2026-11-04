@@ -137,12 +137,12 @@ struct ModelSetupView: View {
                     .font(.appFont(size: 14)).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
             }
             HStack {
-                if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.plainButton(neutral: true) }
-                else if !setup.ready { screenButton("Позже") { setup.dismiss() }.plainButton(neutral: true).disabled(setup.busy) }
+                if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.actionButton() }
+                else if !setup.ready { screenButton("Позже") { setup.dismiss() }.actionButton().disabled(setup.busy) }
                 Spacer()
-                if setup.ready { screenButton("Начать работу") { setup.dismiss() }.plainButton(prominent: true).keyboardShortcut(.defaultAction) }
+                if setup.ready { screenButton("Начать работу") { setup.dismiss() }.actionButton(.primary).keyboardShortcut(.defaultAction) }
                 else if setup.phase != .downloading {
-                    screenButton(setup.phase == .failed ? "Повторить загрузку" : "Загрузить модели") { setup.install(onReady: onReady) }.plainButton(prominent: true).disabled(setup.busy).keyboardShortcut(.defaultAction)
+                    screenButton(setup.phase == .failed ? "Повторить загрузку" : "Загрузить модели") { setup.install(onReady: onReady) }.actionButton(.primary).disabled(setup.busy).keyboardShortcut(.defaultAction)
                 }
             }.padding(.top, 16)
         }.padding(36).frame(width: 600).popupCanvas().interactiveDismissDisabled(setup.busy)

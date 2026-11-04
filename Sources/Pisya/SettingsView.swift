@@ -8,7 +8,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack { screenText("Настройки").font(.appFont(size: 26, weight: .semibold)); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.appFont(size: 20, weight: .semibold)).foregroundStyle(Color.mutedInk) }.shapeAwarePlainButton(Circle()).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
-            Picker("Раздел", selection: $section) { ForEach(["Запись", "Модель", "Экспорт", "MCP"], id: \.self) { screenText($0) } }.pickerStyle(.segmented).labelsHidden()
+            SettingsSectionPicker(selection: $section)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     switch section {
@@ -59,7 +59,7 @@ struct SettingsView: View {
                         } right: {
                             VStack(alignment: .leading, spacing: 28) {
                         block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента") {
-                            screenText(verbatim: "[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"").font(.appFont(size: 15)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Color.moss.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                            screenText(verbatim: "[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"").font(.appFont(size: 15)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(14).frame(maxWidth: .infinity, alignment: .leading).background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                             screenButton("Скопировать конфигурацию") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString("[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"", forType: .string) }
                             screenText("Инструменты: list_meetings, search_meetings, read_transcript. Выключатель отзывает доступ и у уже запущенного клиента.").font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true)
                         }
@@ -69,8 +69,8 @@ struct SettingsView: View {
                     }
                 }.padding(.vertical, 4)
             }
-            HStack { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.plainButton(prominent: true).keyboardShortcut(.cancelAction) }
-        }.plainControls().font(.appFont(size: 16)).controlSize(.large).padding(30).frame(width: 900, height: 700).popupCanvas()
+            HStack { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
+        }.actionControls().font(.appFont(size: 16)).controlSize(.large).padding(30).frame(width: 900, height: 700).popupCanvas()
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
     }
@@ -130,6 +130,33 @@ struct SettingsView: View {
     }
     private func block<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) { screenText(title).font(.appFont(size: 19, weight: .semibold)); screenText(subtitle).font(.appFont(size: 16)).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true); content() }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsSectionPicker: View {
+    @Binding var selection: String
+    @FocusState private var focused: String?
+    private let sections = ["Запись", "Модель", "Экспорт", "MCP"]
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(sections, id: \.self) { item in
+                Button { selection = item } label: {
+                    screenText(item).font(.appFont(size: 14, weight: selection == item ? .semibold : .medium))
+                        .padding(.horizontal, 16).frame(height: 32)
+                        .foregroundStyle(Color.ink)
+                        .background(selection == item ? Color.paper : .clear, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                        .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                }.shapeAwarePlainButton().focused($focused, equals: item)
+                    .accessibilityAddTraits(selection == item ? .isSelected : [])
+                    .onMoveCommand { direction in
+                        guard direction == .left || direction == .right,
+                              let index = sections.firstIndex(of: item) else { return }
+                        let next = min(sections.count - 1, max(0, index + (direction == .right ? 1 : -1)))
+                        selection = sections[next]; focused = sections[next]
+                    }
+            }
+        }.padding(4).background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityElement(children: .contain).accessibilityLabel("Раздел настроек")
     }
 }
 

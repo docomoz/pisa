@@ -16,7 +16,7 @@ struct VoiceManager: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack { VStack(alignment: .leading, spacing: 5) { screenText("Голоса встречи").font(.appFont(size: 22, weight: .semibold)); screenText("Послушайте фрагмент, назначьте имя и сохраните образец для следующих встреч").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk) }; Spacer(); screenButton("Готово") { dismiss() }.plainButton(prominent: true).keyboardShortcut(.cancelAction) }
+            HStack { VStack(alignment: .leading, spacing: 5) { screenText("Голоса встречи").font(.appFont(size: 22, weight: .semibold)); screenText("Послушайте фрагмент, назначьте имя и сохраните образец для следующих встреч").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk) }; Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
             HSplitView {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 22) {
@@ -30,7 +30,7 @@ struct VoiceManager: View {
                                             Button { select(segment) } label: {
                                                 VStack(alignment: .leading, spacing: 4) { screenText("\(timecode(segment.start)) · \(timecode(segment.end - segment.start))").font(.appFont(size: 12)); screenText(segment.text).font(.appFont(size: 15)).lineLimit(2) }.frame(maxWidth: .infinity, alignment: .leading)
                                             }.shapeAwarePlainButton()
-                                        }.padding(10).background(selected == segment.id ? Color.moss.opacity(0.12) : Color.sidebarTint.opacity(0.48), in: RoundedRectangle(cornerRadius: 8))
+                                        }.padding(10).background(selected == segment.id ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: 8))
                                     }
                                 }
                             }
@@ -41,7 +41,7 @@ struct VoiceManager: View {
                     screenText("Кто говорит?").font(.appFont(size: 16, weight: .semibold))
                     if let sample {
                         screenText("Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk)
-                        TextField("Имя участника", text: $name).textFieldStyle(.roundedBorder)
+                        TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle())
                         screenMenu("Выбрать сохранённое имя") { ForEach(state.voiceProfiles) { profile in screenButton(profile.name) { name = profile.name } } }
                         screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
                         screenToggle("Запомнить голос для будущих встреч", isOn: $remember)
@@ -49,7 +49,7 @@ struct VoiceManager: View {
                         screenText("Сохраняется выбранный образец до 8 секунд и голосовой слепок. Они останутся после удаления аудио встречи. Выбирайте речь одного человека без наложений.").font(.appFont(size: 13)).foregroundStyle(Color.mutedInk)
                         screenButton("Применить имя") {
                             state.assignVoice(meetingID: meetingID, segmentID: sample.id, name: name, allMatching: allMatching, remember: remember && sample.embedding != nil && sample.end - sample.start >= 2 && meeting?.audioFiles.isEmpty == false)
-                        }.plainButton(prominent: true).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     Divider()
                     screenText("Сохранённые голоса").font(.appFont(size: 16, weight: .semibold))
@@ -62,6 +62,6 @@ struct VoiceManager: View {
                     }
                 }.font(.appFont(size: 15)).padding(.leading, 18).frame(width: 350)
             }
-        }.font(.appFont(size: 15)).controlSize(.large).padding(26).frame(width: 940, height: 660).plainControls().popupCanvas().background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
+        }.font(.appFont(size: 15)).controlSize(.large).padding(26).frame(width: 940, height: 660).actionControls().popupCanvas().background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
     }
 }

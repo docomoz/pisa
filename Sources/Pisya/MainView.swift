@@ -1,18 +1,6 @@
 import SwiftUI
 import AppKit
 
-extension Color {
-    static let ink = Color(white: 0.10)
-    static let moss = Color(red: 0.16, green: 0.38, blue: 0.27)
-    static let actionTint = Color(red: 0.91, green: 0.96, blue: 0.92)
-    static let recordingRed = Color(red: 0.69, green: 0.20, blue: 0.18)
-    static let disabledInk = Color(white: 0.42)
-    static let disabledTint = Color(white: 0.94)
-    static let paper = Color.white
-    static let sidebarTint = Color(white: 0.96)
-    static let selectionTint = Color(white: 0.84)
-    static let mutedInk = Color(white: 0.34)
-}
 struct MainView: View {
     @EnvironmentObject var state: AppState
     var body: some View {
@@ -30,7 +18,7 @@ struct MainView: View {
         .background(ClickToUnfocus())
         .font(.appFont(size: 14))
         .foregroundStyle(Color.ink)
-        .tint(Color.moss)
+        .tint(Color.brandAccent)
         .confirmationDialog(typographicText("Расшифровать встречу заново? Текущий текст, исправления и разметка участников будут заменены. Аудио сохранится"), isPresented: Binding(get: { state.reprocessTarget != nil }, set: { if !$0 { state.reprocessTarget = nil } })) {
             if let meeting = state.reprocessTarget { screenButton("Расшифровать заново") { state.enqueue(meeting.id, reprocess: true); state.reprocessTarget = nil } }
             screenButton("Отмена", role: .cancel) { state.reprocessTarget = nil }
@@ -49,14 +37,14 @@ struct MainView: View {
             HStack(spacing: 10) {
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").font(.appFont(size: 14, weight: .medium))
-                }.plainButton(neutral: true).screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
+                }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
                     screenLabel("Импорт", systemImage: "arrow.down.doc").font(.appFont(size: 14, weight: .medium))
-                }.plainButton().disabled(state.demo)
+                }.actionButton().disabled(state.demo)
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
                         .font(.appFont(size: 14, weight: .semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                }.plainButton(prominent: true, color: .recordingRed)
+                }.actionButton(.recording)
                     .disabled(state.starting || state.demo)
             }.controlSize(.large)
 
@@ -72,7 +60,7 @@ struct MainView: View {
             screenText("Вы разговариваете.\nPisya записывает.").font(.appFont(size: 40, weight: .medium)).tracking(-0.8).lineSpacing(2)
             screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.").font(.appFont(size: 15)).foregroundStyle(Color.mutedInk).lineSpacing(6).padding(.top, 20)
             HStack(spacing: 12) {
-                Button { state.showingSettings = true } label: { screenText(state.modelReady ? "Настроить автозапись" : "Подготовить к первой встрече").font(.appFont(size: 13, weight: .medium)).padding(.horizontal, 20).padding(.vertical, 13).background(Color.moss).foregroundStyle(.white).clipShape(Capsule()) }.shapeAwarePlainButton(Capsule())
+                Button { state.showingSettings = true } label: { screenText(state.modelReady ? "Настроить автозапись" : "Подготовить к первой встрече").font(.appFont(size: 14, weight: .medium)) }.actionButton(.primary)
             }.padding(.top, 30)
             Spacer()
             HStack(alignment: .top, spacing: 28) {
@@ -119,16 +107,14 @@ struct MeetingView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) { meetingControls; Spacer(minLength: 0); exportControl }
                 VStack(alignment: .leading, spacing: 10) { meetingControls; exportControl }
-            }.plainControls().font(.appFont(size: 14, weight: .medium)).controlSize(.large).padding(.top, 22).padding(.bottom, 20)
+            }.actionControls().font(.appFont(size: 14, weight: .medium)).controlSize(.large).padding(.top, 22).padding(.bottom, 20)
             if !meeting.speakers.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(meeting.speakers, id: \.self) { speaker in
                             Button { state.voiceMeeting = meeting } label: {
                                 screenLabel(speaker, systemImage: "person.crop.circle").font(.appFont(size: 13))
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    .background(Color.actionTint, in: Capsule()).overlay { Capsule().stroke(.white.opacity(0.45), lineWidth: 0.5) }
-                            }.shapeAwarePlainButton(Capsule()).foregroundStyle(Color.moss)
+                            }.speakerChip()
                         }
                     }
                 }.background(HorizontalWheelScroll()).padding(.bottom, 24)
@@ -138,21 +124,23 @@ struct MeetingView: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
                 TextField("Поиск внутри записи", text: $transcriptSearch).textFieldStyle(.plain).focused($focusedField, equals: .search)
                 if !transcriptSearch.isEmpty { Button { transcriptSearch = "" } label: { Image(systemName: "xmark.circle.fill") }.shapeAwarePlainButton(Circle()) }
-            }.font(.appFont(size: 14)).padding(.vertical, 14).disabled(meeting.segments.isEmpty || state.recordingMeetingID == meeting.id)
+            }.font(.appFont(size: 14)).padding(.horizontal, 12).padding(.vertical, 10)
+                .background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                .padding(.bottom, 12).disabled(meeting.segments.isEmpty || state.recordingMeetingID == meeting.id)
             Divider()
             if state.recordingMeetingID == meeting.id && state.processingID == meeting.id {
                 HStack {
                     screenText(state.liveStatus).foregroundStyle(Color.mutedInk)
                     Spacer()
-                    screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") { state.toggleLivePause() }
+                    screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") { state.toggleLivePause() }.actionButton(size: .small)
                 }.font(.appFont(size: 13)).padding(.vertical, 14)
             } else if state.processingID == meeting.id && !state.liveStatus.isEmpty {
-                HStack { screenText(state.liveStatus); Spacer(); screenButton("Остановить обработку") { state.cancelProcessing() } }.font(.appFont(size: 13)).padding(.vertical, 14)
+                HStack { screenText(state.liveStatus); Spacer(); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.font(.appFont(size: 13)).padding(.vertical, 14)
             } else if state.processingID == meeting.id {
-                VStack(alignment: .leading, spacing: 12) { screenText(state.phase).font(.appFont(size: 13)); ProgressView(value: state.progress); screenButton("Остановить обработку") { state.cancelProcessing() }.font(.appFont(size: 11)) }.padding(.vertical, 24)
+                VStack(alignment: .leading, spacing: 12) { screenText(state.phase).font(.appFont(size: 13)); ProgressView(value: state.progress); screenButton("Остановить обработку") { state.cancelProcessing() }.font(.appFont(size: 13)).actionButton(size: .small) }.padding(.vertical, 24)
             }
             if meeting.status == .failed && meeting.liveCommittedUntil != nil && !meeting.segments.isEmpty && !state.recording {
-                HStack { screenText("Расшифровка не завершена").foregroundStyle(Color.mutedInk); Spacer(); screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) } }.font(.appFont(size: 13)).padding(.vertical, 14)
+                HStack { screenText("Расшифровка не завершена").foregroundStyle(Color.mutedInk); Spacer(); screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small) }.font(.appFont(size: 13)).padding(.vertical, 14)
             }
             if meeting.segments.isEmpty {
                 VStack(spacing: 18) {
@@ -160,7 +148,7 @@ struct MeetingView: View {
                     if state.recordingMeetingID != meeting.id { Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform").font(.appFont(size: 34, weight: .light)).foregroundStyle(Color.moss) }
                     screenText(state.recordingMeetingID == meeting.id ? (state.processingID == meeting.id ? "Здесь появится черновик" : "Расшифровка появится после записи") : meeting.status == .processing ? "Слушаю и превращаю в текст" : meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено").font(.appFont(size: 21, weight: .medium))
                     if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.screen.localizedDescription : error).font(.appFont(size: 12)).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
-                    if !state.recording && meeting.status != .processing && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.plainButton(prominent: true).controlSize(.large) }
+                    if !state.recording && meeting.status != .processing && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
                     Spacer()
                 }.frame(maxWidth: .infinity)
             } else {
@@ -227,7 +215,7 @@ struct MeetingView: View {
                     Divider()
                     screenButton("Удалить аудио…", role: .destructive) { confirmDeleteAudio = true }
                 }
-            } label: { Image(systemName: "ellipsis").frame(width: 24) }.plainButton(neutral: true).fixedSize().disabled(!state.canModify(meeting))
+            } label: { Image(systemName: "ellipsis").frame(width: 24) }.actionButton().fixedSize().disabled(!state.canModify(meeting))
         }
     }
 
@@ -239,10 +227,10 @@ private struct SegmentEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             screenText("Исправить реплику").font(.appFont(size: 20, weight: .semibold))
-            TextField("Участник", text: $segment.speaker)
+            TextField("Участник", text: $segment.speaker).textFieldStyle(PisyaTextFieldStyle())
             TextEditor(text: $segment.text).font(.appFont(size: 15)).frame(height: 180).border(.quaternary)
-            HStack { screenButton("Отмена") { dismiss() }.plainButton(neutral: true); Spacer(); screenButton("Сохранить") { save(segment) }.plainButton(prominent: true) }
-        }.font(.appFont(size: 15)).plainControls().padding(28).frame(width: 520).popupCanvas()
+            HStack { screenButton("Отмена") { dismiss() }.actionButton(); Spacer(); screenButton("Сохранить") { save(segment) }.actionButton(.primary) }
+        }.font(.appFont(size: 15)).actionControls().padding(28).frame(width: 520).popupCanvas()
     }
 }
 

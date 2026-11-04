@@ -25,7 +25,7 @@ struct LibrarySidebar: View {
                             screenButton("Удалить папку…", role: .destructive) { deletingFolder = folder }
                         }
                 }
-                Button { editingFolder = nil; folderName = ""; folderEditor = true } label: { navigationLabel("Новая папка", icon: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }.plainButton().disabled(state.demo)
+                Button { editingFolder = nil; folderName = ""; folderEditor = true } label: { navigationLabel("Новая папка", icon: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }.actionButton().disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
                     .contextMenu { screenButton("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
             }.font(.appFont(size: 12)) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
@@ -133,9 +133,9 @@ struct NameEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             screenText(title).font(.appFont(size: 20, weight: .semibold))
-            TextField("Название", text: $name).textFieldStyle(.roundedBorder).focused($focused).onSubmit { submit() }
-            HStack { screenButton("Отмена") { dismiss() }.plainButton(neutral: true).keyboardShortcut(.cancelAction); Spacer(); screenButton("Сохранить") { submit() }.plainButton(prominent: true).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-        }.font(.appFont(size: 15)).plainControls().padding(28).frame(width: 420).popupCanvas().onAppear { name = initial; focused = true }
+            TextField("Название", text: $name).textFieldStyle(PisyaTextFieldStyle()).focused($focused).onSubmit { submit() }
+            HStack { screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction); Spacer(); screenButton("Сохранить") { submit() }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+        }.font(.appFont(size: 15)).actionControls().padding(28).frame(width: 420).popupCanvas().onAppear { name = initial; focused = true }
     }
     private func submit() { guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; save(name); dismiss() }
 }
@@ -164,7 +164,7 @@ private struct FolderEditor: View {
             screenText(folder == nil ? "Новая папка" : "Изменить папку").font(.appFont(size: 22, weight: .semibold))
             HStack(spacing: 12) {
                 Image(systemName: symbol).font(.appFont(size: 18)).foregroundStyle(Color.ink).frame(width: 32, height: 32)
-                TextField("Название папки", text: $name).textFieldStyle(.roundedBorder).focused($nameFocused).onSubmit { submit() }
+                TextField("Название папки", text: $name).textFieldStyle(PisyaTextFieldStyle()).focused($nameFocused).onSubmit { submit() }
             }
             screenText("Иконка папки").font(.appFont(size: 14, weight: .medium)).foregroundStyle(Color.mutedInk)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(32), spacing: 8), count: 8), spacing: 8) {
@@ -172,20 +172,19 @@ private struct FolderEditor: View {
                     Button { symbol = item.0 } label: {
                         Image(systemName: item.0).font(.appFont(size: 14, weight: .regular)).symbolRenderingMode(.monochrome)
                             .frame(width: 32, height: 32)
-                            .background(symbol == item.0 ? Color.moss.opacity(0.12) : Color.sidebarTint.opacity(0.48), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay { RoundedRectangle(cornerRadius: 8).stroke(symbol == item.0 ? Color.moss : .clear, lineWidth: 1.5) }
+                            .background(symbol == item.0 ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: 8))
                             .contentShape(Rectangle())
                     }.shapeAwarePlainButton().frame(width: 32, height: 32).foregroundStyle(Color.ink).screenHelp(item.1).accessibilityLabel(item.1)
                         .accessibilityAddTraits(symbol == item.0 ? .isSelected : [])
                 }
             }
             HStack {
-                screenButton("Отмена") { dismiss() }.plainButton(neutral: true).keyboardShortcut(.cancelAction)
+                screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction)
                 Spacer()
                 screenButton(folder == nil ? "Создать папку" : "Сохранить") { submit() }
-                    .plainButton(prominent: true).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.font(.appFont(size: 15)).controlSize(.large).padding(28).frame(width: 384).plainControls().popupCanvas()
+        }.font(.appFont(size: 15)).controlSize(.large).padding(28).frame(width: 384).actionControls().popupCanvas()
             .onAppear { name = folder?.name ?? ""; symbol = folder?.iconName ?? "folder"; nameFocused = true }
     }
     private func submit() {

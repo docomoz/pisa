@@ -35,7 +35,7 @@ struct PisyaApp: App {
                     }
                     let paragraph = NSMutableParagraphStyle()
                     paragraph.alignment = .center; paragraph.paragraphSpacing = 8
-                    let credits = typographicText("Автор: Максим Берёзкин · maxim@berezkin.ru") + "\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
+                    let credits = "Максим Берёзкин\nmaxim@berezkin.ru\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
                     let attributedCredits = NSMutableAttributedString(string: credits, attributes: [
                         .font: NSFont.systemFont(ofSize: 14),
                         .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
@@ -98,7 +98,7 @@ struct MenuContents: View {
                     screenText(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись")
                 }
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.plainButton(prominent: true, color: .recordingRed).disabled(state.starting || state.demo)
+            }.actionButton(.recording).disabled(state.starting || state.demo)
             screenToggle("Автоматический старт и стоп", isOn: Binding(get: { state.preferences.automaticRecording }, set: { state.setAutomatic($0) })).toggleStyle(MenuCheckboxStyle())
             Divider()
             screenButton("Завершить Pisya") {
