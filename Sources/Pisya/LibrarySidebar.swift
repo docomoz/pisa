@@ -25,7 +25,8 @@ struct LibrarySidebar: View {
                             screenButton("Удалить папку…", role: .destructive) { deletingFolder = folder }
                         }
                 }
-                Button { editingFolder = nil; folderName = ""; folderEditor = true } label: { navigationLabel("Новая папка", icon: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }.actionButton().disabled(state.demo)
+                scope("Новая папка", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
+                    .plainSurface(radius: 9).disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
                     .contextMenu { screenButton("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
             }.font(.appFont(size: 12)) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
