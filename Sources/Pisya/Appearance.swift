@@ -21,6 +21,7 @@ enum PisyaDesign {
         static let mutedInk = Color(red: 0.25091, green: 0.26128, blue: 0.27245)
         static let sidebar = Color(red: 0.93417, green: 0.94068, blue: 0.94773)
         static let selection = Color(white: 0.84)
+        static let searchMatch = Color(red: 1, green: 0.90, blue: 0.50)
     }
     enum Metrics {
         static let cornerRadius: CGFloat = 8

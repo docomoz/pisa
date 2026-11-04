@@ -3,6 +3,17 @@ import SwiftUI
 /// All human-readable presentation goes through the same nonbreaking-spacing rules.
 /// Editable values, persisted transcripts and copyable code/paths stay verbatim.
 func screenText(_ value: String) -> Text { Text(typographicText(value)) }
+func screenText(_ value: String, highlighting query: String) -> Text {
+    let display = typographicText(value)
+    var attributed = AttributedString(display)
+    for match in transcriptSearchRanges(in: display, query: query) {
+        guard let stringRange = Range(match, in: display),
+              let range = Range(stringRange, in: attributed) else { continue }
+        attributed[range].backgroundColor = PisyaDesign.Colors.searchMatch
+        attributed[range].foregroundColor = Color.ink
+    }
+    return Text(attributed)
+}
 func screenText(verbatim value: String) -> Text { Text(verbatim: value) }
 func screenText(_ date: Date, style: Text.DateStyle) -> Text { Text(date, style: style) }
 func screenButton(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> Button<Text> {

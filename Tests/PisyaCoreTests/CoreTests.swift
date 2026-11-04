@@ -1,6 +1,24 @@
 import XCTest
 @testable import PisyaCore
 final class CoreTests: XCTestCase {
+    func testTranscriptSearchFindsEveryCaseInsensitiveSubstring() {
+        let text = "😀 Смерцы, СМЕРЦЫ и смерцы"
+        let ranges = transcriptSearchRanges(in: text, query: "смер")
+        XCTAssertEqual(ranges.map { (text as NSString).substring(with: $0) }, ["Смер", "СМЕР", "смер"])
+        XCTAssertEqual(ranges.first?.location, 3) // Emoji occupies two UTF-16 code units.
+        XCTAssertTrue(transcriptSearchRanges(in: text, query: "").isEmpty)
+        XCTAssertTrue(transcriptSearchRanges(in: text, query: "другое").isEmpty)
+    }
+
+    func testTranscriptSearchMatchesAcrossTypographicSpacesWithoutChangingOffsets() {
+        let text = typographicText("Я в Москве, а в Москве ещё снег")
+        let ranges = transcriptSearchRanges(in: text, query: "в Москве")
+        XCTAssertEqual(ranges.count, 2)
+        XCTAssertEqual(ranges.map { (text as NSString).substring(with: $0) }, ["в\u{00a0}Москве", "в\u{00a0}Москве"])
+        XCTAssertEqual(transcriptSearchRanges(in: "Я в Москве", query: "в\u{00a0}Москве").count, 1)
+        XCTAssertEqual(transcriptSearchRanges(in: "Спикер 1", query: "СПИКЕР"), [NSRange(location: 0, length: 6)])
+    }
+
     func testReselectingVoiceSamplePreservesUnappliedName() {
         let sample = TranscriptSegment(start: 0, end: 2, speaker: "Спикер 1", text: "Текст")
         XCTAssertEqual(voiceNameForSelection(currentID: sample.id, currentName: "Мария", segment: sample), "Мария")

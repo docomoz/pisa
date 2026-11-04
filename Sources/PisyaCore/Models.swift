@@ -161,6 +161,23 @@ public func typographicText(_ value: String) -> String {
     return text
 }
 
+/// UTF-16 ranges can be applied to both plain and typographically spaced text.
+public func transcriptSearchRanges(in text: String, query: String) -> [NSRange] {
+    guard !query.isEmpty else { return [] }
+    let searchable = text.replacingOccurrences(of: "\u{00a0}", with: " ") as NSString
+    let needle = query.replacingOccurrences(of: "\u{00a0}", with: " ")
+    var remaining = NSRange(location: 0, length: searchable.length)
+    var matches: [NSRange] = []
+    while remaining.length > 0 {
+        let match = searchable.range(of: needle, options: .caseInsensitive, range: remaining, locale: .current)
+        guard match.location != NSNotFound, match.length > 0 else { break }
+        matches.append(match)
+        let next = NSMaxRange(match)
+        remaining = NSRange(location: next, length: searchable.length - next)
+    }
+    return matches
+}
+
 /// UI meters advance only from successfully written audio buffers, never synthetic activity.
 public struct AudioMeterTrack: Sendable {
     public var history = [Float](repeating: 0, count: 512)
