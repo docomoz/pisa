@@ -217,7 +217,13 @@ struct MeetingView: View {
         if showsTranscriptStatus {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                 HStack(spacing: PisyaDesign.Spacing.related) {
-                    SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
+                    if isRecording && isTranscribing {
+                        screenText(transcriptStatusTitle)
+                            .textStyle(PisyaDesign.Typography.detail)
+                            .foregroundStyle(Color.mutedInk)
+                    } else {
+                        SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
+                    }
                     Spacer(minLength: 0)
                     if isRecording && isTranscribing {
                         screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
@@ -229,8 +235,8 @@ struct MeetingView: View {
                         screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
                     }
                 }
-                if isSaving || (isTranscribing && !state.livePaused) {
-                    let hasFraction = isTranscribing && !isRecording && state.liveStatus.isEmpty && !state.phase.isEmpty
+                if isSaving || (isTranscribing && !isRecording && !state.livePaused) {
+                    let hasFraction = isTranscribing && state.liveStatus.isEmpty && !state.phase.isEmpty
                     TranscriptionProgress(fraction: hasFraction ? state.progress : nil,
                                           label: isSaving ? "Сохранение записи" : "Ход расшифровки")
                 }
