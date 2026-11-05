@@ -355,8 +355,13 @@ private struct RecordingIndicator: View {
         HStack(spacing: PisyaDesign.Spacing.related) {
             HStack(spacing: PisyaDesign.Spacing.inline) {
                 Circle().fill(Color.recordingRed).frame(width: 7, height: 7).accessibilityHidden(true)
-                screenText("Идёт запись").textStyle(PisyaDesign.Typography.detailStrong).fixedSize()
-                RecordingElapsed(started: started)
+                HStack(alignment: .firstTextBaseline, spacing: PisyaDesign.Spacing.inline) {
+                    screenText("Идёт запись")
+                        .textStyle(PisyaDesign.Typography.detailStrong)
+                        .foregroundStyle(Color.recordingRed)
+                        .fixedSize()
+                    RecordingElapsed(started: started)
+                }
             }
             Button { showsWaveforms.toggle() } label: {
                 HStack(spacing: PisyaDesign.Spacing.related) {

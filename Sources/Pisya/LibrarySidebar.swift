@@ -39,8 +39,8 @@ struct LibrarySidebar: View {
                                 screenText("·")
                             }
                             if state.recordingMeetingID == meeting.id, let started = state.recordingStarted {
-                                Circle().fill(.red).frame(width: 6, height: 6).accessibilityHidden(true)
-                                screenText("Идёт запись").foregroundStyle(Color(red: 0.67, green: 0.20, blue: 0.19))
+                                Circle().fill(Color.recordingRed).frame(width: 6, height: 6).accessibilityHidden(true)
+                                screenText("Идёт запись").foregroundStyle(Color.recordingRed)
                                 RecordingElapsed(started: started)
                             } else { screenText(timecode(meeting.duration)).monospacedDigit().fixedSize() }
                             if let folder = state.folders.first(where: { $0.id == meeting.folderID }) {
