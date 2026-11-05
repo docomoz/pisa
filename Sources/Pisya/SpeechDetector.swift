@@ -16,9 +16,11 @@ final class SpeechDetector {
             config.silero_vad.min_silence_duration = 0.5
             config.silero_vad.min_speech_duration = 0.1
             config.silero_vad.window_size = 512
-            config.silero_vad.max_speech_duration = 24
+            // Recognition chooses its own quiet boundaries inside this bounded
+            // region. A VAD-forced 24 s cut used to bisect words before ASR saw them.
+            config.silero_vad.max_speech_duration = 60
             config.sample_rate = 16000; config.num_threads = 1; config.provider = provider
-            instance = SherpaOnnxCreateVoiceActivityDetector(&config, 30)
+            instance = SherpaOnnxCreateVoiceActivityDetector(&config, 90)
         } }
         guard let instance else { throw PisyaError.message("Не удалось загрузить модель определения речи") }
         detector = instance

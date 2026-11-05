@@ -6,6 +6,13 @@ import SwiftUI
 @main
 enum Launcher {
     static func main() {
+        if CommandLine.arguments.contains("--recognition-quality-test") {
+            Task { @MainActor in
+                do { try await RecognitionQualityTests.run(); exit(0) }
+                catch { print("RECOGNITION_QUALITY_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--title-inference-smoke-test") {
             Task { @MainActor in
                 do { try await MeetingTitleTests.smoke(); exit(0) }

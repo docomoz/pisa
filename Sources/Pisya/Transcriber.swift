@@ -83,10 +83,23 @@ actor Transcriber {
                     let energy = samples.reduce(0.0) { $0 + Double($1 * $1) } / Double(samples.count)
                     if energy > 0.000001 {
                         var regions = isMic ? [VoiceRegion(start: 0, end: duration, embedding: voices?.vector(samples))] : voices?.regions(samples) ?? []
-                        if !isMic && voices == nil { regions = activity.regions(samples) }
+                        if !isMic {
+                            // Diarization deliberately ignores very short turns. VAD
+                            // can still recover an isolated "да" without inventing a
+                            // speaker embedding or recognizing the same turn twice.
+                            let speech = activity.regions(samples)
+                            let missing = speech.filter { utterance in
+                                !regions.contains { $0.start < utterance.end && $0.end > utterance.start }
+                            }
+                            regions += missing
+                            regions.sort { $0.start < $1.start }
+                        }
                         regions = regions.flatMap { region -> [VoiceRegion] in
-                            stride(from: region.start, to: region.end, by: 24).map {
-                                VoiceRegion(start: $0, end: min($0 + 24, region.end), embedding: region.embedding)
+                            let lower = max(0, Int(region.start * 16000))
+                            let upper = min(samples.count, Int(region.end * 16000))
+                            guard upper > lower else { return [] }
+                            return SpeechChunking.ranges(in: samples, range: lower..<upper).map {
+                                VoiceRegion(start: Double($0.lowerBound) / 16000, end: Double($0.upperBound) / 16000, embedding: region.embedding)
                             }
                         }
                         for (index, region) in regions.enumerated() {
@@ -136,7 +149,7 @@ actor Transcriber {
         let context = duration >= 2 ? vocabulary : ""
         func generate(language: String?, context: String) -> STTOutput {
             model.generate(audio: audio, maxTokens: maxTokens, context: context,
-                           language: language, chunkDuration: 25, repetitionPenalty: 1.1)
+                           language: language, chunkDuration: 30, repetitionPenalty: 1.1)
         }
         func words(_ text: String) -> [Substring] {
             text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
