@@ -34,6 +34,10 @@ targets:
         buildPhase: resources
       - path: Resources/Silero-LICENSE
         buildPhase: resources
+      - path: Resources/cmudict.dict
+        buildPhase: resources
+      - path: Resources/CMUdict-LICENSE
+        buildPhase: resources
       - path: scripts/models.json
         buildPhase: resources
       - path: scripts/title-model.json

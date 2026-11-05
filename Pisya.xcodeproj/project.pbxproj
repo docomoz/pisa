@@ -13,6 +13,7 @@
 		08318E52F67D3E31293557AE /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04715BFB01C5131C9A26F890 /* Models.swift */; };
 		087DB53B2ED7BC59F394F54D /* AudioWindowReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652A3742B6BB73EF82795BF0 /* AudioWindowReader.swift */; };
 		0E426ACCEE9BE5E3F10E9B35 /* SpeechDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0D64311CB7A53B966F9C31 /* SpeechDetector.swift */; };
+		0FC78B37D018EFE5DECED7DB /* cmudict.dict in Resources */ = {isa = PBXBuildFile; fileRef = 6DC599024D86AA97B075874B /* cmudict.dict */; };
 		123CDD352BD70497BA70F424 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FED06F84C4C7BB8FAFCDC049 /* CoreFoundation.framework */; };
 		15FF888174A02B8AE8D9924D /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B278DF62917E67995A9B0B57 /* ModelInstaller.swift */; };
 		1A96AB0329240BCF185CE120 /* EchoDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D6274BB0F524455208FA32 /* EchoDiagnostics.swift */; };
@@ -37,6 +38,7 @@
 		3F6BA10B65F06C8802346D3A /* Silero-LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 0F647C2920C1980D7FD05429 /* Silero-LICENSE */; };
 		447555F4160B7AAF85B9187E /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 76501685FA39B87B9D14185B /* libc++.tbd */; };
 		44F6CEC9DA361BC772CF7F71 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 26025720E1F08DF4A6D9A89D /* MLXLLM */; };
+		4509163D3E508E259D22012B /* CMUdict-LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 1839BDDFB8224D4A1B97144B /* CMUdict-LICENSE */; };
 		4975DAE1B4F37A312F602A8D /* MeetingTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86EAE0DD35522A2219AE9975 /* MeetingTitleTests.swift */; };
 		497D877330ED251DADAC7CFF /* SpeakerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D51E3A5735C65E4C6695131 /* SpeakerEngine.swift */; };
 		4DAC4E2D09BD62303E9E6FF3 /* LiveTranscriptionSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F65EBDA94C5680BD47C9F64 /* LiveTranscriptionSchedule.swift */; };
@@ -48,6 +50,7 @@
 		59B783367B2F8AF429C54AA3 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5827EDD429D4A2C990E65974 /* main.swift */; };
 		5ABE030682642C147C1AE411 /* EchoRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F02F43645CD740786B0DC2 /* EchoRegressionTests.swift */; };
 		5D6D25E673E99D77313610AC /* ModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD7AF6950D9FFD20B57A50ED /* ModelSetup.swift */; };
+		5EF4D4AD42A8E35DF579D1AD /* SpokenVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4963BAB5CF8D42F83EF413 /* SpokenVocabulary.swift */; };
 		600A4F30255AE54741635070 /* SlimScrollbars.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6601E0D6722B292A4DA886E /* SlimScrollbars.swift */; };
 		6660384161D90AF7640A82EE /* libsherpa-onnx-c-api.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3D56408874268B60F82531DF /* libsherpa-onnx-c-api.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		73DF3D53E51A17E5F48FFB60 /* SpeakerClustering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02730430AA4A692599107B47 /* SpeakerClustering.swift */; };
@@ -70,6 +73,7 @@
 		8E4EF95AD5D77069EEEC1B34 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44679205B2926073F8B63DF5 /* MainView.swift */; };
 		8EACB38620F8051ED782BCA3 /* RecognitionVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA4DDD0B324BCE771B200F4F /* RecognitionVocabulary.swift */; };
 		97F0683AA62AD156246FD303 /* libsherpa-onnx-c-api.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 3D56408874268B60F82531DF /* libsherpa-onnx-c-api.dylib */; };
+		98DB5566DC608F2C7C2E0208 /* SpokenVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4963BAB5CF8D42F83EF413 /* SpokenVocabulary.swift */; };
 		9D887993F0B0A0014F6426C8 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7D9BA3CD5E71CD3D7A94AF /* Library.swift */; };
 		9F332A21E70A795F48284A2D /* AcousticEcho.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5133E0FE5AA8906E2BD7D958 /* AcousticEcho.swift */; };
 		A1E91D885C9E99BE76BA911D /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = 47C0F1BCA11C140C205401E7 /* MLXLMCommon */; };
@@ -128,6 +132,7 @@
 		0D51E3A5735C65E4C6695131 /* SpeakerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEngine.swift; sourceTree = "<group>"; };
 		0F647C2920C1980D7FD05429 /* Silero-LICENSE */ = {isa = PBXFileReference; path = "Silero-LICENSE"; sourceTree = "<group>"; };
 		0F65EBDA94C5680BD47C9F64 /* LiveTranscriptionSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTranscriptionSchedule.swift; sourceTree = "<group>"; };
+		1839BDDFB8224D4A1B97144B /* CMUdict-LICENSE */ = {isa = PBXFileReference; path = "CMUdict-LICENSE"; sourceTree = "<group>"; };
 		19696248CFDC35ECF633842B /* Transcriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcriber.swift; sourceTree = "<group>"; };
 		1E7D840A11300B4B35A42627 /* AudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCapture.swift; sourceTree = "<group>"; };
 		1F05358694772907ED757BDA /* SpeechChunking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechChunking.swift; sourceTree = "<group>"; };
@@ -141,6 +146,7 @@
 		3D39C911B36F059AE59708CE /* MCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCP.swift; sourceTree = "<group>"; };
 		3D56408874268B60F82531DF /* libsherpa-onnx-c-api.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "libsherpa-onnx-c-api.dylib"; path = "Vendor/Sherpa/lib/libsherpa-onnx-c-api.dylib"; sourceTree = "<group>"; };
 		3EE0BDE0998CADB5C051301D /* SavedVoicesSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedVoicesSettings.swift; sourceTree = "<group>"; };
+		3F4963BAB5CF8D42F83EF413 /* SpokenVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenVocabulary.swift; sourceTree = "<group>"; };
 		43F02F43645CD740786B0DC2 /* EchoRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoRegressionTests.swift; sourceTree = "<group>"; };
 		44679205B2926073F8B63DF5 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		4A42438A746594B86FB1F148 /* VoiceSampleSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSampleSelection.swift; sourceTree = "<group>"; };
@@ -153,6 +159,7 @@
 		652A3742B6BB73EF82795BF0 /* AudioWindowReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWindowReader.swift; sourceTree = "<group>"; };
 		6585D6825AB0F029B1B85B64 /* EchoDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoDetector.swift; sourceTree = "<group>"; };
 		66782C763742FA0DA6D66EB7 /* AudioPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPipelineTests.swift; sourceTree = "<group>"; };
+		6DC599024D86AA97B075874B /* cmudict.dict */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = cmudict.dict; sourceTree = "<group>"; };
 		745A4E7E341A29520582E0AC /* SystemAudioTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioTap.swift; sourceTree = "<group>"; };
 		76501685FA39B87B9D14185B /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		77FC5B696CF82D53B33A9E7E /* HorizontalWheelScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalWheelScroll.swift; sourceTree = "<group>"; };
@@ -231,6 +238,7 @@
 				4E86CDF57C8B39BC9E0F902E /* RussianRecognition.swift */,
 				02730430AA4A692599107B47 /* SpeakerClustering.swift */,
 				1F05358694772907ED757BDA /* SpeechChunking.swift */,
+				3F4963BAB5CF8D42F83EF413 /* SpokenVocabulary.swift */,
 				FD67044B45B65F4105496FF0 /* VoiceNameDraft.swift */,
 				4A42438A746594B86FB1F148 /* VoiceSampleSelection.swift */,
 			);
@@ -242,6 +250,8 @@
 			isa = PBXGroup;
 			children = (
 				617B477E74AC92F686705696 /* BrandMark.json */,
+				1839BDDFB8224D4A1B97144B /* CMUdict-LICENSE */,
+				6DC599024D86AA97B075874B /* cmudict.dict */,
 				933F1E681ACA1BD9B2705BA1 /* PisyaPlain.icns */,
 				C0952B28A7DF2AC5D07C9A55 /* silero_vad.onnx */,
 				0F647C2920C1980D7FD05429 /* Silero-LICENSE */,
@@ -455,8 +465,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				E70D48433B80740BFBC1CC0E /* BrandMark.json in Resources */,
+				4509163D3E508E259D22012B /* CMUdict-LICENSE in Resources */,
 				A69A4EC3F53D8A7F0077F944 /* PisyaPlain.icns in Resources */,
 				3F6BA10B65F06C8802346D3A /* Silero-LICENSE in Resources */,
+				0FC78B37D018EFE5DECED7DB /* cmudict.dict in Resources */,
 				89C70A687B730E608D191530 /* models.json in Resources */,
 				3CF285DCAACCA8C25D4BB977 /* silero_vad.onnx in Resources */,
 				1E68A7277D6783115F030439 /* title-model.json in Resources */,
@@ -505,6 +517,7 @@
 				2B57D9DE8F0252674F78B36C /* RussianRecognition.swift in Sources */,
 				BEFAE7C58FF04A2925AF1A7B /* SpeakerClustering.swift in Sources */,
 				AA9631B53CD6481EEE209181 /* SpeechChunking.swift in Sources */,
+				98DB5566DC608F2C7C2E0208 /* SpokenVocabulary.swift in Sources */,
 				B6B0B392E461E1BDE14766A4 /* VoiceNameDraft.swift in Sources */,
 				03530539C07D0500D8033E31 /* VoiceSampleSelection.swift in Sources */,
 				59B783367B2F8AF429C54AA3 /* main.swift in Sources */,
@@ -568,6 +581,7 @@
 				497D877330ED251DADAC7CFF /* SpeakerEngine.swift in Sources */,
 				1CCD15E9D40B222BD0C1E4A3 /* SpeechChunking.swift in Sources */,
 				0E426ACCEE9BE5E3F10E9B35 /* SpeechDetector.swift in Sources */,
+				5EF4D4AD42A8E35DF579D1AD /* SpokenVocabulary.swift in Sources */,
 				4F41F71B6C20E38A1450158C /* StatusBarController.swift in Sources */,
 				3B8BC86998CA6A01AA4B981D /* SystemAudioTap.swift in Sources */,
 				BE90CF5FF64D22E9381DE0C1 /* Transcriber.swift in Sources */,

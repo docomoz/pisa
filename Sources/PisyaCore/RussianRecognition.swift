@@ -23,6 +23,11 @@ enum RussianRecognition {
         guard MeetingSpeechText.accepts(candidate) else { return false }
         let first = words(original), revised = words(candidate)
         guard similarLength(first, revised) else { return false }
+        return preservesVocabulary(candidate: candidate, original: original, vocabulary: vocabulary)
+    }
+
+    static func preservesVocabulary(candidate: String, original: String, vocabulary: String) -> Bool {
+        let first = words(original), revised = words(candidate)
         // An acoustic hint must not undo the user's explicit spellings that the
         // first audio decode already recognized. Match phrases, not substrings.
         return vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))

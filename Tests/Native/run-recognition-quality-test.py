@@ -42,12 +42,19 @@ def synthetic_corpus(root):
         ("long-turn", "Я предлагаю сначала проверить результаты эксперимента и только после этого принимать решение о запуске. Нам важно понять, почему пользователи закрывают карточку организации и возвращаются к поиску. Возможно, им не хватает фотографий, а возможно, они просто не видят нужную кнопку. Давайте отдельно посмотрим новые города, сравним мобильное приложение с сайтом и обсудим выводы на следующей встрече. Если данных окажется недостаточно, продлим эксперимент ещё на неделю.", 180, ""),
         ("english", "Please send the updated report before Friday. We will discuss the launch at our next meeting.", 170, "Северный Атлас, Геопэй"),
         ("numeric-vocabulary", "Проверим поиск внутри 2ГИС и обсудим результаты.", 170, "2ГИС"),
+        ("spoken-english-vocabulary", "Передадим данные в YClients и обсудим Retail Media.", 170, "YClients, Retail Media"),
+        ("spoken-acronyms", "Это B2C продукт. Посчитаем PNL'ку.", 170, "B2C, PNL"),
+        ("dictionary-near-misses", "Покажите панель. Эти клиенты уже пришли. Откройте пенал.", 170, "YClients, Retail Media, B2C, PNL"),
     ]
     fixtures = []
     for name, reference, rate, context in phrases:
         aiff, wav = root / (name + ".aiff"), root / (name + ".wav")
         voice = "Samantha" if name == "english" else "Milena (Russian (Russia))"
         spoken = reference.replace("2ГИС", "два гиса") if name == "numeric-vocabulary" else reference
+        if name == "spoken-english-vocabulary":
+            spoken = reference.replace("YClients", "вай клиентс").replace("Retail Media", "ритейл медиа")
+        if name == "spoken-acronyms":
+            spoken = reference.replace("B2C", "би ту си").replace("PNL'ку", "пи эн эльку")
         subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", str(aiff), spoken], check=True)
         subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(aiff), str(wav)], check=True)
         with wave.open(str(wav), "rb") as audio:
@@ -56,8 +63,30 @@ def synthetic_corpus(root):
         if sys.byteorder != "little":
             pcm.byteswap()
         samples = [0.] * 4000 + [value / 32768 for value in pcm] + [0.] * 4000
+        required = {"spoken-english-vocabulary": ["YClients", "Retail Media"],
+                    "spoken-acronyms": ["B2C", "PNL"]}.get(name, [])
+        # The fixed microphone fixtures currently lose one conjunction or
+        # inflection; keep those errors in WER and require every canonical term.
         fixtures.append(dict(name=name, reference=reference, samples=samples, context=context,
-                             maximum_errors=1 if name == "long-turn" else 0))
+                             required_spellings=required,
+                             maximum_errors=1 if name in {"long-turn", "spoken-english-vocabulary", "spoken-acronyms"} else 0))
+    # Forcing Russian can translate actual English. Surround lexical replies
+    # with Russian speech to exercise the language-context decision as well.
+    anchor = next(fixture for fixture in fixtures if fixture["name"] == "numeric-vocabulary")
+    replies = [(f"english-reply-{index}", reply, reply, "Samantha", "2ГИС")
+               for index, reply in enumerate(["Thank you.", "All right.", "And what?", "Friends.", "Okay.", "Yes."])]
+    replies.append(("short-dictionary-name", "Конфлюенс.", "Confluence.", "Milena (Russian (Russia))", "2ГИС, Confluence"))
+    for name, spoken, reply, voice, context in replies:
+        aiff, wav = root / f"{name}.aiff", root / f"{name}.wav"
+        subprocess.run(["say", "-v", voice, "-r", "170", "-o", str(aiff), spoken], check=True)
+        subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(aiff), str(wav)], check=True)
+        with wave.open(str(wav), "rb") as audio:
+            pcm = array.array("h", audio.readframes(audio.getnframes()))
+        if sys.byteorder != "little":
+            pcm.byteswap()
+        samples = anchor["samples"] + [0.] * 24000 + [value / 32768 for value in pcm] + [0.] * 24000 + anchor["samples"]
+        fixtures.append(dict(name=name, reference=f'{anchor["reference"]} {reply} {anchor["reference"]}',
+                             samples=samples, context=context, maximum_errors=0))
     generator = random.Random(741)
     fixtures += [dict(name="silence", reference="", samples=[0.] * 48000, context="Бронегис, Геопэй", maximum_errors=0),
                  dict(name="noise", reference="", samples=[generator.uniform(-.03, .03) for _ in range(48000)],
@@ -89,6 +118,7 @@ def main():
             raise SystemExit(result.returncode)
         references = {fixture["name"]: words(fixture["reference"]) for fixture in fixtures}
         limits = {fixture["name"]: fixture.get("maximum_errors") for fixture in fixtures}
+        spellings = {fixture["name"]: fixture.get("required_spellings", []) for fixture in fixtures}
         totals = {}
         seen = set()
         failed = False
@@ -109,6 +139,11 @@ def main():
             if row["mode"] == "pipeline" and limit is not None and errors > limit:
                 print(f'FAILED {row["name"]}: expected at most {limit} word errors')
                 failed = True
+            if row["mode"] == "pipeline":
+                for spelling in spellings[row["name"]]:
+                    if not re.search(r"(?<!\w)" + re.escape(spelling) + r"(?!\w)", row["text"]):
+                        print(f'FAILED {row["name"]}: missing canonical spelling {spelling}')
+                        failed = True
         expected = {(fixture["name"], mode) for fixture in fixtures for mode in args.modes}
         if seen != expected:
             raise SystemExit("Missing benchmark results")

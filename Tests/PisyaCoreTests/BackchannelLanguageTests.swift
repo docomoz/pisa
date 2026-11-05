@@ -38,4 +38,34 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertFalse(BackchannelLanguage.acceptsAlternative("Давайте проверим проект"))
         XCTAssertFalse(BackchannelLanguage.acceptsAlternative(""))
     }
+
+    func testShortWordsNeedIndependentRussianAcousticAgreement() {
+        XCTAssertTrue(BackchannelLanguage.shouldRecheck("And what?", duration: 0.7))
+        XCTAssertFalse(BackchannelLanguage.shouldRecheck("Please send the report", duration: 2))
+        XCTAssertFalse(BackchannelLanguage.shouldRecheck("And what?", duration: 5))
+        XCTAssertEqual(BackchannelLanguage.alternative(original: "And what?", russian: "Я вот.", corroboration: "Вот."), "Я вот.")
+        XCTAssertNil(BackchannelLanguage.alternative(original: "And what?", russian: "И что?", corroboration: "An what."))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Friends.", russian: "Правильно.", corroboration: "Пац."))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Thank you.", russian: "Спасибо.", corroboration: "Thanks."))
+    }
+
+    func testVocalAcknowledgmentCanUseForcedRussianAudioDecode() {
+        XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh huh.", russian: "угу", corroboration: "Нет."), "угу")
+        XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh huh.", russian: "Да.", corroboration: "Угу."), "Угу.")
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Uh huh.", russian: "Нет.", corroboration: "Нет."))
+    }
+
+    func testVerifiedShortWordStillRequiresRussianConversation() {
+        let short = segment(30, "And what?", mic: false)
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта", mic: false)
+        let english = segment(25, "Let us discuss the next question", mic: false)
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [short.id: "Вот."], preceding: [russian])[0].text, "Вот.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [short.id: "Вот."], preceding: [english])[0].text, "And what?")
+    }
+
+    func testShortLanguageRetryCannotUndoDictionarySpelling() {
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Confluence.", russian: "Конфлюенс.", corroboration: "Конфлюенс.", vocabulary: "Confluence"))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Hmm.", russian: "Хм.", corroboration: "Хм.", vocabulary: "Hmm"))
+        XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh huh.", russian: "Угу.", corroboration: "Нет.", vocabulary: "Confluence"), "Угу.")
+    }
 }

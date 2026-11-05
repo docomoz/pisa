@@ -16,10 +16,9 @@ enum RecognitionMeetingPreview {
         guard request.meetingID != nil || request.title?.isEmpty == false else { throw PisyaError.message("Select one meeting") }
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisya")
         let library = try MeetingLibrary(root: root)
-        let matches = try library.all().filter {
-            if let id = request.meetingID { return $0.id == id }
-            return $0.title.localizedCaseInsensitiveContains(request.title!)
-        }
+        // A bounded preview by ID must not read unrelated recordings.
+        let matches = try request.meetingID.map { [try library.read($0)] }
+            ?? library.all().filter { $0.title.localizedCaseInsensitiveContains(request.title!) }
         guard matches.count == 1, let meeting = matches.first else {
             throw PisyaError.message("Expected one matching meeting, found \(matches.count)")
         }

@@ -11,6 +11,8 @@ actor Transcriber {
     private var liveRussian: RussianSpeechRecognizer?
     private var recentLanguageSegments: [TranscriptSegment] = []
     private var previousLiveCacheLimit: Int?
+    private var vocabularySource: String?
+    private var spokenVocabulary = SpokenVocabulary("")
 
     /// Used by the local synthetic integration fixture to check session reuse.
     func liveModelIdentity() -> ObjectIdentifier? { liveModel.map(ObjectIdentifier.init) }
@@ -29,6 +31,12 @@ actor Transcriber {
         if live && previousLiveCacheLimit == nil { previousLiveCacheLimit = previousCacheLimit }
         Memory.cacheLimit = 256 * 1024 * 1024
         defer { if !live { Memory.clearCache(); Memory.cacheLimit = previousCacheLimit } }
+        if vocabularySource != context {
+            let pronunciations = Bundle.main.url(forResource: "cmudict", withExtension: "dict")
+                .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            spokenVocabulary = SpokenVocabulary(context, pronunciations: pronunciations)
+            vocabularySource = context
+        }
         var generated: URL?
         var keepGenerated = false
         defer { if !keepGenerated, let generated { try? FileManager.default.removeItem(at: generated) } }
@@ -187,23 +195,27 @@ actor Transcriber {
         } else {
             result = detected
         }
-        var text = RecognitionVocabulary.apply(to: result.text.trimmingCharacters(in: .whitespacesAndNewlines), vocabulary: vocabulary)
+        var text = spokenVocabulary.apply(to: result.text.trimmingCharacters(in: .whitespacesAndNewlines))
         guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
               !MeetingSpeechText.containsForeignLetters(text) else { return nil }
         try Task.checkCancellation()
-        if BackchannelLanguage.isAmbiguous(text, duration: duration),
-           let alternative = russian?.recognize(samples), BackchannelLanguage.acceptsAlternative(alternative) {
+        if BackchannelLanguage.shouldRecheck(text, duration: duration) {
+            let decoded = generate(language: "Russian", context: "")
+            let alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
+                corroboration: russian?.recognize(samples), vocabulary: vocabulary)
             return RecognizedSpeech(text: text, russianBackchannel: alternative)
         }
         if result.language?.lowercased() == "russian", duration >= 2,
-           let hypothesis = russian?.recognize(samples),
-           RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
-            try Task.checkCancellation()
-            let checked = generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
-            let candidate = RecognitionVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines), vocabulary: vocabulary)
-            if checked.language?.lowercased() == "russian",
-               RussianRecognition.accepts(candidate: candidate, original: text, vocabulary: context) {
-                text = candidate
+           let rawHypothesis = russian?.recognize(samples) {
+            let hypothesis = spokenVocabulary.promptHypothesis(rawHypothesis)
+            if RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
+                try Task.checkCancellation()
+                let checked = generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
+                let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                if checked.language?.lowercased() == "russian",
+                   RussianRecognition.accepts(candidate: candidate, original: text, vocabulary: context) {
+                    text = candidate
+                }
             }
         }
         return RecognizedSpeech(text: text)
