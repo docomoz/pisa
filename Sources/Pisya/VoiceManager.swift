@@ -6,6 +6,7 @@ struct VoiceManager: View {
     let meetingID: UUID
     @State private var selected: UUID?
     @State private var name = ""
+    @FocusState private var nameFocused: Bool
     @State private var allMatching = true
     @State private var remember = true
     private var meeting: Meeting? { state.meetings.first { $0.id == meetingID } }
@@ -42,7 +43,9 @@ struct VoiceManager: View {
                             let automaticSample = automaticSample
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 SectionHeading("Кто говорит?", subtitle: "Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»")
-                                TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle())
+                                TextField("Имя участника", text: $name)
+                                    .textFieldStyle(PisyaTextFieldStyle(editingOffset: nameFocused ? 1 : 0))
+                                    .focused($nameFocused)
                             }
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
