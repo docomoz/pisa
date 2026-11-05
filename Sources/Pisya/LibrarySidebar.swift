@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct LibrarySidebar: View {
     @EnvironmentObject var state: AppState
@@ -55,6 +56,10 @@ struct LibrarySidebar: View {
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
                         .plainSelection(state.selection == meeting.id)
                         .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.id(meeting.id)
+                        .background(SecondaryClickObserver {
+                            if state.selection != meeting.id { state.select(meeting.id) }
+                            recordingsFocused = true
+                        })
                         .accessibilityAddTraits(state.selection == meeting.id ? .isSelected : [])
                         .accessibilityAction { state.select(meeting.id) }
                         .contextMenu { MeetingActions(meeting: meeting) }
@@ -99,6 +104,33 @@ struct LibrarySidebar: View {
     }
     private func scope(_ name: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(PisyaDesign.Spacing.inline).plainSelection(selected, radius: PisyaDesign.Metrics.navigationRadius).contentShape(Rectangle()) }.shapeAwarePlainButton()
+    }
+}
+// Observe the click without intercepting it, so SwiftUI can still open its context menu.
+private struct SecondaryClickObserver: NSViewRepresentable {
+    var action: () -> Void
+
+    func makeNSView(context: Context) -> ClickView { ClickView() }
+    func updateNSView(_ view: ClickView, context: Context) { view.action = action }
+
+    final class ClickView: NSView {
+        var action: () -> Void = {}
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
+                guard let self, event.window === self.window,
+                      event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+                      self.visibleRect.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
+                self.action()
+                return event
+            }
+        }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
 struct MeetingActions: View {
