@@ -30,6 +30,7 @@ final class AppState: ObservableObject {
     @Published var callActive = false
     @Published var livePaused = false
     @Published var liveStatus = ""
+    @Published private(set) var isReprocessing = false
     let source = "Системный звук"
     @Published var demo = false
     @Published var voiceProfiles: [VoiceProfile] = []
@@ -446,11 +447,13 @@ final class AppState: ObservableObject {
         let granted = model.startAccessingSecurityScopedResource()
         m.status = .processing; m.error = nil; m.liveCommittedUntil = nil
         do { try library.save(m) } catch { message = error.localizedDescription; if granted { model.stopAccessingSecurityScopedResource() }; return }
+        isReprocessing = reprocess
         upsert(m); processingID = id; progress = 0
         let vocabulary = preferences.vocabulary
         processingTask = Task(priority: .utility) {
             defer {
                 if granted { model.stopAccessingSecurityScopedResource() }
+                isReprocessing = false
                 processingID = nil; processingTask = nil; phase = ""; runNext()
             }
             do {

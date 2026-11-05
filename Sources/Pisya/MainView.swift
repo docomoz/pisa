@@ -99,7 +99,9 @@ struct MeetingView: View {
     private var isTranscribing: Bool { meeting.status == .processing && state.processingID == meeting.id }
     private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
     private var showsTranscriptStatus: Bool { isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) }
-    private var finishesRecording: Bool { meeting.liveCommittedUntil != nil || meeting.source == state.source }
+    private var finishesRecording: Bool {
+        !state.isReprocessing && (meeting.liveCommittedUntil != nil || meeting.source == state.source)
+    }
     private var transcriptQuery: String { showsTranscriptTools ? transcriptSearch : "" }
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
@@ -247,6 +249,7 @@ struct MeetingView: View {
         if isSaving { return "Сохраняю запись" }
         if isQueued { return "В очереди на расшифровку" }
         if isTranscribing {
+            if state.isReprocessing { return "Расшифровываю заново" }
             if !state.liveStatus.isEmpty { return state.liveStatus }
             return finishesRecording ? "Завершаю расшифровку" : "Расшифровываю аудио"
         }
