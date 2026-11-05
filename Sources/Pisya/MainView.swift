@@ -43,12 +43,14 @@ struct MainView: View {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
+                    let importIcon = "tray.and.arrow.down"
                     if state.recording {
-                        Image(systemName: "arrow.down.doc").textStyle(PisyaDesign.Typography.detailMedium)
+                        Image(systemName: importIcon).textStyle(PisyaDesign.Typography.detailMedium)
                     } else {
-                        screenLabel("Импорт", systemImage: "arrow.down.doc")
+                        screenLabel("Импорт", systemImage: importIcon)
                     }
-                }.actionButton().disabled(state.demo).screenHelp("Импорт").accessibilityLabel("Импорт")
+                }.actionButton().disabled(state.demo)
+                    .screenHelp("Импортировать аудио…").accessibilityLabel("Импортировать аудио")
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
