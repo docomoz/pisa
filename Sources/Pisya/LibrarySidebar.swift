@@ -126,7 +126,7 @@ private struct SecondaryClickObserver: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
                 guard let self, event.window === self.window,
                       event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
-                      self.visibleRect.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
+                      self.bounds.intersection(self.visibleRect).contains(self.convert(event.locationInWindow, from: nil)) else { return event }
                 self.action()
                 return event
             }
