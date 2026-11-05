@@ -98,7 +98,8 @@ struct SearchField: View {
             }
         }.textStyle(compact ? PisyaDesign.Typography.footnote : PisyaDesign.Typography.detail)
             .padding(PisyaDesign.Spacing.related)
-            .plainSurface(radius: compact ? PisyaDesign.Metrics.surfaceRadius : PisyaDesign.Metrics.cornerRadius)
+            .background(compact ? PisyaDesign.Colors.paper : PisyaDesign.Colors.secondary,
+                        in: RoundedRectangle(cornerRadius: compact ? PisyaDesign.Metrics.surfaceRadius : PisyaDesign.Metrics.cornerRadius))
     }
 }
 

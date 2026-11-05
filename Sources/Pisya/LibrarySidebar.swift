@@ -23,7 +23,7 @@ struct LibrarySidebar: View {
                         }
                 }
                 scope("Новая папка", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
-                    .plainSurface(radius: PisyaDesign.Metrics.navigationRadius).disabled(state.demo)
+                    .disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
                     .contextMenu { screenButton("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
             }.textStyle(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
