@@ -9,7 +9,6 @@ struct MainView: View {
             Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
             VStack(spacing: PisyaDesign.Spacing.none) {
                 topbar
-                if state.recording { recordingBanner }
                 if state.demo { screenText("ДЕМОНСТРАЦИЯ · вымышленные реплики, не настоящая запись").textStyle(PisyaDesign.Typography.microMedium).foregroundStyle(Color.moss).padding(PisyaDesign.Spacing.related).frame(maxWidth: .infinity).background(Color.moss.opacity(0.08)) }
                 if let meeting = state.selected { MeetingView(meeting: meeting).id(meeting.id) } else { welcome }
             }.background(Color.paper)
@@ -30,18 +29,26 @@ struct MainView: View {
     private var sidebar: some View { LibrarySidebar() }
     private var topbar: some View {
         HStack(spacing: PisyaDesign.Spacing.related) {
-            HStack(spacing: PisyaDesign.Spacing.inline) {
-                Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
-                BrandMoodView()
-            }.accessibilityElement(children: .combine).layoutPriority(-1)
-            Spacer()
+            if state.recording, let started = state.recordingStarted {
+                RecordingIndicator(monitor: state.recordingMonitor, started: started)
+            } else {
+                HStack(spacing: PisyaDesign.Spacing.inline) {
+                    Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
+                    BrandMoodView()
+                }.accessibilityElement(children: .combine).layoutPriority(-1)
+            }
+            Spacer(minLength: 0)
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
-                    screenLabel("Импорт", systemImage: "arrow.down.doc")
-                }.actionButton().disabled(state.demo)
+                    if state.recording {
+                        Image(systemName: "arrow.down.doc").textStyle(PisyaDesign.Typography.detailMedium)
+                    } else {
+                        screenLabel("Импорт", systemImage: "arrow.down.doc")
+                    }
+                }.actionButton().disabled(state.demo).screenHelp("Импорт").accessibilityLabel("Импорт")
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
@@ -50,9 +57,6 @@ struct MainView: View {
             }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
 
         }.padding(.horizontal, PisyaDesign.Spacing.page).frame(height: 76)
-    }
-    private var recordingBanner: some View {
-        RecordingWaveformView(monitor: state.recordingMonitor, started: state.recordingStarted)
     }
     private var welcome: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
@@ -87,15 +91,24 @@ struct MeetingView: View {
     @State private var transcriptSearch = ""
     @FocusState private var focusedField: Field?
     private enum Field: Hashable { case title, search }
+    private var isRecording: Bool { state.recordingMeetingID == meeting.id }
+    private var isSaving: Bool { state.savingMeetingID == meeting.id }
+    private var isQueued: Bool { state.isQueued(meeting.id) }
+    private var isTranscribing: Bool { meeting.status == .processing && state.processingID == meeting.id }
+    private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
+    private var finishesRecording: Bool { meeting.liveCommittedUntil != nil || meeting.source == state.source }
+    private var transcriptQuery: String { showsTranscriptTools ? transcriptSearch : "" }
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
                 if !meeting.hasAutomaticTitle { screenText(meetingDateLabel(meeting.date)); screenText("·") }
                 screenText(meeting.source)
-                screenText("·")
-                screenText(timecode(meeting.duration)).monospacedDigit()
+                if !isRecording && !isSaving {
+                    screenText("·")
+                    screenText(timecode(meeting.duration)).monospacedDigit()
+                }
                 Spacer()
-                if meeting.status == .ready { screenLabel("Готово", systemImage: "checkmark.circle") }
+                if showsTranscriptTools { screenLabel("Готово", systemImage: "checkmark.circle") }
                 if state.demo { screenButton("Закрыть пример") { state.showDemo() }.actionButton(size: .small) }
             }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
             TextField("Название встречи", text: $title).textFieldStyle(.plain)
@@ -105,59 +118,70 @@ struct MeetingView: View {
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
                 .onAppear { title = meeting.title }.onChange(of: meeting.title) { _, value in title = value }
                 .onDisappear { if title != meeting.title { state.rename(meeting, to: title) } }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: PisyaDesign.Spacing.related) { meetingControls; Spacer(minLength: 0); exportControl }
-                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { meetingControls; exportControl }
-            }.actionControls().textStyle(PisyaDesign.Typography.detailMedium).controlSize(.large).padding(.top, PisyaDesign.Spacing.section).padding(.bottom, PisyaDesign.Spacing.section)
-            if !meeting.speakers.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: PisyaDesign.Spacing.section) {
-                        ForEach(meeting.speakers, id: \.self) { speaker in
-                            screenLabel(speaker, systemImage: "person.crop.circle")
-                                .fixedSize()
-                                .accessibilityElement(children: .combine)
-                        }
-                    }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk)
-                }.background(HorizontalWheelScroll()).padding(.bottom, PisyaDesign.Spacing.section)
-            }
-            HStack(spacing: PisyaDesign.Spacing.inline) { screenText("РАСШИФРОВКА").textStyle(PisyaDesign.Typography.transcriptHeading); Spacer(); screenText(fragmentCount(meeting.segments.count)) }.textStyle(PisyaDesign.Typography.footnoteMedium).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
-            SearchField(title: "Поиск внутри записи", text: $transcriptSearch).focused($focusedField, equals: .search)
-                .padding(.bottom, PisyaDesign.Spacing.related).disabled(meeting.segments.isEmpty || state.recordingMeetingID == meeting.id)
-            Divider()
-            if state.recordingMeetingID == meeting.id && state.processingID == meeting.id {
+            if showsTranscriptTools {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: PisyaDesign.Spacing.related) { meetingControls; Spacer(minLength: 0); exportControl }
+                    VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { meetingControls; exportControl }
+                }.actionControls().textStyle(PisyaDesign.Typography.detailMedium).controlSize(.large)
+                    .padding(.vertical, PisyaDesign.Spacing.section)
+                if !meeting.speakers.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: PisyaDesign.Spacing.section) {
+                            ForEach(meeting.speakers, id: \.self) { speaker in
+                                screenLabel(speaker, systemImage: "person.crop.circle")
+                                    .fixedSize()
+                                    .accessibilityElement(children: .combine)
+                            }
+                        }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk)
+                    }.background(HorizontalWheelScroll()).padding(.bottom, PisyaDesign.Spacing.section)
+                }
                 HStack(spacing: PisyaDesign.Spacing.inline) {
-                    screenText(state.liveStatus).foregroundStyle(Color.mutedInk)
+                    screenText("РАСШИФРОВКА").textStyle(PisyaDesign.Typography.transcriptHeading)
                     Spacer()
-                    screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") { state.toggleLivePause() }.actionButton(size: .small)
-                }.textStyle(PisyaDesign.Typography.caption).padding(.vertical, PisyaDesign.Spacing.content)
-            } else if state.processingID == meeting.id && !state.liveStatus.isEmpty {
-                HStack(spacing: PisyaDesign.Spacing.inline) { screenText(state.liveStatus); Spacer(); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.textStyle(PisyaDesign.Typography.caption).padding(.vertical, PisyaDesign.Spacing.content)
-            } else if state.processingID == meeting.id {
-                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { screenText(state.phase).textStyle(PisyaDesign.Typography.caption); ProgressView(value: state.progress); screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small) }.padding(.vertical, PisyaDesign.Spacing.section)
+                    screenText(fragmentCount(meeting.segments.count))
+                }.textStyle(PisyaDesign.Typography.footnoteMedium).foregroundStyle(Color.mutedInk)
+                    .padding(.bottom, PisyaDesign.Spacing.related)
+                if !meeting.segments.isEmpty {
+                    SearchField(title: "Поиск внутри записи", text: $transcriptSearch).focused($focusedField, equals: .search)
+                        .padding(.bottom, PisyaDesign.Spacing.related)
+                }
+            } else {
+                transcriptStatus
+                    .padding(.top, PisyaDesign.Spacing.content)
+                    .padding(.bottom, PisyaDesign.Spacing.related)
             }
-            if meeting.status == .failed && meeting.liveCommittedUntil != nil && !meeting.segments.isEmpty && !state.recording {
-                HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Расшифровка не завершена").foregroundStyle(Color.mutedInk); Spacer(); screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small) }.textStyle(PisyaDesign.Typography.caption).padding(.vertical, PisyaDesign.Spacing.content)
-            }
+            Divider()
             if meeting.segments.isEmpty {
                 VStack(spacing: PisyaDesign.Spacing.section) {
                     Spacer()
-                    if state.recordingMeetingID != meeting.id { Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform").font(PisyaDesign.Typography.Icon.emptyState).foregroundStyle(Color.moss) }
-                    screenText(state.recordingMeetingID == meeting.id ? (state.processingID == meeting.id ? "Здесь появится черновик" : "Расшифровка появится после записи") : meeting.status == .processing ? "Слушаю и превращаю в текст" : meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено").textStyle(PisyaDesign.Typography.dialogTitle)
-                    if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
-                    if !state.recording && meeting.status != .processing && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
+                    if isRecording || isSaving || isTranscribing || isQueued {
+                        SectionHeading(isRecording && isTranscribing ? "Здесь появится черновик" : "Здесь появится расшифровка")
+                    } else {
+                        Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform").font(PisyaDesign.Typography.Icon.emptyState).foregroundStyle(Color.moss)
+                        SectionHeading(meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено", style: .dialog)
+                        if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
+                        if !state.recording && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
+                    }
                     Spacer()
                 }.frame(maxWidth: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-                        ForEach(meeting.segments.filter { transcriptSearch.isEmpty || !transcriptSearchRanges(in: typographicText($0.text), query: transcriptSearch).isEmpty || !transcriptSearchRanges(in: typographicText($0.speaker), query: transcriptSearch).isEmpty }) { segment in
+                        ForEach(meeting.segments.filter { transcriptQuery.isEmpty || !transcriptSearchRanges(in: typographicText($0.text), query: transcriptQuery).isEmpty || !transcriptSearchRanges(in: typographicText($0.speaker), query: transcriptQuery).isEmpty }) { segment in
                             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
-                                Button { state.play(segment, in: meeting) } label: { VStack(spacing: PisyaDesign.Spacing.inline) { screenText(timecode(segment.start)).textStyle(PisyaDesign.Typography.caption); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").textStyle(PisyaDesign.Typography.footnote) }.frame(width: 56, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.demo || state.recording || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
-                                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                                    screenText(segment.speaker, highlighting: transcriptSearch).textStyle(PisyaDesign.Typography.detailStrong).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
-                                    screenText(segment.text, highlighting: transcriptSearch).textStyle(PisyaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                if isRecording {
+                                    screenText(timecode(segment.start)).textStyle(PisyaDesign.Typography.caption)
+                                        .frame(width: 56, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact)
+                                } else {
+                                    Button { state.play(segment, in: meeting) } label: { VStack(spacing: PisyaDesign.Spacing.inline) { screenText(timecode(segment.start)).textStyle(PisyaDesign.Typography.caption); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").textStyle(PisyaDesign.Typography.footnote) }.frame(width: 56, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.demo || state.recording || isSaving || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
                                 }
-                                Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.recordingMeetingID == meeting.id || state.processingID == meeting.id).screenHelp("Исправить реплику")
+                                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                                    screenText(segment.speaker, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.detailStrong).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
+                                    screenText(segment.text, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                if showsTranscriptTools {
+                                    Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.processingID == meeting.id).screenHelp("Исправить реплику")
+                                }
                             }
                         }
                     }.padding(.vertical, PisyaDesign.Spacing.section).padding(.trailing, PisyaDesign.Spacing.related)
@@ -167,6 +191,7 @@ struct MeetingView: View {
         }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.top, PisyaDesign.Spacing.page)
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
+        .onChange(of: showsTranscriptTools) { _, visible in if !visible { transcriptSearch = "" } }
         .onExitCommand { focusedField = nil; NSApp.keyWindow?.makeFirstResponder(nil) }
         .confirmationDialog(typographicText("Удалить аудио этой встречи без возможности восстановления? Текст и сохранённые голосовые признаки останутся, переслушать или заново распознать запись будет нельзя"), isPresented: $confirmDeleteAudio) {
             screenButton("Удалить аудио", role: .destructive) { state.deleteAudio(meeting) }
@@ -181,6 +206,46 @@ struct MeetingView: View {
             }
             screenButton("Отмена", role: .cancel) { speakerToRename = nil }
         } message: { screenText("Имя изменится в этой встрече. «Запомнить голос» сохраняет локальный образец для следующих встреч; выбирайте только проверенные реплики") }
+    }
+    @ViewBuilder
+    private var transcriptStatus: some View {
+        if isRecording || isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) {
+            HStack(spacing: PisyaDesign.Spacing.related) {
+                if isSaving || (isTranscribing && !state.livePaused) {
+                    if isTranscribing && !isRecording && state.liveStatus.isEmpty && !state.phase.isEmpty {
+                        ProgressView(value: state.progress).frame(width: 42).accessibilityLabel("Ход расшифровки")
+                    } else {
+                        ProgressView().controlSize(.small).accessibilityHidden(true)
+                    }
+                }
+                SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
+                Spacer(minLength: 0)
+                if isRecording && isTranscribing {
+                    screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
+                        .actionButton(size: .small)
+                        .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
+                } else if isTranscribing && !isSaving {
+                    screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small)
+                } else if meeting.status == .failed && meeting.liveCommittedUntil != nil && !state.recording && !isQueued && !isSaving {
+                    screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
+                }
+            }
+        }
+    }
+    private var transcriptStatusTitle: String {
+        if isSaving { return "Сохраняю запись" }
+        if isQueued { return "В очереди на расшифровку" }
+        if isTranscribing {
+            if !state.liveStatus.isEmpty { return state.liveStatus }
+            return finishesRecording ? "Завершаю расшифровку" : "Расшифровываю аудио"
+        }
+        if isRecording { return "Расшифровка появится после записи" }
+        return "Расшифровка не завершена"
+    }
+    private var transcriptionDetail: String? {
+        guard isTranscribing, !isRecording, !isSaving else { return nil }
+        if finishesRecording { return "Запись сохранена" }
+        return state.phase.isEmpty ? nil : state.phase
     }
     private func saveTitle() {
         if title != meeting.title { state.rename(meeting, to: title) }
@@ -235,20 +300,65 @@ private struct SegmentEditor: View {
 }
 
 
+private struct RecordingIndicator: View {
+    @ObservedObject var monitor: RecordingMonitor
+    let started: Date
+    @State private var showsWaveforms = false
+
+    var body: some View {
+        HStack(spacing: PisyaDesign.Spacing.related) {
+            HStack(spacing: PisyaDesign.Spacing.inline) {
+                Circle().fill(Color.recordingRed).frame(width: 7, height: 7).accessibilityHidden(true)
+                screenText("Идёт запись").textStyle(PisyaDesign.Typography.detailStrong).fixedSize()
+                RecordingElapsed(started: started)
+            }
+            Button { showsWaveforms.toggle() } label: {
+                HStack(spacing: PisyaDesign.Spacing.related) {
+                    meter("mic", track: monitor.microphone)
+                    meter("speaker.wave.2", track: monitor.system)
+                }.accessibilityHidden(true)
+            }
+            .actionButton(size: .small)
+            .accessibilityLabel("Уровни записи")
+            .accessibilityValue("Микрофон: \(signalDescription(monitor.microphone)). Системный звук: \(signalDescription(monitor.system))")
+            .screenHelp("Показать дорожки микрофона и системного звука")
+            .popover(isPresented: $showsWaveforms, arrowEdge: .bottom) {
+                RecordingWaveformView(monitor: monitor)
+            }
+        }
+    }
+
+    private func missingSignal(_ track: AudioMeterTrack) -> Bool {
+        monitor.now - monitor.began >= 3 && !track.isFresh(now: monitor.now)
+    }
+    private func signalDescription(_ track: AudioMeterTrack) -> String {
+        if missingSignal(track) { return "Нет новых данных" }
+        return "Записано \(timecode(track.seconds))"
+    }
+    private func meter(_ icon: String, track: AudioMeterTrack) -> some View {
+        HStack(spacing: PisyaDesign.Spacing.compact) {
+            Image(systemName: icon).textStyle(PisyaDesign.Typography.footnote)
+            Group {
+                if missingSignal(track) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.orange)
+                } else {
+                    Capsule().fill(Color.moss.opacity(0.17)).overlay(alignment: .leading) {
+                        Capsule().fill(Color.moss).frame(width: 18 * CGFloat(track.level))
+                    }.frame(height: 4)
+                }
+            }.frame(width: 18).textStyle(PisyaDesign.Typography.footnote)
+        }
+    }
+}
+
 private struct RecordingWaveformView: View {
     @ObservedObject var monitor: RecordingMonitor
-    let started: Date?
     var body: some View {
-        VStack(spacing: PisyaDesign.Spacing.content) {
-            HStack(spacing: PisyaDesign.Spacing.inline) {
-                Circle().fill(Color.red).frame(width: 7, height: 7)
-                screenText("Идёт запись").textStyle(PisyaDesign.Typography.bodyStrong)
-                Spacer()
-                if let started { screenText(started, style: .timer).textStyle(PisyaDesign.Typography.body).monospacedDigit() }
-            }
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
+            SectionHeading("Уровни записи")
             lane("Микрофон", icon: "mic", track: monitor.microphone, color: .moss)
             lane("Системный звук", icon: "speaker.wave.2", track: monitor.system, color: Color(white: 0.48))
-        }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.vertical, PisyaDesign.Spacing.content).background(Color.moss.opacity(0.045))
+        }.padding(PisyaDesign.Spacing.content).frame(width: 520).popupCanvas()
     }
     private func lane(_ title: String, icon: String, track: AudioMeterTrack, color: Color) -> some View {
         let fresh = track.isFresh(now: monitor.now)

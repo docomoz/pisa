@@ -51,8 +51,9 @@ final class AppState: ObservableObject {
     private var detector = CallDetector()
     private var activeMeeting: Meeting?
     var recordingMeetingID: UUID? { recording ? activeMeeting?.id : nil }
+    var savingMeetingID: UUID? { recording ? nil : activeMeeting?.id }
     private var automaticallyStarted = false
-    private var pending: [UUID] = []
+    @Published private var pending: [UUID] = []
     private var pendingReprocessing: Set<UUID> = []
     var selected: Meeting? { meetings.first { $0.id == selection } }
     var filtered: [Meeting] {
@@ -68,6 +69,7 @@ final class AppState: ObservableObject {
         select(filtered.first?.id)
     }
     func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !pending.contains(m.id) }
+    func isQueued(_ id: UUID) -> Bool { pending.contains(id) }
     func rename(_ m: Meeting, to title: String) {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
@@ -257,7 +259,11 @@ final class AppState: ObservableObject {
             guard !result.files.isEmpty else { throw PisyaError.message("Звук не получен. Проверьте разрешения и выбранное приложение") }
             try library.save(m); upsert(m)
             if let warning = result.warning { message = warning }
-            if liveTask != nil && processingID == m.id { liveStopped = true }
+            if liveTask != nil && processingID == m.id {
+                liveStopped = true
+                livePaused = false
+                liveStatus = "Завершаю расшифровку"
+            }
             else if result.warning == nil && modelReady { enqueue(m.id) }
             else if !modelReady { message = "Запись сохранена. Загрузите модели в настройках, чтобы расшифровать её" }
         } catch {
