@@ -70,7 +70,7 @@ struct MainView: View {
             screenText("Вы разговариваете.\nPisya записывает.").textStyle(PisyaDesign.Typography.hero)
             screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.").textStyle(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk).padding(.top, PisyaDesign.Spacing.content)
             HStack(spacing: PisyaDesign.Spacing.related) {
-                Button { state.showingSettings = true } label: { screenText("Настроить Pisya") }.actionButton(.primary)
+                Button { state.showingSettings = true } label: { screenText("Настроить") }.actionButton(.primary)
             }.padding(.top, PisyaDesign.Spacing.section)
             Spacer()
             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {

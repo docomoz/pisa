@@ -18,7 +18,7 @@ struct SavedVoicesSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
-            SectionHeading("Сохранённые голоса", subtitle: "Pisya узнаёт людей по голосу на следующих встречах")
+            SectionHeading("Сохранённые голоса", subtitle: "Pisya будет узнавать людей по голосу на следующих встречах")
             if state.voiceProfiles.isEmpty {
                 emptyState
             } else {
