@@ -29,12 +29,7 @@ struct VoiceManager: View {
                                 LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                     screenText(speaker).textStyle(PisyaDesign.Typography.bodyStrong)
                                     ForEach(voiceSamples(for: speaker, in: meeting.segments)) { segment in
-                                        HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
-                                            Button { select(segment); state.preview(segment, in: meeting) } label: { Image(systemName: state.playingSegmentID == segment.id ? "stop.circle.fill" : "play.circle.fill").font(PisyaDesign.Typography.Icon.featured) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(meeting.audioFiles.isEmpty || state.recording).screenHelp("Прослушать до 8 секунд")
-                                            Button { select(segment) } label: {
-                                                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) { screenText("\(timecode(segment.start)) · \(timecode(segment.end - segment.start))").textStyle(PisyaDesign.Typography.footnote); screenText(segment.text).textStyle(PisyaDesign.Typography.secondary).lineLimit(2) }.frame(maxWidth: .infinity, alignment: .leading)
-                                            }.shapeAwarePlainButton()
-                                        }.padding(PisyaDesign.Spacing.related).background(selected == segment.id ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                                        fragmentCard(segment, in: meeting)
                                     }
                                 }
                             }
@@ -71,6 +66,37 @@ struct VoiceManager: View {
                 }.id(selected).textStyle(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350)
             }
         }.dialogContent().frame(width: 940, height: 660).background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
+    }
+
+    private func fragmentCard(_ segment: TranscriptSegment, in meeting: Meeting) -> some View {
+        let canPlay = !meeting.audioFiles.isEmpty && !state.recording && !state.demo
+        let isPlaying = state.playingSegmentID == segment.id
+        let isSelected = selected == segment.id
+        let shape = RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)
+
+        return Button {
+            select(segment)
+            if canPlay { state.preview(segment, in: meeting) }
+        } label: {
+            HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
+                Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
+                    .font(PisyaDesign.Typography.Icon.featured)
+                    .foregroundStyle(canPlay ? Color.moss : Color.disabledInk)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
+                    screenText("\(timecode(segment.start)) · \(timecode(segment.end - segment.start))")
+                        .textStyle(PisyaDesign.Typography.footnote)
+                    screenText(segment.text).textStyle(PisyaDesign.Typography.secondary).lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(PisyaDesign.Spacing.related)
+            .background(isSelected ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary, in: shape)
+            .contentShape(shape)
+        }
+        .shapeAwarePlainButton()
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .screenHelp(canPlay ? (isPlaying ? "Остановить фрагмент" : "Прослушать до 8 секунд") : "Выбрать фрагмент")
     }
 
     private var savedVoices: some View {
