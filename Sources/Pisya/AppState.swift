@@ -713,8 +713,11 @@ final class AppState: ObservableObject {
             var m = meeting; m.audioFiles = []; m.audioOffsets = [:]; update(m)
         } catch { message = "Не всё аудио удалось удалить: \(error.localizedDescription)" }
     }
+    func canExport(_ meeting: Meeting) -> Bool {
+        canModify(meeting) && !meeting.segments.isEmpty
+    }
     func exportSelected() {
-        guard let meeting = selected, !demo else { return }
+        guard let meeting = selected, canExport(meeting) else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = "\(meeting.title.replacingOccurrences(of: "/", with: "-" )).md"
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.isExtensionHidden = false; panel.canCreateDirectories = true

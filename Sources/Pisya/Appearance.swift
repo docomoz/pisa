@@ -10,13 +10,14 @@ enum PisyaDesign {
         static let primaryHover = Color(red: 0.21844, green: 0.65153, blue: 0.21485)
         static let primaryPressed = Color(red: 0.18, green: 0.59, blue: 0.18)
         static let secondary = Color(red: 0.95243, green: 0.95896, blue: 0.96604)
-        static let secondaryHover = Color(red: 0.90895, green: 0.91760, blue: 0.92694)
-        static let secondaryPressed = Color(red: 0.86, green: 0.88, blue: 0.89)
+        static let secondaryAction = Color(red: 0.90, green: 0.92, blue: 0.94)
+        static let secondaryHover = Color(red: 0.86, green: 0.89, blue: 0.92)
+        static let secondaryPressed = Color(red: 0.80, green: 0.84, blue: 0.88)
         static let recording = Color(red: 0.74508, green: 0.13808, blue: 0.13777)
         static let recordingHover = Color(red: 0.68, green: 0.11, blue: 0.11)
         static let recordingPressed = Color(red: 0.60, green: 0.09, blue: 0.09)
         static let disabledInk = Color(white: 0.42)
-        static let disabledSurface = Color(white: 0.94)
+        static let disabledSurface = Color(white: 0.97)
         static let paper = Color.white
         static let mutedInk = Color(red: 0.25091, green: 0.26128, blue: 0.27245)
         static let sidebar = Color(red: 0.93417, green: 0.94068, blue: 0.94773)
@@ -140,7 +141,7 @@ private struct ActionButtonContent<Label: View>: View {
         case .primary:
             return pressed ? PisyaDesign.Colors.primaryPressed : (hovered || focused) ? PisyaDesign.Colors.primaryHover : PisyaDesign.Colors.brandAccent
         case .secondary:
-            return (pressed || focused) ? PisyaDesign.Colors.secondaryPressed : hovered ? PisyaDesign.Colors.secondaryHover : PisyaDesign.Colors.secondary
+            return (pressed || focused) ? PisyaDesign.Colors.secondaryPressed : hovered ? PisyaDesign.Colors.secondaryHover : PisyaDesign.Colors.secondaryAction
         case .recording:
             return pressed ? PisyaDesign.Colors.recordingPressed : (hovered || focused) ? PisyaDesign.Colors.recordingHover : PisyaDesign.Colors.recording
         }

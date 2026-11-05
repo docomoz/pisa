@@ -206,7 +206,7 @@ struct MeetingView: View {
         HStack(spacing: PisyaDesign.Spacing.related) {
             Button { state.exportSelected() } label: { screenLabel("Поделиться", systemImage: "square.and.arrow.up") }
                 .actionButton()
-                .disabled(state.demo || meeting.segments.isEmpty)
+                .disabled(!state.canExport(meeting))
             Menu {
                 MeetingActions(meeting: meeting)
                 if !meeting.audioFiles.isEmpty && meeting.status == .ready {
