@@ -63,7 +63,7 @@ struct SettingsView: View {
                         }
                     default:
                         columns {
-                        block("Доступ к встречам через MCP", "Локальный процесс · только чтение · без открытого сетевого порта") {
+                        block("Доступ к встречам через MCP", "Локальный сервер даёт доступ только для чтения и работает без сетевого порта") {
                             screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled).onChange(of: state.preferences.mcpEnabled) { state.savePreferences() }
                             SupportingText("Подключённый клиент сможет искать встречи и читать расшифровки. Если клиент использует облачную модель, прочитанный текст может уйти к ней. Доступ к аудио и изменениям библиотеки не предоставляется.")
                         }
@@ -90,7 +90,7 @@ struct SettingsView: View {
                 }.padding(.vertical, PisyaDesign.Spacing.compact)
             }.id(section)
             }
-            HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · ранняя версия").textStyle(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
+            HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Ранняя версия Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")").textStyle(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())

@@ -8,8 +8,16 @@ do {
     let library = try MeetingLibrary(root: root)
     let handler = MCPHandler(library: library)
     var buffer = Data()
-    while let chunk = try FileHandle.standardInput.read(upToCount: 4096), !chunk.isEmpty {
-        buffer.append(chunk)
+    var chunk = [UInt8](repeating: 0, count: 4096)
+    while true {
+        // The client keeps stdin open while waiting for each response.
+        let count = read(STDIN_FILENO, &chunk, chunk.count)
+        if count == 0 { break }
+        if count < 0 {
+            if errno == EINTR { continue }
+            exit(1)
+        }
+        buffer.append(contentsOf: chunk.prefix(count))
         if buffer.count > 1_048_576 { exit(1) }
         while let end = buffer.firstIndex(of: 10) {
             let line = buffer[..<end]; buffer.removeSubrange(...end)
