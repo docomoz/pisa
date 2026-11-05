@@ -75,10 +75,14 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
         title = clean; titleOrigin = .generated; automaticTitle = nil
         return true
     }
-    @discardableResult public mutating func rename(to value: String) -> Bool {
+    @discardableResult public mutating func rename(to value: String, resetIfEmpty: Bool = false) -> Bool {
         let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return false }
-        title = clean; titleOrigin = .custom; automaticTitle = nil
+        if clean.isEmpty {
+            guard resetIfEmpty, !hasAutomaticTitle else { return false }
+            title = defaultTitle; titleOrigin = nil; automaticTitle = title
+        } else {
+            title = clean; titleOrigin = .custom; automaticTitle = nil
+        }
         return true
     }
     public init(title: String, source: String) { self.title = title; self.source = source }

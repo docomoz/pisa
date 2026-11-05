@@ -126,7 +126,7 @@ struct MeetingView: View {
             TextField("Название встречи", text: titleInput).textFieldStyle(.plain)
                 .textStyle(PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
                 .disabled(!state.canRename(meeting))
-                .onSubmit { saveTitle(); focusedField = nil }
+                .onSubmit { saveTitle(resetIfEmpty: true); focusedField = nil }
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
                 .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { _, value in title = value }
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
@@ -266,8 +266,9 @@ struct MeetingView: View {
         if finishesRecording { return "Запись сохранена" }
         return state.phase.isEmpty ? nil : state.phase
     }
-    private func saveTitle() {
-        if title != meeting.headingTitle { state.rename(meeting, to: title) }
+    private func saveTitle(resetIfEmpty: Bool = false) {
+        let savedTitle = state.meetings.first(where: { $0.id == meeting.id })?.headingTitle ?? meeting.headingTitle
+        if title != savedTitle { state.rename(meeting, to: title, resetIfEmpty: resetIfEmpty) }
         title = state.meetings.first(where: { $0.id == meeting.id })?.headingTitle ?? meeting.headingTitle
     }
     private var meetingControls: some View {

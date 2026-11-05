@@ -77,11 +77,11 @@ final class AppState: ObservableObject {
         guard recordingMeetingID == meeting.id else { return }
         recordingTitleDraft = title == meeting.headingTitle ? nil : title
     }
-    func rename(_ m: Meeting, to title: String) {
+    func rename(_ m: Meeting, to title: String, resetIfEmpty: Bool = false) {
         guard canRename(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
         let isRecording = recordingMeetingID == m.id
         if isRecording { recordingTitleDraft = nil }
-        guard latest.rename(to: title) else { return }
+        guard latest.rename(to: title, resetIfEmpty: isRecording && resetIfEmpty) else { return }
         if isRecording {
             do { try library.save(latest); upsert(latest) }
             catch { message = error.localizedDescription }

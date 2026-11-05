@@ -50,6 +50,16 @@ final class MeetingTitleTests: XCTestCase {
         XCTAssertEqual(dated.title, title)
     }
 
+    func testResettingCustomTitleRestoresDefaultAndAllowsGeneration() {
+        var meeting = completed()
+        XCTAssertTrue(meeting.rename(to: "Планы команды"))
+
+        XCTAssertTrue(meeting.rename(to: " \n ", resetIfEmpty: true))
+        XCTAssertEqual(meeting.headingTitle, "Созвон")
+        XCTAssertEqual(meeting.title, meeting.defaultTitle)
+        XCTAssertTrue(meeting.applyGeneratedTitle("Запуск нового поиска"))
+    }
+
     func testOnlyCompleteNonemptyTranscriptsCanReceiveTitles() {
         for status in [MeetingStatus.recorded, .processing, .failed] {
             var meeting = completed(); meeting.status = status
