@@ -81,7 +81,10 @@ struct MainView: View {
         }.padding(.horizontal, PisyaDesign.Spacing.page).frame(maxWidth: .infinity, alignment: .leading)
     }
     private func feature(_ icon: String, _ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { Image(systemName: icon).font(PisyaDesign.Typography.Icon.medium).foregroundStyle(Color.moss); screenText(title).textStyle(PisyaDesign.Typography.footnoteMedium); screenText(detail).textStyle(PisyaDesign.Typography.micro).foregroundStyle(Color.mutedInk).fixedSize(horizontal: false, vertical: true) }.frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+            Image(systemName: icon).font(PisyaDesign.Typography.Icon.medium).foregroundStyle(Color.moss)
+            SectionHeading(title, subtitle: detail, style: .feature)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

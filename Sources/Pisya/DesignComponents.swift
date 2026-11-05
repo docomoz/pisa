@@ -2,13 +2,14 @@ import SwiftUI
 
 struct SectionHeading: View {
     enum Style {
-        case section, dialog, window, page
+        case section, dialog, window, page, feature
         var textStyle: PisyaDesign.Typography.Style {
             switch self {
             case .section: return PisyaDesign.Typography.sectionTitle
             case .dialog: return PisyaDesign.Typography.dialogTitle
             case .window: return PisyaDesign.Typography.windowTitle
             case .page: return PisyaDesign.Typography.pageTitle
+            case .feature: return PisyaDesign.Typography.footnoteMedium
             }
         }
     }
@@ -19,18 +20,23 @@ struct SectionHeading: View {
         self.title = title; self.subtitle = subtitle; self.style = style
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
+        VStack(alignment: .leading, spacing: style == .feature ? PisyaDesign.Spacing.textLine : PisyaDesign.Spacing.inline) {
             screenText(title).textStyle(style.textStyle)
-            if let subtitle { SupportingText(subtitle) }
+            if let subtitle {
+                SupportingText(subtitle, style: style == .feature ? PisyaDesign.Typography.micro : PisyaDesign.Typography.body)
+            }
         }.fixedSize(horizontal: false, vertical: true)
     }
 }
 
 struct SupportingText: View {
     let text: String
-    init(_ text: String) { self.text = text }
+    let style: PisyaDesign.Typography.Style
+    init(_ text: String, style: PisyaDesign.Typography.Style = PisyaDesign.Typography.body) {
+        self.text = text; self.style = style
+    }
     var body: some View {
-        screenText(text).textStyle(PisyaDesign.Typography.body).foregroundStyle(Color.mutedInk)
+        screenText(text).textStyle(style).foregroundStyle(Color.mutedInk)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
