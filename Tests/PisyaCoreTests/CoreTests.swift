@@ -119,6 +119,7 @@ final class CoreTests: XCTestCase {
         var meeting = Meeting(title: "", source: "System")
         meeting.title = "Встреча · " + meeting.date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "ru_RU")))
         XCTAssertTrue(meeting.hasAutomaticTitle)
+        XCTAssertEqual(meeting.headingTitle, "Созвон")
         meeting.automaticTitle = meeting.title
         meeting.title = "Планирование"
         XCTAssertFalse(meeting.hasAutomaticTitle)
@@ -139,6 +140,10 @@ final class CoreTests: XCTestCase {
         imported.title = imported.defaultTitle; imported.automaticTitle = imported.title
         XCTAssertTrue(imported.title.hasPrefix("Запись · "))
         XCTAssertTrue(imported.hasAutomaticTitle)
+        XCTAssertEqual(imported.headingTitle, "Запись")
+        let customTitle = imported.title
+        XCTAssertTrue(imported.rename(to: customTitle))
+        XCTAssertEqual(imported.headingTitle, customTitle)
     }
     func testDateYearAppearsAtCalendarAnniversary() {
         var calendar = Calendar(identifier: .gregorian)

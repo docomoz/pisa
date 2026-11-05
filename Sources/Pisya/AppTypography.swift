@@ -11,7 +11,6 @@ extension PisyaDesign {
         }
         static let hero = Style(font: .system(size: 40, weight: .medium), lineSpacing: Spacing.hairline, tracking: -0.8)
         static let pageTitle = Style(font: .system(size: 29, weight: .semibold), lineSpacing: Spacing.compact)
-        static let automaticTitle = Style(font: .system(size: 29), lineSpacing: Spacing.compact)
         static let windowTitle = Style(font: .system(size: 26, weight: .semibold), lineSpacing: Spacing.compact)
         static let brand = Style(font: .system(size: 23, weight: .semibold), lineSpacing: Spacing.compact)
         static let dialogTitle = Style(font: .system(size: 22, weight: .semibold), lineSpacing: Spacing.compact)

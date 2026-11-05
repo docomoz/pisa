@@ -56,10 +56,9 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
             stamps.contains { normalized(prefix + " · " + $0) == normalized(title) }
         }
     }
-    public var defaultTitle: String {
-        let prefix = source == "Аудиофайл" ? "Запись" : "Созвон"
-        return prefix + " · " + meetingDateLabel(date)
-    }
+    private var defaultTitlePrefix: String { source == "Аудиофайл" ? "Запись" : "Созвон" }
+    public var defaultTitle: String { defaultTitlePrefix + " · " + meetingDateLabel(date) }
+    public var headingTitle: String { hasAutomaticTitle ? defaultTitlePrefix : title }
     @discardableResult public mutating func refreshAutomaticTitle() -> Bool {
         guard hasAutomaticTitle else { return false }
         let changed = title != defaultTitle || automaticTitle != defaultTitle

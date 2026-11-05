@@ -103,7 +103,8 @@ struct MeetingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
-                if !meeting.hasAutomaticTitle { screenText(meetingDateLabel(meeting.date)); screenText("·") }
+                screenText(meetingDateLabel(meeting.date))
+                screenText("·")
                 screenText(meeting.source)
                 if !isRecording && !isSaving {
                     screenText("·")
@@ -114,12 +115,12 @@ struct MeetingView: View {
                 if state.demo { screenButton("Закрыть пример") { state.showDemo() }.actionButton(size: .small) }
             }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
             TextField("Название встречи", text: $title).textFieldStyle(.plain)
-                .textStyle(meeting.hasAutomaticTitle ? PisyaDesign.Typography.automaticTitle : PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
+                .textStyle(PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
                 .disabled(!state.canModify(meeting))
                 .onSubmit { saveTitle(); focusedField = nil }
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
-                .onAppear { title = meeting.title }.onChange(of: meeting.title) { _, value in title = value }
-                .onDisappear { if title != meeting.title { state.rename(meeting, to: title) } }
+                .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { _, value in title = value }
+                .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
             if showsTranscriptTools {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: PisyaDesign.Spacing.related) { meetingControls; Spacer(minLength: 0); exportControl }
@@ -250,8 +251,8 @@ struct MeetingView: View {
         return state.phase.isEmpty ? nil : state.phase
     }
     private func saveTitle() {
-        if title != meeting.title { state.rename(meeting, to: title) }
-        title = state.meetings.first(where: { $0.id == meeting.id })?.title ?? meeting.title
+        if title != meeting.headingTitle { state.rename(meeting, to: title) }
+        title = state.meetings.first(where: { $0.id == meeting.id })?.headingTitle ?? meeting.headingTitle
     }
     private var meetingControls: some View {
         HStack(spacing: PisyaDesign.Spacing.related) {
