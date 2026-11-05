@@ -47,7 +47,7 @@ struct SettingsView: View {
                             }
                         }
                     case "Голоса":
-                        SavedVoicesSettings(scrollTo: { id in proxy.scrollTo(id, anchor: .center) })
+                        SavedVoicesSettings(scrollTo: { id in proxy.scrollTo(id) })
                     case "Экспорт":
                         columns {
                         block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {

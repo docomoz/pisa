@@ -8,53 +8,36 @@ struct SavedVoicesSettings: View {
     var scrollTo: (UUID) -> Void
 
     private enum VoiceControl: Hashable {
-        case rename(UUID), forget(UUID), sample(UUID, UUID)
+        case actions(UUID), sample(UUID, UUID)
         var profileID: UUID {
             switch self {
-            case .rename(let id), .forget(let id), .sample(let id, _): return id
+            case .actions(let id), .sample(let id, _): return id
             }
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
-            SectionHeading("Сохранённые голоса", subtitle: "Pisya использует их, чтобы узнавать людей на следующих встречах. Переименование и удаление голоса сохраняют имена в прежних расшифровках.")
+            SectionHeading("Сохранённые голоса", subtitle: "Pisya узнаёт людей по голосу на следующих встречах")
             if state.voiceProfiles.isEmpty {
-                FormSection("Пока нет сохранённых голосов") {
-                    SupportingText("Откройте запись, нажмите «Разметить голоса», назначьте имя и включите «Запомнить голос для будущих встреч»")
-                }.padding(PisyaDesign.Spacing.content).plainSurface()
+                emptyState
             } else {
-                ForEach(state.voiceProfiles) { profile in
-                    VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                        HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
-                            screenText(profile.name).textStyle(PisyaDesign.Typography.bodyStrong)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            screenButton("Переименовать") { renaming = profile }
-                                .actionButton(size: .small).fixedSize()
-                                .focused($focusedControl, equals: .rename(profile.id))
-                                .accessibilityLabel("Переименовать голос «\(profile.name)»")
-                            screenButton("Забыть голос…", role: .destructive) { forgetting = profile }
-                                .actionButton(size: .small).fixedSize()
-                                .focused($focusedControl, equals: .forget(profile.id))
-                                .accessibilityLabel("Забыть голос «\(profile.name)»")
+                VStack(spacing: PisyaDesign.Spacing.none) {
+                    ForEach(state.voiceProfiles) { profile in
+                        voiceRow(profile).id(profile.id)
+                        if profile.id != state.voiceProfiles.last?.id {
+                            Divider().padding(.horizontal, PisyaDesign.Spacing.content)
                         }
-                        if let examples = profile.examples, !examples.isEmpty {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 144), spacing: PisyaDesign.Spacing.related)], alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                                ForEach(Array(examples.enumerated()), id: \.element.id) { index, example in
-                                    Button { state.playExample(example) } label: {
-                                        screenLabel("Образец \(index + 1)", systemImage: state.playingSegmentID == example.id ? "stop.fill" : "play.fill")
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }.actionButton(size: .small).disabled(state.recording)
-                                        .focused($focusedControl, equals: .sample(profile.id, example.id))
-                                        .accessibilityLabel("\(state.playingSegmentID == example.id ? "Остановить" : "Послушать") образец \(index + 1), \(profile.name)")
-                                }
-                            }
-                        } else {
-                            SupportingText("Аудиообразец не сохранён. Голос доступен для узнавания на будущих встречах.")
-                        }
-                    }.padding(PisyaDesign.Spacing.content).plainSurface().id(profile.id)
+                    }
                 }
+                .background {
+                    RoundedRectangle(cornerRadius: PisyaDesign.Metrics.surfaceRadius)
+                        .strokeBorder(PisyaDesign.Colors.secondaryAction, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+                screenText("После переименования или удаления голоса имена в прежних расшифровках сохраняются")
+                    .textStyle(PisyaDesign.Typography.detail)
+                    .foregroundStyle(Color.mutedInk)
             }
         }
         .sheet(item: $renaming) { profile in SavedVoiceNameEditor(profile: profile).environmentObject(state) }
@@ -63,6 +46,86 @@ struct SavedVoicesSettings: View {
             if let control { scrollTo(control.profileID) }
         }
         .onDisappear { state.stopPlayback() }
+    }
+
+    private var emptyState: some View {
+        HStack(alignment: .top, spacing: PisyaDesign.Spacing.content) {
+            Image(systemName: "waveform")
+                .font(PisyaDesign.Typography.Icon.medium)
+                .foregroundStyle(Color.moss)
+                .frame(width: PisyaDesign.Metrics.regularHeight, height: PisyaDesign.Metrics.regularHeight)
+                .background(Color.paper, in: Circle())
+                .accessibilityHidden(true)
+            SectionHeading("Пока нет сохранённых голосов", subtitle: "В записи откройте «Разметить голоса», назначьте имя и включите «Запомнить голос для будущих встреч»")
+        }
+        .padding(PisyaDesign.Spacing.section)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plainSurface()
+    }
+
+    private func voiceRow(_ profile: VoiceProfile) -> some View {
+        HStack(spacing: PisyaDesign.Spacing.content) {
+            screenText(verbatim: profile.name.prefix(1).uppercased())
+                .textStyle(PisyaDesign.Typography.detailStrong)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(Color.moss)
+                .frame(width: PisyaDesign.Metrics.regularHeight, height: PisyaDesign.Metrics.regularHeight)
+                .background(Color.moss.opacity(0.10), in: Circle())
+                .accessibilityHidden(true)
+            screenText(profile.name)
+                .textStyle(PisyaDesign.Typography.bodyStrong)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let examples = profile.examples, !examples.isEmpty {
+                sampleControls(examples, for: profile)
+            } else {
+                screenText("Без аудиообразца")
+                    .textStyle(PisyaDesign.Typography.detail)
+                    .foregroundStyle(Color.mutedInk)
+                    .fixedSize()
+                    .screenHelp("Голос доступен для узнавания на будущих встречах")
+            }
+            Menu {
+                screenButton("Переименовать…") { renaming = profile }
+                Divider()
+                screenButton("Забыть голос…", role: .destructive) { forgetting = profile }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(PisyaDesign.Typography.Icon.medium)
+                    .foregroundStyle(Color.mutedInk)
+                    .frame(width: PisyaDesign.Metrics.smallHeight, height: PisyaDesign.Metrics.smallHeight)
+                    .contentShape(Rectangle())
+            }
+            .menuIndicator(.hidden)
+            .shapeAwarePlainButton()
+            .fixedSize()
+            .focused($focusedControl, equals: .actions(profile.id))
+            .screenHelp("Действия с голосом")
+            .accessibilityLabel("Действия с голосом «\(profile.name)»")
+        }
+        .padding(.horizontal, PisyaDesign.Spacing.content)
+        .padding(.vertical, PisyaDesign.Spacing.related)
+    }
+
+    private func sampleControls(_ examples: [VoiceExample], for profile: VoiceProfile) -> some View {
+        let columns = Array(repeating: GridItem(.fixed(120), spacing: PisyaDesign.Spacing.inline), count: min(examples.count, 3))
+        return LazyVGrid(columns: columns, spacing: PisyaDesign.Spacing.inline) {
+            ForEach(Array(examples.enumerated()), id: \.element.id) { index, example in
+                let playing = state.playingSegmentID == example.id
+                let title = examples.count == 1 ? "Образец" : "Образец \(index + 1)"
+                let action = playing ? "Остановить" : "Послушать"
+                Button { state.playExample(example) } label: {
+                    screenLabel(title, systemImage: playing ? "stop.fill" : "play.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .actionButton(size: .small)
+                .disabled(state.recording)
+                .focused($focusedControl, equals: .sample(profile.id, example.id))
+                .screenHelp("\(action) образец")
+                .accessibilityLabel("\(action) образец \(index + 1), \(profile.name)")
+            }
+        }.fixedSize(horizontal: true, vertical: false)
     }
 }
 
