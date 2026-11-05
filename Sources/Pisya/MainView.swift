@@ -210,24 +210,24 @@ struct MeetingView: View {
     @ViewBuilder
     private var transcriptStatus: some View {
         if isRecording || isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) {
-            HStack(spacing: PisyaDesign.Spacing.related) {
-                if isSaving || (isTranscribing && !state.livePaused) {
-                    if isTranscribing && !isRecording && state.liveStatus.isEmpty && !state.phase.isEmpty {
-                        ProgressView(value: state.progress).frame(width: 42).accessibilityLabel("Ход расшифровки")
-                    } else {
-                        ProgressView().controlSize(.small).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                HStack(spacing: PisyaDesign.Spacing.related) {
+                    SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
+                    Spacer(minLength: 0)
+                    if isRecording && isTranscribing {
+                        screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
+                            .actionButton(size: .small)
+                            .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
+                    } else if isTranscribing && !isSaving {
+                        screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small)
+                    } else if meeting.status == .failed && meeting.liveCommittedUntil != nil && !state.recording && !isQueued && !isSaving {
+                        screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
                     }
                 }
-                SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
-                Spacer(minLength: 0)
-                if isRecording && isTranscribing {
-                    screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
-                        .actionButton(size: .small)
-                        .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
-                } else if isTranscribing && !isSaving {
-                    screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small)
-                } else if meeting.status == .failed && meeting.liveCommittedUntil != nil && !state.recording && !isQueued && !isSaving {
-                    screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
+                if isSaving || (isTranscribing && !state.livePaused) {
+                    let hasFraction = isTranscribing && !isRecording && state.liveStatus.isEmpty && !state.phase.isEmpty
+                    TranscriptionProgress(fraction: hasFraction ? state.progress : nil,
+                                          label: isSaving ? "Сохранение записи" : "Ход расшифровки")
                 }
             }
         }
@@ -283,6 +283,50 @@ struct MeetingView: View {
     }
 
 }
+
+private struct TranscriptionProgress: View {
+    let fraction: Double?
+    let label: String
+    @Environment(\.locale) private var locale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let fraction = fraction.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }
+        HStack(spacing: PisyaDesign.Spacing.related) {
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                Capsule().fill(Color.moss.opacity(0.12))
+                    .overlay(alignment: .leading) {
+                        if let fraction {
+                            Capsule().fill(Color.brandAccent).frame(width: width * fraction)
+                                .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: fraction)
+                        } else {
+                            let segmentWidth = width * 0.25
+                            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+                                let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.8) / 1.8
+                                let offset = reduceMotion ? (width - segmentWidth) / 2 : (width + segmentWidth) * cycle - segmentWidth
+                                Capsule().fill(Color.brandAccent).frame(width: segmentWidth).offset(x: offset)
+                            }
+                        }
+                    }
+                    .clipShape(Capsule())
+            }
+            .frame(height: PisyaDesign.Metrics.progressHeight)
+            if let fraction {
+                screenText(fraction.formatted(.percent.precision(.fractionLength(0)).locale(locale)))
+                    .textStyle(PisyaDesign.Typography.detailStrong)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.moss)
+                    .frame(minWidth: PisyaDesign.Metrics.progressValueWidth, alignment: .trailing)
+                    .fixedSize()
+            }
+        }
+        .accessibilityRepresentation {
+            ProgressView(value: fraction).accessibilityLabel(label)
+        }
+    }
+}
+
 private struct SegmentEditor: View {
     @State var segment: TranscriptSegment
     var save: (TranscriptSegment) -> Void

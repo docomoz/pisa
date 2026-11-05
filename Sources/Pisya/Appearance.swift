@@ -35,6 +35,8 @@ enum PisyaDesign {
         static let labelIconWidth: CGFloat = 24
         static let elapsedWidth: CGFloat = 58
         static let elapsedHeight: CGFloat = 15
+        static let progressHeight: CGFloat = 10
+        static let progressValueWidth: CGFloat = 46
     }
     enum Spacing {
         static let none: CGFloat = 0
