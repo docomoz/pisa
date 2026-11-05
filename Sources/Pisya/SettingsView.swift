@@ -69,7 +69,7 @@ struct SettingsView: View {
                         }
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-                        block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента") {
+                        block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента:") {
                             screenText(verbatim: "[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"")
                                 .textStyle(PisyaDesign.Typography.code)
                                 .foregroundStyle(PisyaDesign.Colors.paper)
