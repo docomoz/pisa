@@ -268,16 +268,85 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(VoiceMatcher.identify([1, 0], profiles: [profiles[0]]), "A")
         XCTAssertNil(VoiceMatcher.identify([0, 1], profiles: [profiles[0]]))
     }
-    func testRoundTripAndSafeExport() throws {
+    func testMeetingLibraryRoundTripAndSafeAudioPath() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let m = Meeting(title: "Встреча", source: "Толк")
+        try lib.save(m); XCTAssertEqual(try lib.read(m.id), m)
+        XCTAssertThrowsError(try lib.audioURL("../secret"))
+    }
+    func testExportKeepsItsDatedPathAfterTitleAndTimeZoneChange() throws {
         let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
         var m = Meeting(title: "../Встреча\nтест", source: "Толк")
+        m.date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-31T22:03:00Z"))
         m.segments = [.init(start: 12, end: 20, speaker: "Даша", text: "Проверка сохранения")]
-        try lib.save(m); XCTAssertEqual(try lib.read(m.id), m)
-        let first = try MarkdownExporter.export(m, to: lib.root)
-        m.title = "Новое название"; let second = try MarkdownExporter.export(m, to: lib.root)
-        XCTAssertEqual(first, second); XCTAssertEqual(first.deletingLastPathComponent().path, lib.root.path)
-        XCTAssertTrue(try String(contentsOf: second).contains("00:12 · Даша"))
-        XCTAssertThrowsError(try lib.audioURL("../secret"))
+        let moscow = try XCTUnwrap(TimeZone(identifier: "Europe/Moscow"))
+        let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let first = try MarkdownExporter.export(m, to: lib.root, timeZone: moscow)
+        XCTAssertEqual(first.deletingLastPathComponent().path, lib.root.appendingPathComponent("2026/11").path)
+        XCTAssertEqual(first.lastPathComponent, "2026-11-01 01-03 — Встреча тест.md")
+        m.title = "Новое название"
+        let second = try MarkdownExporter.export(m, to: lib.root, timeZone: utc)
+        XCTAssertEqual(first, second)
+        let content = try String(contentsOf: second, encoding: .utf8)
+        XCTAssertTrue(content.contains("# Новое название"))
+        XCTAssertTrue(content.contains("00:12 · Даша"))
+    }
+    func testExportDoesNotOverwriteAnUnrelatedNoteWithTheSameName() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let first = Meeting(title: "Статус", source: "Толк")
+        var second = Meeting(title: first.title, source: first.source)
+        second.date = first.date
+        let firstURL = try MarkdownExporter.export(first, to: lib.root)
+        let secondURL = try MarkdownExporter.export(second, to: lib.root)
+        XCTAssertNotEqual(firstURL, secondURL)
+        XCTAssertEqual(try MarkdownExporter.export(second, to: lib.root), secondURL)
+        XCTAssertEqual(try String(contentsOf: firstURL, encoding: .utf8), MarkdownExporter.render(first))
+    }
+    func testExportRefreshesAnExistingLegacyPath() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let m = Meeting(title: "Обновлённая тема", source: "Толк")
+        let legacy = lib.root.appendingPathComponent("pisya-\(m.id.uuidString.lowercased()).md")
+        try "---\nid: \(m.id.uuidString)\ndate: 2026-11-05T10:00:00Z\n---\n\n# Старая тема\n".write(to: legacy, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try MarkdownExporter.export(m, to: lib.root), legacy)
+        XCTAssertTrue(try String(contentsOf: legacy, encoding: .utf8).contains("# Обновлённая тема"))
+    }
+    func testExportFindsAnExistingNoteWhenTheNewTimeZoneSkippedItsDate() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let apia = try XCTUnwrap(TimeZone(identifier: "Pacific/Apia"))
+        var m = Meeting(title: "Статус", source: "Толк")
+        m.date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2011-12-30T10:30:00Z"))
+        let first = try MarkdownExporter.export(m, to: lib.root, timeZone: .gmt)
+        XCTAssertEqual(try MarkdownExporter.export(m, to: lib.root, timeZone: apia), first)
+    }
+    func testExportIgnoresANonDirectoryAtTheNeighboringMonth() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let year = lib.root.appendingPathComponent("2026")
+        try FileManager.default.createDirectory(at: year, withIntermediateDirectories: true)
+        try Data().write(to: year.appendingPathComponent("10"))
+        var m = Meeting(title: "Статус", source: "Толк")
+        m.date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-01T10:00:00Z"))
+        let url = try MarkdownExporter.export(m, to: lib.root, timeZone: .gmt)
+        XCTAssertEqual(url.deletingLastPathComponent().path, year.appendingPathComponent("11").path)
+    }
+    func testMarkdownExposesMeetingPropertiesAndKeepsNotesAndTranscript() throws {
+        var m = Meeting(title: "Поиск: тест #1", source: "Толк")
+        m.date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-05T14:03:00Z"))
+        m.duration = 720.5
+        m.notes = "Сверить сроки"
+        m.segments = [
+            .init(start: 0, end: 2, speaker: "Даша", text: "Начали"),
+            .init(start: 2, end: 3, speaker: "О'Коннор", text: "Обсудили"),
+            .init(start: 3, end: 4, speaker: "Даша", text: "Согласовали")
+        ]
+        let markdown = MarkdownExporter.render(m)
+        let properties = try XCTUnwrap(markdown.components(separatedBy: "---\n").dropFirst().first)
+        XCTAssertTrue(properties.contains("title: 'Поиск: тест #1'\n"))
+        XCTAssertTrue(properties.contains("date: 2026-11-05T14:03:00Z\n"))
+        XCTAssertTrue(properties.contains("source: 'Толк'\n"))
+        XCTAssertTrue(properties.contains("duration_seconds: 720.5\n"))
+        XCTAssertTrue(properties.contains("speakers:\n  - 'Даша'\n  - 'О''Коннор'\n"))
+        XCTAssertTrue(markdown.contains("## Заметки\n\nСверить сроки"))
+        XCTAssertTrue(markdown.contains("## Расшифровка\n\n**00:00 · Даша**\n\nНачали"))
     }
     func testMCPEnabledByDefaultAndRevokesDuringSession() throws {
         let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }

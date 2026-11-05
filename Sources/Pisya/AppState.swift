@@ -389,9 +389,9 @@ final class AppState: ObservableObject {
                         latest.segments = SpeakerClustering.assign(latest.segments.sorted { $0.start < $1.start }, profiles: voiceProfiles)
                         latest.duration = max(latest.duration, available)
                         latest.status = .ready; latest.error = nil; latest.liveCommittedUntil = nil
-                        try library.save(latest); upsert(latest); exportIfConfigured(latest)
+                        try library.save(latest); upsert(latest)
                         await transcriber.finishLive()
-                        await nameCompletedMeeting(id)
+                        await nameCompletedMeeting(id, exportOnCompletion: true)
                         break
                     }
                     liveStatus = "Готовлю черновик"
@@ -526,8 +526,8 @@ final class AppState: ObservableObject {
                         }
                     }
                 }
-                try library.save(latest); persisted = true; upsert(latest); exportIfConfigured(latest)
-                await nameCompletedMeeting(id)
+                try library.save(latest); persisted = true; upsert(latest)
+                await nameCompletedMeeting(id, exportOnCompletion: true)
                 let shared = Set(meetings.filter { $0.id != id }.flatMap(\.audioFiles))
                 for name in obsolete where !shared.contains(name) {
                     if let url = try? library.audioURL(name) { try? FileManager.default.removeItem(at: url) }
@@ -543,7 +543,13 @@ final class AppState: ObservableObject {
         progress = fraction; phase = description
     }
     /// Failure here never changes the successful transcription's status or text.
-    func nameCompletedMeeting(_ id: UUID) async {
+    func nameCompletedMeeting(_ id: UUID, exportOnCompletion: Bool = false) async {
+        var needsExport = exportOnCompletion
+        defer {
+            if needsExport, let meeting = try? library.read(id), meeting.status == .ready, meeting.deletedAt == nil {
+                exportIfConfigured(meeting)
+            }
+        }
         do {
             let snapshot = try library.read(id)
             guard snapshot.deletedAt == nil, snapshot.needsGeneratedTitle else { return }
@@ -554,7 +560,7 @@ final class AppState: ObservableObject {
             try Task.checkCancellation()
             guard let title, var latest = try? library.read(id), latest.deletedAt == nil,
                   latest.segments == snapshot.segments, latest.applyGeneratedTitle(title) else { return }
-            try library.save(latest); upsert(latest); exportIfConfigured(latest)
+            try library.save(latest); upsert(latest); needsExport = true
         } catch {
             if !(error is CancellationError) {
                 message = "Расшифровка сохранена. Не удалось придумать название: " + error.localizedDescription
