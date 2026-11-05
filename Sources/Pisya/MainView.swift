@@ -73,7 +73,7 @@ struct MainView: View {
             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
                 feature("lock", "Локальное распознавание", "Аудио обрабатывается на этом Mac")
                 feature("doc.text", "Экспорт расшифровок", "Markdown в выбранную папку, Dropbox или Obsidian")
-                feature("link", "Работа через MCP", "Анализируйте звонки в любом ИИ‑ассистенте с поддержкой MCP")
+                feature("link", "Работа через MCP", "Получайте итоги звонков и список задач от ИИ‑ассистента")
             }.padding(.bottom, PisyaDesign.Spacing.page)
         }.padding(.horizontal, PisyaDesign.Spacing.page).frame(maxWidth: .infinity, alignment: .leading)
     }
