@@ -103,6 +103,12 @@ struct MeetingView: View {
         !state.isReprocessing && (meeting.liveCommittedUntil != nil || meeting.source == state.source)
     }
     private var transcriptQuery: String { showsTranscriptTools ? transcriptSearch : "" }
+    private var titleInput: Binding<String> {
+        Binding(get: { title }, set: { value in
+            title = value
+            state.stageRecordingTitle(value, for: meeting)
+        })
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
@@ -117,9 +123,9 @@ struct MeetingView: View {
                 if showsTranscriptTools { screenLabel("Готово", systemImage: "checkmark.circle") }
                 if state.demo { screenButton("Закрыть пример") { state.showDemo() }.actionButton(size: .small) }
             }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
-            TextField("Название встречи", text: $title).textFieldStyle(.plain)
+            TextField("Название встречи", text: titleInput).textFieldStyle(.plain)
                 .textStyle(PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
-                .disabled(!state.canModify(meeting))
+                .disabled(!state.canRename(meeting))
                 .onSubmit { saveTitle(); focusedField = nil }
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
                 .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { _, value in title = value }

@@ -51,6 +51,7 @@ final class AppState: ObservableObject {
     private var timer: Timer?
     private var detector = CallDetector()
     private var activeMeeting: Meeting?
+    private var recordingTitleDraft: String?
     var recordingMeetingID: UUID? { recording ? activeMeeting?.id : nil }
     var savingMeetingID: UUID? { recording ? nil : activeMeeting?.id }
     private var automaticallyStarted = false
@@ -70,11 +71,23 @@ final class AppState: ObservableObject {
         select(filtered.first?.id)
     }
     func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !pending.contains(m.id) }
+    func canRename(_ m: Meeting) -> Bool { !demo && (recordingMeetingID == m.id || canModify(m)) }
     func isQueued(_ id: UUID) -> Bool { pending.contains(id) }
+    func stageRecordingTitle(_ title: String, for meeting: Meeting) {
+        guard recordingMeetingID == meeting.id else { return }
+        recordingTitleDraft = title == meeting.headingTitle ? nil : title
+    }
     func rename(_ m: Meeting, to title: String) {
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
-        latest.rename(to: title); update(latest)
+        guard canRename(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
+        let isRecording = recordingMeetingID == m.id
+        if isRecording { recordingTitleDraft = nil }
+        guard latest.rename(to: title) else { return }
+        if isRecording {
+            do { try library.save(latest); upsert(latest) }
+            catch { message = error.localizedDescription }
+        } else {
+            update(latest)
+        }
     }
     func move(_ m: Meeting, to folder: UUID?) {
         guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
@@ -248,6 +261,8 @@ final class AppState: ObservableObject {
     }
     func stopRecording(manual: Bool = false) async {
         guard recording, var m = activeMeeting else { return }
+        // Stopping from the menu bar or call detector can leave the title field focused.
+        if let title = recordingTitleDraft { rename(m, to: title) }
         meterTask?.cancel(); meterTask = nil
         offsetTask?.cancel(); offsetTask = nil
         recording = false; starting = true; defer { starting = false }
