@@ -19,9 +19,12 @@ struct MainView: View {
         .foregroundStyle(Color.ink)
         .tint(Color.brandAccent)
         .focusEffectDisabled()
-        .confirmationDialog(typographicText("Расшифровать встречу заново? Текущий текст, исправления и разметка участников будут заменены. Аудио сохранится"), isPresented: Binding(get: { state.reprocessTarget != nil }, set: { if !$0 { state.reprocessTarget = nil } })) {
-            if let meeting = state.reprocessTarget { screenButton("Расшифровать заново") { state.enqueue(meeting.id, reprocess: true); state.reprocessTarget = nil } }
-            screenButton("Отмена", role: .cancel) { state.reprocessTarget = nil }
+        .sheet(item: $state.reprocessTarget) { meeting in
+            ConfirmationSheet(
+                title: "Расшифровать встречу заново?",
+                message: "Текущий текст, исправления и разметка участников будут заменены. Аудио сохранится.",
+                actionTitle: "Расшифровать заново"
+            ) { state.enqueue(meeting.id, reprocess: true) }
         }
         .sheet(item: $state.renameTarget) { meeting in NameEditor(title: "Переименовать запись", initial: meeting.title) { state.rename(meeting, to: $0) } }
         .sheet(item: $state.voiceMeeting) { meeting in VoiceManager(meetingID: meeting.id).environmentObject(state) }
@@ -206,9 +209,13 @@ struct MeetingView: View {
         .background(ClickToUnfocus())
         .onChange(of: showsTranscriptTools) { _, visible in if !visible { transcriptSearch = "" } }
         .onExitCommand { focusedField = nil; NSApp.keyWindow?.makeFirstResponder(nil) }
-        .confirmationDialog(typographicText("Удалить аудио этой встречи без возможности восстановления? Текст и сохранённые голосовые признаки останутся, переслушать или заново распознать запись будет нельзя"), isPresented: $confirmDeleteAudio) {
-            screenButton("Удалить аудио", role: .destructive) { state.deleteAudio(meeting) }
-            screenButton("Отмена", role: .cancel) {}
+        .sheet(isPresented: $confirmDeleteAudio) {
+            ConfirmationSheet(
+                title: "Удалить аудио этой встречи?",
+                message: "Аудио удалится навсегда. Текст и сохранённые голосовые признаки останутся. Прослушать запись или расшифровать её заново будет нельзя.",
+                actionTitle: "Удалить аудио",
+                role: .destructive
+            ) { state.deleteAudio(meeting) }
         }
         .sheet(item: $editing) { segment in SegmentEditor(segment: segment) { edited in var m = meeting; if let i = m.segments.firstIndex(where: { $0.id == edited.id }) { m.segments[i] = edited; state.update(m) }; editing = nil } }
         .alert("Имя участника", isPresented: Binding(get: { speakerToRename != nil }, set: { if !$0 { speakerToRename = nil } })) {

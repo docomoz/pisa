@@ -71,15 +71,24 @@ struct LibrarySidebar: View {
                 .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
             }
         }.padding(.horizontal, PisyaDesign.Spacing.content).padding(.top, PisyaDesign.Spacing.content).padding(.bottom, PisyaDesign.Spacing.content).background(Color.sidebarTint)
-        .confirmationDialog(typographicText("Очистить корзину? Все записи и их аудио будут удалены без возможности восстановления"), isPresented: $confirmEmptyTrash) {
-            screenButton("Очистить корзину", role: .destructive) { state.emptyTrash() }
-            screenButton("Отмена", role: .cancel) {}
+        .sheet(isPresented: $confirmEmptyTrash) {
+            ConfirmationSheet(
+                title: "Очистить корзину?",
+                message: "Все записи и их аудио будут удалены навсегда",
+                actionTitle: "Очистить корзину",
+                role: .destructive
+            ) { state.emptyTrash() }
         }
         .sheet(isPresented: $folderEditor) {
             FolderEditor(folder: editingFolder) { name, symbol in state.saveFolder(name, id: editingFolder?.id, symbol: symbol) }
         }
-        .confirmationDialog(typographicText("Удалить папку? Записи останутся в разделе «Без папки»"), isPresented: Binding(get: { deletingFolder != nil }, set: { if !$0 { deletingFolder = nil } })) {
-            if let folder = deletingFolder { screenButton("Удалить папку", role: .destructive) { state.removeFolder(folder); deletingFolder = nil } }
+        .sheet(item: $deletingFolder) { folder in
+            ConfirmationSheet(
+                title: "Удалить папку?",
+                message: "Записи останутся в разделе «Без папки»",
+                actionTitle: "Удалить папку",
+                role: .destructive
+            ) { state.removeFolder(folder) }
         }
     }
     private func navigationLabel(_ name: String, icon: String) -> some View {

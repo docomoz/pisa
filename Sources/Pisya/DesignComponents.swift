@@ -35,6 +35,34 @@ struct SupportingText: View {
     }
 }
 
+struct ConfirmationSheet: View {
+    let title: String
+    let message: String
+    let actionTitle: String
+    var role: ButtonRole? = nil
+    let confirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var cancelFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
+            SectionHeading(title, subtitle: message, style: .dialog)
+            HStack(spacing: PisyaDesign.Spacing.related) {
+                screenButton("Отмена", role: .cancel) { dismiss() }
+                    .actionButton().focused($cancelFocused)
+                    .keyboardShortcut(.cancelAction)
+                    .onKeyPress(.return) { dismiss(); return .handled }
+                Spacer(minLength: PisyaDesign.Spacing.none)
+                screenButton(actionTitle, role: role) {
+                    dismiss()
+                    confirm()
+                }.actionButton(role == .destructive ? .recording : .primary)
+            }
+        }.dialogContent().frame(width: 480)
+            .defaultFocus($cancelFocused, true)
+    }
+}
+
 struct FormSection<Content: View>: View {
     let title: String
     let subtitle: String?
