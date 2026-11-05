@@ -21,7 +21,11 @@ enum BrandMark { static var menuIcon: NSImage { NSImage(size: NSSize(width: 16, 
 enum PisyaDesign {
     enum Metrics { static let cornerRadius: CGFloat = 8 }
     enum Spacing {
+        static let none: CGFloat = 0
+        static let hairline: CGFloat = 2
+        static let compact: CGFloat = 4
         static let menuItemInset: CGFloat = 5
+        static let textLine: CGFloat = 7
         static let inline: CGFloat = 8
         static let related: CGFloat = 12
         static let content: CGFloat = 16
@@ -65,6 +69,29 @@ enum StatusBarMenuProbe {
             fputs("FAIL: automatic recording must remain interactive inside the menu\n", stderr)
             exit(1)
         }
+        let screen = NSScreen.main!.visibleFrame
+        let x = NSEvent.mouseLocation.x < screen.midX ? screen.maxX - off.width : screen.minX
+        for enabled in [false, true] {
+            state.setAutomatic(enabled)
+            let checkSelection: @MainActor @Sendable () -> Void = {
+                guard menu.highlightedItem == nil else {
+                    fputs("FAIL: opening the menu highlights a row with the pointer outside the menu\n", stderr)
+                    exit(1)
+                }
+                menu.cancelTracking()
+            }
+            let timer = Timer(timeInterval: 0.1, repeats: false) { _ in
+                MainActor.assumeIsolated { checkSelection() }
+            }
+            RunLoop.main.add(timer, forMode: .eventTracking)
+            menu.popUp(positioning: nil, at: NSPoint(x: x, y: screen.midY), in: nil)
+            guard !timer.isValid else {
+                fputs("FAIL: native menu tracking ended before the opening selection could be checked\n", stderr)
+                exit(1)
+            }
+        }
+        state.setAutomatic(false)
+        controller.menuWillOpen(menu)
         let window = MenuProbeWindow(contentRect: control.bounds, styleMask: .borderless, backing: .buffered, defer: false)
         let material = NSVisualEffectView(frame: control.bounds)
         material.material = .menu
@@ -81,10 +108,8 @@ enum StatusBarMenuProbe {
             return pixel.alphaComponent > 0.9
         }
 
-        // A prior click may leave keyboard focus on the checkbox while the mouse
-        // moves through other items and separators. Only the menu's current item
-        // may paint the selection background.
-        window.makeFirstResponder(control)
+        // Only the menu's current item may paint the selection background as the
+        // pointer moves through items and separators.
         let normalItem = menu.items.first { !$0.isSeparatorItem && $0 !== automatic }!
         let transitions: [(NSMenuItem?, Bool)] = [
             (automatic, true), (normalItem, false), (nil, false),
@@ -139,7 +164,6 @@ enum StatusBarMenuProbe {
                 exit(1)
             }
             for selected in [false, true] {
-                window.makeFirstResponder(selected ? control : nil)
                 controller.menu(menu, willHighlight: selected ? automatic : nil)
                 control.needsDisplay = true
                 control.layoutSubtreeIfNeeded()
@@ -181,7 +205,6 @@ enum StatusBarMenuProbe {
                 }
             }
         }
-        window.makeFirstResponder(nil)
         guard indicatorsVisible else {
             fputs("FAIL: checkbox indicator must remain visible in every checked and selected state\n", stderr)
             exit(1)
@@ -195,6 +218,6 @@ enum StatusBarMenuProbe {
             exit(1)
         }
         controller.menuDidClose(menu)
-        print("STATUS_MENU_LAYOUT_OK pointer_transitions repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
+        print("STATUS_MENU_LAYOUT_OK opens_without_selection pointer_transitions repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
     }
 }

@@ -142,6 +142,8 @@ private final class PersistentMenuToggle: NSButton {
         setButtonType(.pushOnPushOff)
         isBordered = false
         focusRingType = .none
+        // The menu owns keyboard navigation. Focusing the embedded button would preselect this row on open.
+        refusesFirstResponder = true
         autoresizingMask = [.width]
         setAccessibilityRole(.checkBox)
         checkbox.imageScaling = .scaleProportionallyUpOrDown
