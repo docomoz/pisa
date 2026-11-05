@@ -444,6 +444,11 @@ final class AppState: ObservableObject {
         if reprocess { pendingReprocessing.insert(id) }
         pending.append(id); runNext()
     }
+    func cancelQueued(_ id: UUID) {
+        guard pending.contains(id) else { return }
+        pendingReprocessing.remove(id)
+        pending.removeAll { $0 == id }
+    }
     private func runNext() {
         guard processingID == nil, !pending.isEmpty else { return }
         let id = pending.removeFirst()

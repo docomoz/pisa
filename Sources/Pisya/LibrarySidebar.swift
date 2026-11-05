@@ -50,7 +50,9 @@ struct LibrarySidebar: View {
                                 screenText(folder.name).lineLimit(1).layoutPriority(-1).screenHelp(folder.name)
                             }
                             Spacer(minLength: 0)
-                            if meeting.status == .processing { ProgressView().controlSize(.mini) }
+                            if state.isQueued(meeting.id) {
+                                Image(systemName: "clock").accessibilityLabel("В очереди на расшифровку").screenHelp("В очереди на расшифровку")
+                            } else if meeting.status == .processing { ProgressView().controlSize(.mini) }
                         }.textStyle(PisyaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
 
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)

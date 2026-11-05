@@ -28,6 +28,10 @@ final class InterfacePreview: NSObject {
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)
+        if CommandLine.arguments.contains("--queue-preview") {
+            state.processingID = UUID()
+            state.enqueue(fixture.id, reprocess: true)
+        }
         state.preferences.vocabulary = Array(repeating: "2ГИС, Бронегис, Геопэй, названия проектов для проверки длинного словаря", count: 18).joined(separator: "\n")
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         super.init()
@@ -74,6 +78,26 @@ final class InterfacePreview: NSObject {
             setup.error = sender.tag == 9 ? "Не удалось загрузить модель. Проверьте подключение к интернету и повторите попытку. Уже загруженные файлы сохранены." : nil
             setup.presented = true
         }
+    }
+
+    static func testQueue() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Queue-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        state.modelSetup.phase = .ready
+        let active = UUID()
+        let first = Meeting(title: "Первая", source: "Аудио")
+        let second = Meeting(title: "Вторая", source: "Аудио")
+        state.update(first); state.update(second); state.processingID = active
+        state.enqueue(first.id, reprocess: true); state.enqueue(second.id)
+        guard state.isQueued(first.id), state.isQueued(second.id) else { throw PisyaError.message("Записи не добавлены в очередь") }
+        state.cancelQueued(first.id)
+        guard !state.isQueued(first.id), state.isQueued(second.id), state.processingID == active,
+              try state.library.read(first.id) == first else { throw PisyaError.message("Отмена изменила запись или другую задачу") }
+        state.enqueue(first.id)
+        guard state.isQueued(first.id) else { throw PisyaError.message("Запись нельзя снова добавить в очередь") }
+        state.cancelQueued(first.id); state.cancelQueued(second.id); state.cancelQueued(active)
+        guard state.processingID == active else { throw PisyaError.message("Отмена очереди остановила обработку") }
     }
 
     static func run() throws {

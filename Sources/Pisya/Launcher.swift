@@ -52,6 +52,12 @@ enum Launcher {
             }
             return
         }
+        if CommandLine.arguments.contains("--queue-self-test") {
+            MainActor.assumeIsolated {
+                do { try InterfacePreview.testQueue(); print("QUEUE_TEST_OK"); exit(0) }
+                catch { print("QUEUE_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+        }
         if CommandLine.arguments.contains("--interface-preview") || Bundle.main.object(forInfoDictionaryKey: "PisyaInterfacePreview") as? Bool == true {
             MainActor.assumeIsolated {
                 do { try InterfacePreview.run() }

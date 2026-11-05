@@ -248,6 +248,8 @@ struct MeetingView: View {
                         screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
                             .actionButton(size: .small)
                             .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
+                    } else if isQueued {
+                        screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton(size: .small)
                     } else if isTranscribing && !isSaving {
                         screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small)
                     } else if meeting.status == .failed && meeting.liveCommittedUntil != nil && !state.recording && !isQueued && !isSaving {
