@@ -92,7 +92,7 @@ public struct Preferences: Codable, Sendable {
     public var exportDisplayPath: String?
     public var modelBookmark: Data?
     public var modelDisplayPath: String?
-    public var vocabulary = "2ГИС, Контур Толк"
+    public var vocabulary = "2ГИС, Яндекс, YClients"
     public var keepAudio = true
     public var quietProcessing: Bool?
     public var usesQuietProcessing: Bool { quietProcessing ?? true }
