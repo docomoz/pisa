@@ -97,8 +97,12 @@ struct MeetingView: View {
     @State private var title = ""
     @State private var confirmDeleteAudio = false
     @State private var transcriptSearch = ""
+    @State private var showsMeetingDetails = false
     @FocusState private var focusedField: Field?
     private enum Field: Hashable { case title, search }
+    // Width available at a 1080-point window after the library, divider, and page insets.
+    private static let detailsColumnBreakpoint: CGFloat = 745
+    private static let detailsColumnWidth: CGFloat = 216
     private var isRecording: Bool { state.recordingMeetingID == meeting.id }
     private var isSaving: Bool { state.savingMeetingID == meeting.id }
     private var isQueued: Bool { state.isQueued(meeting.id) }
@@ -136,33 +140,64 @@ struct MeetingView: View {
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
                 .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { _, value in title = value }
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
+            GeometryReader { geometry in
+                let showsColumn = showsTranscriptTools && geometry.size.width >= Self.detailsColumnBreakpoint
+                HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
+                    transcriptColumn(showsDetailsButton: !showsColumn)
+                    if showsColumn {
+                        ScrollView {
+                            meetingDetails(buttonSize: .regular)
+                                .padding(.leading, PisyaDesign.Spacing.content)
+                        }
+                        .frame(width: Self.detailsColumnWidth)
+                        .background(alignment: .leading) {
+                            Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
+                        }
+                    }
+                }
+                .onChange(of: showsColumn) { _, visible in
+                    if visible { showsMeetingDetails = false }
+                }
+            }
+            .padding(.top, showsTranscriptTools ? PisyaDesign.Spacing.related : PisyaDesign.Spacing.none)
+            HStack(spacing: PisyaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
+        }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.top, PisyaDesign.Spacing.page)
+        .background(SlimScrollbars().allowsHitTesting(false))
+        .background(ClickToUnfocus())
+        .onChange(of: showsTranscriptTools) { _, visible in
+            if !visible {
+                transcriptSearch = ""
+                showsMeetingDetails = false
+            }
+        }
+        .onExitCommand {
+            showsMeetingDetails = false
+            focusedField = nil
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
+        .sheet(isPresented: $confirmDeleteAudio) {
+            ConfirmationSheet(
+                title: "Удалить аудио этой встречи?",
+                message: "Аудио удалится навсегда. Текст и сохранённые голосовые признаки останутся. Прослушать запись или расшифровать её заново будет нельзя.",
+                actionTitle: "Удалить аудио",
+                role: .destructive
+            ) { state.deleteAudio(meeting) }
+        }
+        .sheet(item: $editing) { segment in SegmentEditor(segment: segment) { edited in var m = meeting; if let i = m.segments.firstIndex(where: { $0.id == edited.id }) { m.segments[i] = edited; state.update(m) }; editing = nil } }
+        .alert("Имя участника", isPresented: Binding(get: { speakerToRename != nil }, set: { if !$0 { speakerToRename = nil } })) {
+            TextField("Имя", text: $speakerName)
+            screenButton("Сохранить") { if let old = speakerToRename { state.renameSpeaker(old, to: speakerName, meeting: meeting) }; speakerToRename = nil }
+            if !state.demo && meeting.segments.contains(where: { $0.speaker == speakerToRename && $0.embedding != nil }) {
+                screenButton("Сохранить имя и запомнить голос") { if let old = speakerToRename { state.rememberVoice(old, name: speakerName, meeting: meeting); state.renameSpeaker(old, to: speakerName, meeting: meeting) }; speakerToRename = nil }
+            }
+            screenButton("Отмена", role: .cancel) { speakerToRename = nil }
+        } message: { screenText("Имя изменится в этой встрече. «Запомнить голос» сохраняет локальный образец для следующих встреч; выбирайте только проверенные реплики") }
+    }
+
+    private func transcriptColumn(showsDetailsButton: Bool) -> some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             if showsTranscriptTools {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: PisyaDesign.Spacing.related) { meetingControls; Spacer(minLength: 0); exportControl }
-                    VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) { meetingControls; exportControl }
-                }.actionControls().textStyle(PisyaDesign.Typography.detailMedium).controlSize(.large)
-                    .padding(.vertical, PisyaDesign.Spacing.section)
-                if !meeting.speakers.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: PisyaDesign.Spacing.section) {
-                            ForEach(meeting.speakers, id: \.self) { speaker in
-                                screenLabel(speaker, systemImage: "person.crop.circle")
-                                    .fixedSize()
-                                    .accessibilityElement(children: .combine)
-                            }
-                        }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk)
-                    }.background(HorizontalWheelScroll()).padding(.bottom, PisyaDesign.Spacing.section)
-                }
-                HStack(spacing: PisyaDesign.Spacing.inline) {
-                    screenText("РАСШИФРОВКА").textStyle(PisyaDesign.Typography.transcriptHeading)
-                    Spacer()
-                    screenText(fragmentCount(meeting.segments.count))
-                }.textStyle(PisyaDesign.Typography.footnoteMedium).foregroundStyle(Color.mutedInk)
-                    .padding(.bottom, PisyaDesign.Spacing.related)
-                if !meeting.segments.isEmpty {
-                    SearchField(title: "Поиск внутри записи", text: $transcriptSearch).focused($focusedField, equals: .search)
-                        .padding(.bottom, PisyaDesign.Spacing.related)
-                }
+                transcriptTools(showsDetailsButton: showsDetailsButton)
             } else {
                 transcriptStatus
                     .padding(.top, PisyaDesign.Spacing.content)
@@ -207,30 +242,46 @@ struct MeetingView: View {
                         .opacity(isTranscribing && state.isReprocessing ? 0.6 : 1)
                 }
             }
-            HStack(spacing: PisyaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
-        }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.top, PisyaDesign.Spacing.page)
-        .background(SlimScrollbars().allowsHitTesting(false))
-        .background(ClickToUnfocus())
-        .onChange(of: showsTranscriptTools) { _, visible in if !visible { transcriptSearch = "" } }
-        .onExitCommand { focusedField = nil; NSApp.keyWindow?.makeFirstResponder(nil) }
-        .sheet(isPresented: $confirmDeleteAudio) {
-            ConfirmationSheet(
-                title: "Удалить аудио этой встречи?",
-                message: "Аудио удалится навсегда. Текст и сохранённые голосовые признаки останутся. Прослушать запись или расшифровать её заново будет нельзя.",
-                actionTitle: "Удалить аудио",
-                role: .destructive
-            ) { state.deleteAudio(meeting) }
-        }
-        .sheet(item: $editing) { segment in SegmentEditor(segment: segment) { edited in var m = meeting; if let i = m.segments.firstIndex(where: { $0.id == edited.id }) { m.segments[i] = edited; state.update(m) }; editing = nil } }
-        .alert("Имя участника", isPresented: Binding(get: { speakerToRename != nil }, set: { if !$0 { speakerToRename = nil } })) {
-            TextField("Имя", text: $speakerName)
-            screenButton("Сохранить") { if let old = speakerToRename { state.renameSpeaker(old, to: speakerName, meeting: meeting) }; speakerToRename = nil }
-            if !state.demo && meeting.segments.contains(where: { $0.speaker == speakerToRename && $0.embedding != nil }) {
-                screenButton("Сохранить имя и запомнить голос") { if let old = speakerToRename { state.rememberVoice(old, name: speakerName, meeting: meeting); state.renameSpeaker(old, to: speakerName, meeting: meeting) }; speakerToRename = nil }
-            }
-            screenButton("Отмена", role: .cancel) { speakerToRename = nil }
-        } message: { screenText("Имя изменится в этой встрече. «Запомнить голос» сохраняет локальный образец для следующих встреч; выбирайте только проверенные реплики") }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+
+    private func transcriptTools(showsDetailsButton: Bool) -> some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+            if !meeting.segments.isEmpty || showsDetailsButton {
+                HStack(spacing: PisyaDesign.Spacing.inline) {
+                    if !meeting.segments.isEmpty {
+                        SearchField(title: "Поиск внутри записи", text: $transcriptSearch)
+                            .focused($focusedField, equals: .search)
+                    }
+                    if showsDetailsButton { detailsButton }
+                }.frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            HStack(spacing: PisyaDesign.Spacing.inline) {
+                screenText("РАСШИФРОВКА").textStyle(PisyaDesign.Typography.transcriptHeading)
+                Spacer()
+                screenText(fragmentCount(meeting.segments.count))
+            }.textStyle(PisyaDesign.Typography.footnoteMedium).foregroundStyle(Color.mutedInk)
+        }.padding(.bottom, PisyaDesign.Spacing.related)
+    }
+
+    private var detailsButton: some View {
+        Button { showsMeetingDetails.toggle() } label: {
+            screenLabel("Детали", systemImage: "sidebar.right").fixedSize()
+        }
+        .actionButton()
+        .accessibilityValue(showsMeetingDetails ? "Открыто" : "Закрыто")
+        .popover(isPresented: $showsMeetingDetails, attachmentAnchor: .point(.bottomLeading), arrowEdge: .top) {
+            ViewThatFits(in: .vertical) {
+                meetingDetails(buttonSize: .small).fixedSize(horizontal: false, vertical: true)
+                ScrollView { meetingDetails(buttonSize: .small) }
+            }
+            .padding(PisyaDesign.Spacing.content)
+            .frame(width: 224)
+            .frame(maxHeight: 360)
+            .popupCanvas()
+        }
+    }
+
     @ViewBuilder
     private var transcriptStatus: some View {
         if showsTranscriptStatus {
@@ -284,33 +335,85 @@ struct MeetingView: View {
         if title != savedTitle { state.rename(meeting, to: title, resetIfEmpty: resetIfEmpty) }
         title = state.meetings.first(where: { $0.id == meeting.id })?.headingTitle ?? meeting.headingTitle
     }
-    private var meetingControls: some View {
-        HStack(spacing: PisyaDesign.Spacing.related) {
-            Button { state.voiceMeeting = meeting } label: { screenLabel("Разметить голоса", systemImage: "person.wave.2") }
-                .actionButton()
-                .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
-            Menu {
-                screenButton("Без папки") { state.move(meeting, to: nil) }
-                Divider()
-                ForEach(state.folders) { folder in Button { state.move(meeting, to: folder.id) } label: { screenLabel(folder.name, systemImage: folder.iconName) } }
-            } label: {
-                screenLabel(state.folders.first(where: { $0.id == meeting.folderID })?.name ?? "Папка", systemImage: state.folders.first(where: { $0.id == meeting.folderID })?.iconName ?? "folder")
-                    .lineLimit(1).truncationMode(.tail).frame(maxWidth: 220, alignment: .leading)
-            }.actionButton().disabled(!state.canModify(meeting)).fixedSize()
-                .screenHelp(state.folders.first(where: { $0.id == meeting.folderID })?.name ?? "Переместить в папку")
-        }
-    }
-    private var exportControl: some View {
-        HStack(spacing: PisyaDesign.Spacing.related) {
-            Button { state.exportSelected() } label: { screenLabel("Поделиться", systemImage: "square.and.arrow.up") }
-                .actionButton()
-                .disabled(!state.canExport(meeting))
-            Menu {
-                MeetingActions(meeting: meeting, onDeleteAudio: !meeting.audioFiles.isEmpty && meeting.status == .ready ? { confirmDeleteAudio = true } : nil)
-            } label: { Image(systemName: "ellipsis").frame(width: 24) }.actionButton().fixedSize().disabled(!state.canModify(meeting))
-        }
+    private func meetingDetails(buttonSize: ActionButtonSize) -> some View {
+        let folder = state.folders.first { $0.id == meeting.folderID }
+        return VStack(alignment: .leading, spacing: buttonSize == .small ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.section) {
+            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                SectionHeading("ДЕЙСТВИЯ", style: .feature).foregroundStyle(Color.mutedInk)
+                VStack(spacing: PisyaDesign.Spacing.inline) {
+                    Button {
+                        showsMeetingDetails = false
+                        state.voiceMeeting = meeting
+                    } label: {
+                        detailsActionLabel("Разметить голоса", systemImage: "person.wave.2")
+                    }
+                    .actionButton(size: buttonSize)
+                    .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
+
+                    Menu {
+                        screenButton("Без папки") { state.move(meeting, to: nil) }
+                        Divider()
+                        ForEach(state.folders) { folder in
+                            Button { state.move(meeting, to: folder.id) } label: {
+                                screenLabel(folder.name, systemImage: folder.iconName)
+                            }
+                        }
+                    } label: {
+                        detailsActionLabel(folder?.name ?? "Папка", systemImage: folder?.iconName ?? "folder", hasMenu: true)
+                    }
+                    .menuIndicator(.hidden)
+                    .actionButton(size: buttonSize)
+                    .disabled(!state.canModify(meeting))
+                    .screenHelp(folder?.name ?? "Переместить в папку")
+
+                    Button {
+                        showsMeetingDetails = false
+                        state.exportSelected()
+                    } label: {
+                        detailsActionLabel("Поделиться", systemImage: "square.and.arrow.up")
+                    }
+                    .actionButton(size: buttonSize)
+                    .disabled(!state.canExport(meeting))
+
+                    Menu {
+                        MeetingActions(meeting: meeting, onDeleteAudio: meeting.audioFiles.isEmpty ? nil : {
+                            showsMeetingDetails = false
+                            confirmDeleteAudio = true
+                        })
+                    } label: {
+                        detailsActionLabel("Ещё", systemImage: "ellipsis", hasMenu: true)
+                    }
+                    .menuIndicator(.hidden)
+                    .actionButton(size: buttonSize)
+                    .disabled(!state.canModify(meeting))
+                }
+            }
+            if !meeting.speakers.isEmpty {
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                    SectionHeading("СОБЕСЕДНИКИ", style: .feature).foregroundStyle(Color.mutedInk)
+                    VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
+                        ForEach(meeting.speakers, id: \.self) { speaker in
+                            screenLabel(speaker, systemImage: "person.crop.circle")
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityElement(children: .combine)
+                        }
+                    }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk)
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+            .controlSize(.large)
     }
 
+    private func detailsActionLabel(_ title: String, systemImage: String, hasMenu: Bool = false) -> some View {
+        HStack(spacing: PisyaDesign.Spacing.inline) {
+            screenLabel(title, systemImage: systemImage).lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if hasMenu {
+                Image(systemName: "chevron.down").font(PisyaDesign.Typography.Icon.disclosure)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
 }
 
 private struct TranscriptionProgress: View {

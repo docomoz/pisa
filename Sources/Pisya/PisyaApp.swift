@@ -25,6 +25,7 @@ struct PisyaApp: App {
                 .focusEffectDisabled()
         }
         .defaultSize(width: 1200, height: 800)
+        .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -52,6 +53,14 @@ struct PisyaApp: App {
             }
             CommandGroup(replacing: .newItem) { screenButton("Импортировать аудио…") { state.importAudio() }.keyboardShortcut("o") }
             CommandGroup(after: .windowList) {
+                screenButton("На всю ширину") {
+                    guard let window = NSApp.mainWindow, let screen = window.screen,
+                          !window.styleMask.contains(.fullScreen) else { return }
+                    var frame = window.frame
+                    frame.origin.x = screen.visibleFrame.minX
+                    frame.size.width = screen.visibleFrame.width
+                    window.setFrame(frame, display: true, animate: true)
+                }
                 screenButton("Показать меню записи") { delegate.showStatusMenu() }.keyboardShortcut("r", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .appSettings) { screenButton("Настройки…") { state.showingSettings = true }.keyboardShortcut(",") }
