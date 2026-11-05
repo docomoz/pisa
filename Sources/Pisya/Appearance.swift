@@ -72,8 +72,14 @@ enum ActionButtonRole { case primary, secondary, recording }
 enum ActionButtonSize { case small, regular }
 
 extension View {
+    func glassCanvas() -> some View {
+        background {
+            GlassCanvas().ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+        }
+    }
+
     func popupCanvas() -> some View {
-        foregroundStyle(Color.ink).tint(Color.brandAccent).background(Color.paper)
+        foregroundStyle(Color.ink).tint(Color.brandAccent).glassCanvas()
             .background(SlimScrollbars().allowsHitTesting(false))
             .focusEffectDisabled()
     }
@@ -98,6 +104,23 @@ extension View {
         buttonStyle(PlainControlStyle()).controlKeyboardFocus()
     }
     func controlKeyboardFocus() -> some View { modifier(ControlKeyboardFocus()) }
+}
+
+private struct GlassCanvas: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        ZStack {
+            Color.paper
+            if !reduceTransparency {
+                RadialGradient(colors: [Color.brandAccent.opacity(0.12), .clear],
+                               center: UnitPoint(x: 0.45, y: 0), startRadius: 0, endRadius: 680)
+                if #available(macOS 26.0, *) {
+                    Color.clear.glassEffect(.regular, in: .rect)
+                }
+            }
+        }
+    }
 }
 
 private struct ControlFocusedKey: EnvironmentKey {

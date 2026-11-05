@@ -11,8 +11,9 @@ struct MainView: View {
                 topbar
                 if state.demo { screenText("ДЕМОНСТРАЦИЯ · вымышленные реплики, не настоящая запись").textStyle(PisyaDesign.Typography.microMedium).foregroundStyle(Color.moss).padding(PisyaDesign.Spacing.related).frame(maxWidth: .infinity).background(Color.moss.opacity(0.08)) }
                 if let meeting = state.selected { MeetingView(meeting: meeting).id(meeting.id) } else { welcome }
-            }.background(Color.paper)
+            }
         }
+        .glassCanvas()
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
         .textStyle(PisyaDesign.Typography.detail)
