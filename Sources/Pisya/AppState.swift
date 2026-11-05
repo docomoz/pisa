@@ -13,6 +13,7 @@ final class AppState: ObservableObject {
     @Published var showingTrash = false
     @Published var unfiledOnly = false
     @Published var renameTarget: Meeting?
+    @Published var newFolderMeeting: Meeting?
     @Published var voiceMeeting: Meeting?
     @Published var reprocessTarget: Meeting?
     private var searchIndex: [UUID: String] = [:]
@@ -120,12 +121,37 @@ final class AppState: ObservableObject {
             select(filtered.first?.id)
         } catch { message = error.localizedDescription }
     }
-    func saveFolder(_ name: String, id: UUID? = nil, symbol: String? = nil) {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines); guard !name.isEmpty, !demo else { return }
+    @discardableResult
+    func saveFolder(_ name: String, id: UUID? = nil, symbol: String? = nil) -> UUID? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !demo else { return nil }
         var updated = folders
-        if let index = updated.firstIndex(where: { $0.id == id }) { updated[index].name = name; if let symbol { updated[index].symbol = symbol } }
-        else { updated.append(MeetingFolder(name: name, symbol: symbol)) }
-        do { try library.saveFolders(updated); folders = updated } catch { message = error.localizedDescription }
+        let savedID: UUID
+        if let index = updated.firstIndex(where: { $0.id == id }) {
+            updated[index].name = name
+            if let symbol { updated[index].symbol = symbol }
+            savedID = updated[index].id
+        } else {
+            let folder = MeetingFolder(name: name, symbol: symbol)
+            updated.append(folder)
+            savedID = folder.id
+        }
+        do {
+            try library.saveFolders(updated)
+            folders = updated
+            return savedID
+        } catch {
+            message = error.localizedDescription
+            return nil
+        }
+    }
+    func moveToNewFolder(_ meeting: Meeting, name: String, symbol: String) {
+        guard canModify(meeting),
+              let latest = meetings.first(where: { $0.id == meeting.id }),
+              latest.deletedAt == nil else { return }
+        if let folderID = saveFolder(name, symbol: symbol) {
+            move(latest, to: folderID)
+        }
     }
     func removeFolder(_ folder: MeetingFolder) {
         guard !demo else { return }

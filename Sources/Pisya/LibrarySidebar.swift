@@ -151,11 +151,15 @@ struct MeetingActions: View {
                     Button { state.move(meeting, to: nil) } label: {
                         screenLabel("Без папки", systemImage: meeting.folderID == nil ? "checkmark" : "tray")
                     }
-                    Divider()
+                    if !state.folders.isEmpty { Divider() }
                     ForEach(state.folders) { folder in
                         Button { state.move(meeting, to: folder.id) } label: {
                             screenLabel(folder.name, systemImage: meeting.folderID == folder.id ? "checkmark" : folder.iconName)
                         }
+                    }
+                    Divider()
+                    Button { state.newFolderMeeting = meeting } label: {
+                        screenLabel("Новая папка…", systemImage: "folder.badge.plus")
                     }
                 }.disabled(!state.canModify(meeting))
                 Divider()
@@ -189,7 +193,7 @@ struct NameEditor: View {
     private func submit() { guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; save(name); dismiss() }
 }
 
-private struct FolderEditor: View {
+struct FolderEditor: View {
     let folder: MeetingFolder?
     var save: (String, String) -> Void
     @Environment(\.dismiss) private var dismiss

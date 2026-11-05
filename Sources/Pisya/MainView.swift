@@ -28,6 +28,11 @@ struct MainView: View {
         }
         .sheet(item: $state.renameTarget) { meeting in NameEditor(title: "Переименовать запись", initial: meeting.title) { state.rename(meeting, to: $0) } }
         .sheet(item: $state.voiceMeeting) { meeting in VoiceManager(meetingID: meeting.id).environmentObject(state) }
+        .sheet(item: $state.newFolderMeeting) { meeting in
+            FolderEditor(folder: nil) { name, symbol in
+                state.moveToNewFolder(meeting, name: name, symbol: symbol)
+            }
+        }
     }
     private var sidebar: some View { LibrarySidebar() }
     private var topbar: some View {
@@ -352,10 +357,19 @@ struct MeetingView: View {
 
                     Menu {
                         screenButton("Без папки") { state.move(meeting, to: nil) }
-                        Divider()
+                        if !state.folders.isEmpty { Divider() }
                         ForEach(state.folders) { folder in
                             Button { state.move(meeting, to: folder.id) } label: {
                                 screenLabel(folder.name, systemImage: folder.iconName)
+                            }
+                        }
+                        if meeting.deletedAt == nil {
+                            Divider()
+                            Button {
+                                showsMeetingDetails = false
+                                state.newFolderMeeting = meeting
+                            } label: {
+                                screenLabel("Новая папка…", systemImage: "folder.badge.plus")
                             }
                         }
                     } label: {
