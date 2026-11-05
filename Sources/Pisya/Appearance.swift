@@ -175,6 +175,8 @@ struct PisyaTextFieldStyle: TextFieldStyle {
         configuration.textFieldStyle(.plain)
             .textStyle(PisyaDesign.Typography.body)
             .foregroundStyle(enabled ? PisyaDesign.Colors.ink : PisyaDesign.Colors.disabledInk)
+            // Center the native editor at its intrinsic height inside the field background.
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, PisyaDesign.Spacing.related)
             .frame(minHeight: PisyaDesign.Metrics.regularHeight)
             .background(enabled ? PisyaDesign.Colors.secondary : PisyaDesign.Colors.disabledSurface,
