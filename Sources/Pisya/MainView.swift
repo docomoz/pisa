@@ -406,8 +406,13 @@ struct MeetingView: View {
 
     private func detailsActionLabel(_ title: String, systemImage: String, hasMenu: Bool = false) -> some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
-            screenLabel(title, systemImage: systemImage).lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Label {
+                screenText(title).textStyle(PisyaDesign.Typography.smallButton)
+            } icon: {
+                Image(systemName: systemImage)
+            }
+            .lineLimit(1).truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if hasMenu {
                 Image(systemName: "chevron.down").font(PisyaDesign.Typography.Icon.disclosure)
                     .accessibilityHidden(true)
