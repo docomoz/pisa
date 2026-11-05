@@ -11,7 +11,7 @@ public struct MeetingTitleComposer: Sendable {
     public typealias Generate = @Sendable (MeetingTitleRequest) async throws -> String
     private let characterLimit: Int
     private let generate: Generate
-    public init(characterLimit: Int = 6000, generate: @escaping Generate) {
+    public init(characterLimit: Int = 5000, generate: @escaping Generate) {
         self.characterLimit = max(256, characterLimit); self.generate = generate
     }
 
@@ -19,7 +19,7 @@ public struct MeetingTitleComposer: Sendable {
         try Task.checkCancellation()
         var text = segments.sorted { $0.start < $1.start }.compactMap { segment -> String? in
             let clean = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return clean.isEmpty ? nil : "\(segment.speaker): \(clean)"
+            return MeetingSpeechText.accepts(clean) ? clean : nil
         }.joined(separator: "\n")
         guard !text.isEmpty else { return nil }
         while text.count > characterLimit {
@@ -29,7 +29,7 @@ public struct MeetingTitleComposer: Sendable {
                 let summary = try await generate(.init(kind: .summary, text: chunk))
                 try Task.checkCancellation()
                 let clean = Self.withoutReasoning(summary).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !clean.isEmpty else { throw PisyaError.message("Не удалось кратко пересказать часть встречи") }
+                guard MeetingSpeechText.accepts(clean) else { throw PisyaError.message("Не удалось кратко пересказать часть встречи") }
                 summaries.append(String(clean.prefix(min(1000, characterLimit / 3))))
             }
             text = summaries.joined(separator: "\n")
@@ -68,7 +68,7 @@ public struct MeetingTitleComposer: Sendable {
         text = text.trimmingCharacters(in: CharacterSet(charactersIn: "#*`\"«»“”‘’. \t"))
         text = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         guard (3...80).contains(text.count), text.split(separator: " ").count <= 8,
-              text.unicodeScalars.contains(where: CharacterSet.letters.contains) else { return nil }
+              MeetingSpeechText.accepts(text) else { return nil }
         return text
     }
 }

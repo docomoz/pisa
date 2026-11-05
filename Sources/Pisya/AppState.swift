@@ -433,7 +433,8 @@ final class AppState: ObservableObject {
         let id = pending.removeFirst()
         let reprocess = pendingReprocessing.remove(id) != nil
         guard var m = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
-        if case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess) {
+        let needsCleanDraft = m.liveCommittedUntil != nil && m.segments.contains { MeetingSpeechText.containsForeignLetters($0.text) }
+        if case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess || needsCleanDraft) {
             guard committed.isFinite, committed >= 0 else { m.status = .failed; m.error = "Некорректный курсор черновика"; try? library.save(m); upsert(m); runNext(); return }
             m.status = .processing; m.error = nil
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }

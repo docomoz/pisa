@@ -89,25 +89,27 @@ actor Transcriber {
                                 VoiceRegion(start: $0, end: min($0 + 24, region.end), embedding: region.embedding)
                             }
                         }
-                        for region in regions {
+                        for (index, region) in regions.enumerated() {
                             try Task.checkCancellation()
-                            let lower = max(0, Int(region.start * 16000))
-                            let upper = min(samples.count, Int(region.end * 16000))
+                            // Diarization timestamps can cut through a word. Restore a little
+                            // surrounding sound without borrowing from a neighboring turn.
+                            let previous = index > 0 ? regions[index - 1].end : 0
+                            let next = index + 1 < regions.count ? regions[index + 1].start : duration
+                            let leading = min(0.25, max(0, (region.start - previous) / 2))
+                            let trailing = min(0.25, max(0, (next - region.end) / 2))
+                            let lower = max(0, Int((region.start - leading) * 16000))
+                            let upper = min(samples.count, Int((region.end + trailing) * 16000))
                             guard upper > lower else { continue }
                             let regionSamples = Array(samples[lower..<upper])
                             let inferenceStarted = Date()
-                            // Both tracks need the user's spelling hints. VAD and echo
-                            // cleanup keep nonspeech out; mic language detection can still
-                            // return "none" instead of forcing words into residual noise.
-                            let result = model.generate(audio: MLXArray(regionSamples), maxTokens: min(768, max(64, Int((region.end - region.start) * 16))), context: context, language: isMic ? nil : "Russian", chunkDuration: 24, repetitionPenalty: 1.1)
+                            let text = recognize(regionSamples, model: model, vocabulary: context, duration: region.end - region.start)
                             // Give the GPU cooling/foreground headroom between utterances.
                             let thermal = ProcessInfo.processInfo.thermalState
                             if quiet || thermal == .serious || thermal == .critical {
                                 let delay = min(3, max(0.1, Date().timeIntervalSince(inferenceStarted) * (quiet ? 0.6 : 0.2)))
                                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                             }
-                            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !text.isEmpty, result.language?.lowercased() != "none" else { continue }
+                            guard let text else { continue }
                             let speaker = isMic ? "Я" : "Собеседники"
                             var segment = TranscriptSegment(start: offset + start + region.start, end: offset + start + region.end, speaker: speaker, text: text)
                             segment.audioFile = url.lastPathComponent
@@ -125,5 +127,34 @@ actor Transcriber {
         keepGenerated = generated.map { url in segments.contains { $0.audioFile == url.lastPathComponent } } ?? false
         let sorted = segments.sorted { $0.start < $1.start }
         return live ? sorted : SpeakerClustering.assign(sorted, profiles: profiles)
+    }
+
+    private func recognize(_ samples: [Float], model: Qwen3ASRModel, vocabulary: String, duration: Double) -> String? {
+        let audio = MLXArray(samples)
+        let maxTokens = min(768, max(64, Int(duration * 16)))
+        // On brief replies the vocabulary can be longer than the speech itself.
+        let context = duration >= 2 ? vocabulary : ""
+        func generate(language: String?, context: String) -> STTOutput {
+            model.generate(audio: audio, maxTokens: maxTokens, context: context,
+                           language: language, chunkDuration: 25, repetitionPenalty: 1.1)
+        }
+        func words(_ text: String) -> [Substring] {
+            text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        }
+        let detected = generate(language: nil, context: context)
+        let language = detected.language?.lowercased()
+        guard language != "none", !detected.text.isEmpty else { return nil }
+        let allowed = language == "russian" || language == "english"
+        let echoedVocabulary = !context.isEmpty && words(detected.text) == words(context)
+        let result: STTOutput
+        if !allowed || MeetingSpeechText.containsForeignLetters(detected.text) || echoedVocabulary {
+            result = generate(language: allowed ? detected.language : "Russian", context: "")
+        } else {
+            result = detected
+        }
+        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
+              !MeetingSpeechText.containsForeignLetters(text) else { return nil }
+        return text
     }
 }

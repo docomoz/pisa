@@ -1,5 +1,19 @@
 import Foundation
 
+enum MeetingSpeechText {
+    // Match any letter outside the Latin and Cyrillic scripts.
+    private static let foreignLetters = try! NSRegularExpression(pattern: #"[^\P{L}\p{Latin}\p{Cyrillic}]"#)
+
+    static func accepts(_ text: String) -> Bool {
+        text.unicodeScalars.contains(where: CharacterSet.letters.contains)
+            && !containsForeignLetters(text)
+    }
+
+    static func containsForeignLetters(_ text: String) -> Bool {
+        foreignLetters.firstMatch(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)) != nil
+    }
+}
+
 public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID = UUID()
     public var start: Double

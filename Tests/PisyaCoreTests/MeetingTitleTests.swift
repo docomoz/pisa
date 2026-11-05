@@ -79,6 +79,26 @@ final class MeetingTitleTests: XCTestCase {
         XCTAssertEqual(MeetingTitleComposer.cleanTitle("Запуск поиска: проверка качества, исправление ошибок"), "Запуск поиска: проверка качества, исправление ошибок")
     }
 
+    func testTitleRejectsForeignWritingSystems() {
+        XCTAssertNil(MeetingTitleComposer.cleanTitle("Обсуждение поиска 搜索"))
+        XCTAssertNil(MeetingTitleComposer.cleanTitle("Αναζήτηση"))
+        XCTAssertEqual(MeetingTitleComposer.cleanTitle("2ГИС API для партнёров"), "2ГИС API для партнёров")
+    }
+
+    func testTitleUsesSpeechWithoutSpeakerLabelsAndSkipsCorruptedSegments() async throws {
+        let composer = MeetingTitleComposer { request in
+            guard request.kind == .title, request.text == "Обсудили запуск нового поиска." else {
+                throw TestFailure.unexpectedInput
+            }
+            return "Запуск нового поиска"
+        }
+        let title = try await composer.title(for: [
+            .init(start: 0, end: 1, speaker: "Пётр", text: "对。"),
+            .init(start: 1, end: 7, speaker: "Анна", text: "Обсудили запуск нового поиска.")
+        ])
+        XCTAssertEqual(title, "Запуск нового поиска")
+    }
+
     func testShortTranscriptGeneratesATitleAndEmptyTranscriptSkipsModel() async throws {
         let composer = MeetingTitleComposer { request in
             guard request.kind == .title, request.text.contains("нового поиска") else { throw TestFailure.unexpectedInput }

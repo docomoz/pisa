@@ -1,26 +1,32 @@
 [
   {
-    "path": "Qwen3-Title/config.json",
-    "url": "https://huggingface.co/mlx-community/Qwen3-1.7B-4bit/resolve/3b1b1768f8f8cf8351c712464f906e86c2b8269e/config.json",
-    "sha256": "507a6701220524eb8b283425bf0856a9ae4f21f4052e563896ddd668994b1dc7",
-    "bytes": 937
+    "path": "Qwen3-Title-4B/config.json",
+    "url": "https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit/resolve/50d427756c6b1b2fe0c0a10f67fbda1fc8e82c1b/config.json",
+    "sha256": "574349e5a343236546fda55e4744a76e181f534182d7dc60ff1bad7e7a502849",
+    "bytes": 938
   },
   {
-    "path": "Qwen3-Title/model.safetensors",
-    "url": "https://huggingface.co/mlx-community/Qwen3-1.7B-4bit/resolve/3b1b1768f8f8cf8351c712464f906e86c2b8269e/model.safetensors",
-    "sha256": "0e86d9677e519323849eac1bc272caae88567a481ff188c431f70be543d9995f",
-    "bytes": 968080210
+    "path": "Qwen3-Title-4B/model.safetensors",
+    "url": "https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit/resolve/50d427756c6b1b2fe0c0a10f67fbda1fc8e82c1b/model.safetensors",
+    "sha256": "2a73c6c248601ab904e035548abd8e6abb65ea27dcb5f342fb0a8910eb44173f",
+    "bytes": 2263022417
   },
   {
-    "path": "Qwen3-Title/tokenizer.json",
-    "url": "https://huggingface.co/mlx-community/Qwen3-1.7B-4bit/resolve/3b1b1768f8f8cf8351c712464f906e86c2b8269e/tokenizer.json",
+    "path": "Qwen3-Title-4B/tokenizer.json",
+    "url": "https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit/resolve/50d427756c6b1b2fe0c0a10f67fbda1fc8e82c1b/tokenizer.json",
     "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
     "bytes": 11422654
   },
   {
-    "path": "Qwen3-Title/tokenizer_config.json",
-    "url": "https://huggingface.co/mlx-community/Qwen3-1.7B-4bit/resolve/3b1b1768f8f8cf8351c712464f906e86c2b8269e/tokenizer_config.json",
-    "sha256": "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0",
-    "bytes": 9706
+    "path": "Qwen3-Title-4B/tokenizer_config.json",
+    "url": "https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit/resolve/50d427756c6b1b2fe0c0a10f67fbda1fc8e82c1b/tokenizer_config.json",
+    "sha256": "4397cc477eb6d79715ccd2000accd6b3531928f30029665832fa1b255f24d2b9",
+    "bytes": 5440
+  },
+  {
+    "path": "Qwen3-Title-4B/chat_template.jinja",
+    "url": "https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit/resolve/50d427756c6b1b2fe0c0a10f67fbda1fc8e82c1b/chat_template.jinja",
+    "sha256": "40c21f34cf67d8c760ef72f8ad3ae5afad514299d4b06e91dd9a8d705af7b541",
+    "bytes": 4040
   }
 ]

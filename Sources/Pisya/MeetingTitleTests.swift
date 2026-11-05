@@ -49,9 +49,9 @@ enum MeetingTitleTests {
         let keep = argument("--title-fixture-root") != nil
         defer { if !keep { try? FileManager.default.removeItem(at: root) } }
         let state = AppState(rootURL: root)
-        let modelRoot = root.appendingPathComponent("Models/Qwen3-Title")
+        let modelRoot = root.appendingPathComponent("Models").appendingPathComponent(MeetingTitleModel.directoryName)
         try FileManager.default.createDirectory(at: modelRoot, withIntermediateDirectories: true)
-        for name in ["config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json"] {
+        for name in ["config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json", "chat_template.jinja"] {
             let target = modelRoot.appendingPathComponent(name)
             if !FileManager.default.fileExists(atPath: target.path) {
                 try FileManager.default.linkItem(at: URL(fileURLWithPath: path).appendingPathComponent(name), to: target)
