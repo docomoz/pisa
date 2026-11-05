@@ -8,18 +8,22 @@ actor Transcriber {
     private var liveModel: Qwen3ASRModel?
     private var liveActivity: SpeechDetector?
     private var liveVoices: SpeakerEngine?
+    private var liveRussian: RussianSpeechRecognizer?
+    private var recentLanguageSegments: [TranscriptSegment] = []
     private var previousLiveCacheLimit: Int?
 
     /// Used by the local synthetic integration fixture to check session reuse.
     func liveModelIdentity() -> ObjectIdentifier? { liveModel.map(ObjectIdentifier.init) }
+    func liveRussianModelIdentity() -> ObjectIdentifier? { liveRussian.map(ObjectIdentifier.init) }
 
     func finishLive() {
-        liveModel = nil; liveActivity = nil; liveVoices = nil
+        liveModel = nil; liveActivity = nil; liveVoices = nil; liveRussian = nil
+        recentLanguageSegments = []
         Memory.clearCache()
         if let limit = previousLiveCacheLimit { Memory.cacheLimit = limit; previousLiveCacheLimit = nil }
     }
 
-    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile], quiet: Bool = true, live: Bool = false, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile], quiet: Bool = true, live: Bool = false, russianVerification: Bool = true, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
         guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path), FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("model.safetensors").path) else { throw PisyaError.message("Выберите папку модели Qwen3-ASR с config.json и model.safetensors") }
         let previousCacheLimit = Memory.cacheLimit
         if live && previousLiveCacheLimit == nil { previousLiveCacheLimit = previousCacheLimit }
@@ -46,7 +50,17 @@ actor Transcriber {
         let voices: SpeakerEngine?
         if live, let existing = liveVoices { voices = existing }
         else { voices = FileManager.default.fileExists(atPath: speakerDirectory.appendingPathComponent("titanet.onnx").path) ? try SpeakerEngine(directory: speakerDirectory) : nil; if live { liveVoices = voices } }
+        let russian: RussianSpeechRecognizer?
+        if !russianVerification { russian = nil }
+        else if live, let existing = liveRussian { russian = existing }
+        else {
+            // Existing/custom installations can still transcribe while the new
+            // optional acoustic verifier is unavailable or cannot be loaded.
+            russian = try? RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent().appendingPathComponent(RussianSpeechRecognizer.directoryName))
+            if live { liveRussian = russian }
+        }
         var segments: [TranscriptSegment] = []
+        var backchannels: [UUID: String] = [:]
         for (fileIndex, item) in preparedFiles.sorted(by: { !$0.0.lastPathComponent.contains("-mic.") && $1.0.lastPathComponent.contains("-mic.") }).enumerated() {
             try Task.checkCancellation()
             let (url, offset) = item
@@ -115,18 +129,19 @@ actor Transcriber {
                             guard upper > lower else { continue }
                             let regionSamples = Array(samples[lower..<upper])
                             let inferenceStarted = Date()
-                            let text = recognize(regionSamples, model: model, vocabulary: context, duration: region.end - region.start)
+                            let recognized = try recognize(regionSamples, model: model, russian: russian, vocabulary: context, duration: region.end - region.start)
                             // Give the GPU cooling/foreground headroom between utterances.
                             let thermal = ProcessInfo.processInfo.thermalState
                             if quiet || thermal == .serious || thermal == .critical {
                                 let delay = min(3, max(0.1, Date().timeIntervalSince(inferenceStarted) * (quiet ? 0.6 : 0.2)))
                                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                             }
-                            guard let text else { continue }
+                            guard let recognized else { continue }
                             let speaker = isMic ? "Я" : "Собеседники"
-                            var segment = TranscriptSegment(start: offset + start + region.start, end: offset + start + region.end, speaker: speaker, text: text)
+                            var segment = TranscriptSegment(start: offset + start + region.start, end: offset + start + region.end, speaker: speaker, text: recognized.text)
                             segment.audioFile = url.lastPathComponent
                             segment.embedding = region.embedding
+                            backchannels[segment.id] = recognized.russianBackchannel
                             segments.append(segment)
 
                         }
@@ -139,10 +154,17 @@ actor Transcriber {
         }
         keepGenerated = generated.map { url in segments.contains { $0.audioFile == url.lastPathComponent } } ?? false
         let sorted = segments.sorted { $0.start < $1.start }
-        return live ? sorted : SpeakerClustering.assign(sorted, profiles: profiles)
+        if let first = sorted.first, let previous = recentLanguageSegments.first, first.start <= previous.start { recentLanguageSegments = [] }
+        let localized = BackchannelLanguage.resolve(sorted, alternatives: backchannels, preceding: live ? recentLanguageSegments : [])
+        if live, let end = localized.map(\.end).max() {
+            recentLanguageSegments = (recentLanguageSegments + localized).filter { $0.end >= end - 60 }
+        }
+        return live ? localized : SpeakerClustering.assign(localized, profiles: profiles)
     }
 
-    private func recognize(_ samples: [Float], model: Qwen3ASRModel, vocabulary: String, duration: Double) -> String? {
+    private struct RecognizedSpeech { var text: String; var russianBackchannel: String? }
+
+    private func recognize(_ samples: [Float], model: Qwen3ASRModel, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double) throws -> RecognizedSpeech? {
         let audio = MLXArray(samples)
         let maxTokens = min(768, max(64, Int(duration * 16)))
         // On brief replies the vocabulary can be longer than the speech itself.
@@ -165,9 +187,25 @@ actor Transcriber {
         } else {
             result = detected
         }
-        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = RecognitionVocabulary.apply(to: result.text.trimmingCharacters(in: .whitespacesAndNewlines), vocabulary: vocabulary)
         guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
               !MeetingSpeechText.containsForeignLetters(text) else { return nil }
-        return text
+        try Task.checkCancellation()
+        if BackchannelLanguage.isAmbiguous(text, duration: duration),
+           let alternative = russian?.recognize(samples), BackchannelLanguage.acceptsAlternative(alternative) {
+            return RecognizedSpeech(text: text, russianBackchannel: alternative)
+        }
+        if result.language?.lowercased() == "russian", duration >= 2,
+           let hypothesis = russian?.recognize(samples),
+           RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
+            try Task.checkCancellation()
+            let checked = generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
+            let candidate = RecognitionVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines), vocabulary: vocabulary)
+            if checked.language?.lowercased() == "russian",
+               RussianRecognition.accepts(candidate: candidate, original: text, vocabulary: context) {
+                text = candidate
+            }
+        }
+        return RecognizedSpeech(text: text)
     }
 }

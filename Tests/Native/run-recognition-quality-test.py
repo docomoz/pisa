@@ -40,11 +40,15 @@ def synthetic_corpus(root):
         ("vocabulary", "На следующей встрече обсудим бронегис и геопэй. Проверим бронегис в четверг.", 150, "Бронегис, Геопэй"),
         ("fast-speech", "Коллеги, давайте сначала договоримся о критериях качества. Если пользователь не находит нужную организацию, он просто уходит в другое приложение. Поэтому мы проверяем не только скорость ответа, но и полноту результатов, правильность адресов и актуальность времени работы.", 220, ""),
         ("long-turn", "Я предлагаю сначала проверить результаты эксперимента и только после этого принимать решение о запуске. Нам важно понять, почему пользователи закрывают карточку организации и возвращаются к поиску. Возможно, им не хватает фотографий, а возможно, они просто не видят нужную кнопку. Давайте отдельно посмотрим новые города, сравним мобильное приложение с сайтом и обсудим выводы на следующей встрече. Если данных окажется недостаточно, продлим эксперимент ещё на неделю.", 180, ""),
+        ("english", "Please send the updated report before Friday. We will discuss the launch at our next meeting.", 170, "Северный Атлас, Геопэй"),
+        ("numeric-vocabulary", "Проверим поиск внутри 2ГИС и обсудим результаты.", 170, "2ГИС"),
     ]
     fixtures = []
     for name, reference, rate, context in phrases:
         aiff, wav = root / (name + ".aiff"), root / (name + ".wav")
-        subprocess.run(["say", "-v", "Milena (Russian (Russia))", "-r", str(rate), "-o", str(aiff), reference], check=True)
+        voice = "Samantha" if name == "english" else "Milena (Russian (Russia))"
+        spoken = reference.replace("2ГИС", "два гиса") if name == "numeric-vocabulary" else reference
+        subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", str(aiff), spoken], check=True)
         subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(aiff), str(wav)], check=True)
         with wave.open(str(wav), "rb") as audio:
             assert audio.getframerate() == 16000 and audio.getnchannels() == 1 and audio.getsampwidth() == 2

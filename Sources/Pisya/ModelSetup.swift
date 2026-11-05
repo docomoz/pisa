@@ -24,7 +24,7 @@ final class ModelSetup: ObservableObject {
     private func installer(usingCustom: Bool = false) throws -> ModelInstaller {
         guard let manifestURL else { throw ModelInstallError.invalidManifest }
         let assets = try JSONDecoder().decode([ModelAsset].self, from: Data(contentsOf: manifestURL))
-        return ModelInstaller(root: root, assets: usingCustom ? assets.filter { $0.path.hasPrefix("Speakers/") } : assets)
+        return ModelInstaller(root: root, assets: usingCustom ? assets.filter { !$0.path.hasPrefix("Qwen3-ASR/") } : assets)
     }
     func check(presentWhenNeeded: Bool = true) {
         guard !busy || !didCheck else { return }
@@ -112,7 +112,7 @@ struct ModelSetupView: View {
                            style: .page)
                 .padding(.bottom, PisyaDesign.Spacing.content)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
-                item("waveform", "Речь и участники", "Qwen3-ASR · локальная обработка")
+                item("waveform", "Речь и участники", "Русский и английский · локальная обработка")
                 Divider().opacity(0.5)
                 item("internaldrive", "Около 3 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
             }.padding(PisyaDesign.Spacing.content).plainSurface().padding(.bottom, PisyaDesign.Spacing.section)

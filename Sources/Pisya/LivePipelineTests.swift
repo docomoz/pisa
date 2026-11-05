@@ -76,6 +76,7 @@ public enum LivePipelineTests {
         let transcriber = Transcriber()
         var scheduler = LiveTranscriptionSchedule()
         var initialModel: ObjectIdentifier?
+        var initialRussianModel: ObjectIdentifier?
         var recognized: [(Double, Double)] = []
         func process(_ window: LiveTranscriptionSchedule.Window, available: Double, stopped: Bool) async throws {
             let temp = root.appendingPathComponent("window-" + UUID().uuidString, isDirectory: true)
@@ -87,6 +88,9 @@ public enum LivePipelineTests {
             guard let identity = await transcriber.liveModelIdentity() else { throw PisyaError.message("Live model not retained") }
             if let initialModel { try check(identity == initialModel, "Model was not reused across windows") }
             else { initialModel = identity }
+            guard let russianIdentity = await transcriber.liveRussianModelIdentity() else { throw PisyaError.message("Russian verifier not retained") }
+            if let initialRussianModel { try check(russianIdentity == initialRussianModel, "Russian verifier was not reused across windows") }
+            else { initialRussianModel = russianIdentity }
             var commitEnd = LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: result)
             if commitEnd <= window.start + 0.001 {
                 if !stopped { _ = scheduler.deferBoundary(window); return }
@@ -151,5 +155,7 @@ public enum LivePipelineTests {
         await transcriber.finishLive()
         let releasedModel = await transcriber.liveModelIdentity()
         try check(releasedModel == nil, "Live model was not released")
+        let releasedRussianModel = await transcriber.liveRussianModelIdentity()
+        try check(releasedRussianModel == nil, "Russian verifier was not released")
     }
 }

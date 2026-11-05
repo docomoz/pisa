@@ -6,6 +6,24 @@ import SwiftUI
 @main
 enum Launcher {
     static func main() {
+        if CommandLine.arguments.contains("--install-models") {
+            Task {
+                do {
+                    guard let manifest = Bundle.main.url(forResource: "models", withExtension: "json") else { throw ModelInstallError.invalidManifest }
+                    let assets = try JSONDecoder().decode([ModelAsset].self, from: Data(contentsOf: manifest))
+                    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisya/Models")
+                    try await ModelInstaller(root: root, assets: assets).install { value in
+                        if value.verifying { print("Verifying", value.path) }
+                    }
+                    print("MODEL_INSTALL_OK"); exit(0)
+                } catch { print("MODEL_INSTALL_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
+        if CommandLine.arguments.contains("--recognition-meeting-preview") {
+            do { try RecognitionMeetingPreview.run(); exit(0) }
+            catch { print("RECOGNITION_PREVIEW_FAILED", error.localizedDescription); exit(1) }
+        }
         if CommandLine.arguments.contains("--recognition-quality-test") {
             Task { @MainActor in
                 do { try await RecognitionQualityTests.run(); exit(0) }

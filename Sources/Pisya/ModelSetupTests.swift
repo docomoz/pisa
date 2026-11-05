@@ -9,7 +9,7 @@ enum ModelSetupTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let data = Data("model fixture".utf8)
         let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        let assets = ["Qwen3-ASR/model.safetensors", "Speakers/test.onnx"].map {
+        let assets = ["Qwen3-ASR/model.safetensors", "Speakers/test.onnx", "GigaAM-v3/test.onnx"].map {
             ModelAsset(path: $0, url: URL(string: "https://example.com/test")!, sha256: hash, bytes: Int64(data.count))
         }
         for asset in assets {
@@ -45,11 +45,15 @@ enum ModelSetupTests {
         let chosen = ModelSetup(root: root, manifestURL: manifest, customModel: { custom }, usesCustomModel: { true })
         chosen.check(presentWhenNeeded: false); try await wait(chosen)
         try check(chosen.ready && chosen.installedUsingCustom, "Usable custom model with verified speakers not honored")
+        try FileManager.default.removeItem(at: root.appendingPathComponent(assets[2].path))
+        chosen.check(presentWhenNeeded: false); try await wait(chosen)
+        try check(!chosen.ready, "Custom model became ready without Russian acoustic verifier")
+        try data.write(to: root.appendingPathComponent(assets[2].path))
         try FileManager.default.removeItem(at: root.appendingPathComponent(assets[1].path))
         chosen.check(presentWhenNeeded: false); try await wait(chosen)
         try check(!chosen.ready, "Custom model became ready without speaker models")
         chosen.install(onReady: { }); await chosen.cancelAndWait(); try await wait(chosen)
         try check(chosen.phase == .available && !chosen.ready, "Setup cancellation did not reach worker or became ready")
-        print("MODEL_SETUP_TEST_OK managed custom invalid_bookmark speaker_readiness cancellation")
+        print("MODEL_SETUP_TEST_OK managed custom invalid_bookmark speaker_readiness russian_readiness cancellation")
     }
 }

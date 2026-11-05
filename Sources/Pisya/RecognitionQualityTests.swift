@@ -15,6 +15,7 @@ enum RecognitionQualityTests {
     private struct Request: Decodable {
         var fixtures: [Fixture]
         var modes: [String]
+        var russianVerification: Bool?
     }
 
     @MainActor static func run() async throws {
@@ -53,9 +54,10 @@ enum RecognitionQualityTests {
                     let began = Date()
                     let segments = try await transcriber.transcribe(files: [(url, 0)], modelDirectory: directory,
                         context: fixture.context ?? "", speakerDirectory: userRoot.appendingPathComponent("Models/Speakers"),
-                        profiles: [], quiet: false, live: true) { _, _ in }
+                        profiles: [], quiet: false, live: true, russianVerification: request.russianVerification ?? true) { _, _ in }
                     try emit(name: fixture.name, mode: "pipeline", text: segments.map(\.text).joined(separator: " "),
-                             seconds: Date().timeIntervalSince(began), extra: ["segments": segments.map { ["start": $0.start, "end": $0.end, "text": $0.text] }])
+                             seconds: Date().timeIntervalSince(began), extra: ["russianVerifierLoaded": await transcriber.liveRussianModelIdentity() != nil,
+                                "segments": segments.map { ["start": $0.start, "end": $0.end, "text": $0.text] }])
                 }
             }
             await transcriber.finishLive()
