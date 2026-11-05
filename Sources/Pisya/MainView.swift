@@ -293,11 +293,7 @@ struct MeetingView: View {
                 .actionButton()
                 .disabled(!state.canExport(meeting))
             Menu {
-                MeetingActions(meeting: meeting)
-                if !meeting.audioFiles.isEmpty && meeting.status == .ready {
-                    Divider()
-                    screenButton("Удалить аудио…", role: .destructive) { confirmDeleteAudio = true }
-                }
+                MeetingActions(meeting: meeting, onDeleteAudio: !meeting.audioFiles.isEmpty && meeting.status == .ready ? { confirmDeleteAudio = true } : nil)
             } label: { Image(systemName: "ellipsis").frame(width: 24) }.actionButton().fixedSize().disabled(!state.canModify(meeting))
         }
     }

@@ -95,6 +95,8 @@ struct LibrarySidebar: View {
 struct MeetingActions: View {
     @EnvironmentObject var state: AppState
     let meeting: Meeting
+    var onDeleteAudio: (() -> Void)?
+
     var body: some View {
         Group {
             if meeting.deletedAt != nil {
@@ -115,7 +117,12 @@ struct MeetingActions: View {
                 }.disabled(!state.canModify(meeting))
                 Divider()
                 screenButton("Расшифровать заново…") { state.reprocessTarget = meeting }.disabled(!state.hasAudio(meeting) || !state.canModify(meeting))
+                Divider()
                 screenButton("В корзину", role: .destructive) { state.trash(meeting) }.disabled(!state.canModify(meeting))
+            }
+            if let onDeleteAudio {
+                if meeting.deletedAt != nil { Divider() }
+                screenButton("Удалить аудио", role: .destructive, action: onDeleteAudio)
             }
         }.disabled(!state.canModify(meeting))
     }
