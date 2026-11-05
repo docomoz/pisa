@@ -98,6 +98,7 @@ struct MeetingView: View {
     private var isQueued: Bool { state.isQueued(meeting.id) }
     private var isTranscribing: Bool { meeting.status == .processing && state.processingID == meeting.id }
     private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
+    private var showsTranscriptStatus: Bool { isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) }
     private var finishesRecording: Bool { meeting.liveCommittedUntil != nil || meeting.source == state.source }
     private var transcriptQuery: String { showsTranscriptTools ? transcriptSearch : "" }
     var body: some View {
@@ -154,6 +155,7 @@ struct MeetingView: View {
                     .padding(.bottom, PisyaDesign.Spacing.related)
             }
             Divider()
+                .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
             if meeting.segments.isEmpty {
                 VStack(spacing: PisyaDesign.Spacing.section) {
                     Spacer()
@@ -212,7 +214,7 @@ struct MeetingView: View {
     }
     @ViewBuilder
     private var transcriptStatus: some View {
-        if isRecording || isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) {
+        if showsTranscriptStatus {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                 HStack(spacing: PisyaDesign.Spacing.related) {
                     SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
@@ -242,7 +244,6 @@ struct MeetingView: View {
             if !state.liveStatus.isEmpty { return state.liveStatus }
             return finishesRecording ? "Завершаю расшифровку" : "Расшифровываю аудио"
         }
-        if isRecording { return "Расшифровка появится после записи" }
         return "Расшифровка не завершена"
     }
     private var transcriptionDetail: String? {
