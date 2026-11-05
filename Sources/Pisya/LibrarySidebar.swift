@@ -2,7 +2,6 @@ import SwiftUI
 import AppKit
 
 struct LibrarySidebar: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @EnvironmentObject var state: AppState
     @State private var folderEditor = false
     @State private var editingFolder: MeetingFolder?
@@ -78,8 +77,7 @@ struct LibrarySidebar: View {
                 }
                 .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
             }
-        }.padding(.horizontal, PisyaDesign.Spacing.content).padding(.top, PisyaDesign.Spacing.content).padding(.bottom, PisyaDesign.Spacing.content)
-            .background(Color.sidebarTint.opacity(reduceTransparency ? 1 : 0.72))
+        }.padding(.horizontal, PisyaDesign.Spacing.content).padding(.top, PisyaDesign.Spacing.content).padding(.bottom, PisyaDesign.Spacing.content).background(Color.sidebarTint)
         .sheet(isPresented: $confirmEmptyTrash) {
             ConfirmationSheet(
                 title: "Очистить корзину?",
