@@ -133,7 +133,7 @@ struct ModelSetupView: View {
             } else if let error = setup.error {
                 screenText(error).textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
             } else {
-                screenLabel(setup.ready ? "Можно начинать" : "Понадобится интернет только для загрузки", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
+                screenLabel(setup.ready ? "Можно начинать" : "Интернет понадобится только для загрузки", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
                     .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
             }
             HStack(spacing: PisyaDesign.Spacing.related) {
