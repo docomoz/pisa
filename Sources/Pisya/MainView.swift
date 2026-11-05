@@ -133,6 +133,9 @@ struct MeetingView: View {
                 if !isRecording && !isSaving {
                     screenText("·")
                     screenText(timecode(meeting.duration)).monospacedDigit()
+                    screenText("·")
+                    screenLabel(state.hasAudio(meeting) ? "Аудио сохранено" : "Без аудио", systemImage: "waveform")
+                        .fixedSize()
                 }
                 Spacer()
                 if showsTranscriptTools { screenLabel("Готово", systemImage: "checkmark.circle") }
