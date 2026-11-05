@@ -44,7 +44,6 @@ struct VoiceManager: View {
                                 SectionHeading("Кто говорит?", subtitle: "Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»")
                                 TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle())
                             }
-                            if !state.voiceProfiles.isEmpty { savedVoices }
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
                                 screenToggle("Запомнить голос для будущих встреч", isOn: $remember)
@@ -97,37 +96,5 @@ struct VoiceManager: View {
         .shapeAwarePlainButton()
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .screenHelp(canPlay ? (isPlaying ? "Остановить фрагмент" : "Прослушать до 8 секунд") : "Выбрать фрагмент")
-    }
-
-    private var savedVoices: some View {
-        FormSection("Сохранённые голоса") {
-            ForEach(state.voiceProfiles) { profile in
-                HStack(spacing: PisyaDesign.Spacing.inline) {
-                    Button { name = profile.name } label: {
-                        HStack(spacing: PisyaDesign.Spacing.inline) {
-                            screenText(profile.name).fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: PisyaDesign.Spacing.none)
-                            if name == profile.name {
-                                Image(systemName: "checkmark").font(PisyaDesign.Typography.Icon.checkmark)
-                            }
-                        }
-                        .padding(.horizontal, PisyaDesign.Spacing.related)
-                        .padding(.vertical, PisyaDesign.Spacing.inline)
-                        .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.regularHeight, alignment: .leading)
-                        .background(name == profile.name ? PisyaDesign.Colors.selection : PisyaDesign.Colors.secondary,
-                                    in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
-                    }.shapeAwarePlainButton()
-                        .accessibilityValue(name == profile.name ? "Выбрано" : "")
-                        .screenHelp("Выбрать имя «\(profile.name)»")
-                    if let example = profile.examples?.last {
-                        Button { state.playExample(example) } label: {
-                            Image(systemName: state.playingSegmentID == example.id ? "stop.fill" : "play.fill")
-                        }.actionButton().disabled(state.recording)
-                            .accessibilityLabel("\(state.playingSegmentID == example.id ? "Остановить" : "Послушать") образец «\(profile.name)»")
-                            .screenHelp("Послушать сохранённый образец «\(profile.name)»")
-                    }
-                }
-            }
-        }
     }
 }
