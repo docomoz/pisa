@@ -204,6 +204,7 @@ struct MeetingView: View {
                             }
                         }
                     }.padding(.vertical, PisyaDesign.Spacing.section).padding(.trailing, PisyaDesign.Spacing.related)
+                        .opacity(isTranscribing && state.isReprocessing ? 0.6 : 1)
                 }
             }
             HStack(spacing: PisyaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
