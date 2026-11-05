@@ -9,9 +9,10 @@ public struct MeetingTitleRequest: Sendable {
 /// Bounded, sequential reduction includes the whole transcript, including its final decisions.
 public struct MeetingTitleComposer: Sendable {
     public typealias Generate = @Sendable (MeetingTitleRequest) async throws -> String
+    private static let directTitleLimit = 5000
     private let characterLimit: Int
     private let generate: Generate
-    public init(characterLimit: Int = 5000, generate: @escaping Generate) {
+    public init(characterLimit: Int = 24000, generate: @escaping Generate) {
         self.characterLimit = max(256, characterLimit); self.generate = generate
     }
 
@@ -22,17 +23,20 @@ public struct MeetingTitleComposer: Sendable {
             return MeetingSpeechText.accepts(clean) ? clean : nil
         }.joined(separator: "\n")
         guard !text.isEmpty else { return nil }
-        while text.count > characterLimit {
-            var summaries: [String] = []
-            for chunk in chunks(text) {
-                try Task.checkCancellation()
-                let summary = try await generate(.init(kind: .summary, text: chunk))
-                try Task.checkCancellation()
-                let clean = Self.withoutReasoning(summary).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard MeetingSpeechText.accepts(clean) else { throw PisyaError.message("Не удалось кратко пересказать часть встречи") }
-                summaries.append(String(clean.prefix(min(1000, characterLimit / 3))))
-            }
-            text = summaries.joined(separator: "\n")
+        if text.count > min(Self.directTitleLimit, characterLimit) {
+            // Keep the agenda and follow-up together when the transcript fits in one pass.
+            repeat {
+                var summaries: [String] = []
+                for chunk in chunks(text) {
+                    try Task.checkCancellation()
+                    let summary = try await generate(.init(kind: .summary, text: chunk))
+                    try Task.checkCancellation()
+                    let clean = Self.withoutReasoning(summary).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard MeetingSpeechText.accepts(clean) else { throw PisyaError.message("Не удалось кратко пересказать часть встречи") }
+                    summaries.append(String(clean.prefix(min(1000, characterLimit / 3))))
+                }
+                text = summaries.joined(separator: "\n")
+            } while text.count > characterLimit
         }
         try Task.checkCancellation()
         let output = try await generate(.init(kind: .title, text: text))

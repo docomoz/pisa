@@ -123,6 +123,31 @@ final class MeetingTitleTests: XCTestCase {
         XCTAssertEqual(title, "Монетизация поиска")
     }
 
+    func testMediumTranscriptKeepsAgendaAndFollowUpInTheSameModelRequest() async throws {
+        let background = String(repeating: "Участники обменялись новостями по другим проектам. ", count: 96)
+        let agenda = "Хочу обсудить запись в сервис через приложение."
+        let followUp = "Сравним стоимость своей реализации и поддержки у партнёра."
+        let composer = MeetingTitleComposer { request in
+            if request.kind == .summary {
+                guard request.text.contains(agenda), request.text.contains(followUp) else {
+                    throw TestFailure.unexpectedInput
+                }
+                return "Запись в сервис через приложение, сравнение вариантов реализации."
+            }
+            guard request.text == "Запись в сервис через приложение, сравнение вариантов реализации." else {
+                throw TestFailure.unexpectedInput
+            }
+            return "Интеграция записи в сервис"
+        }
+        let title = try await composer.title(for: [
+            .init(start: 0, end: 300, speaker: "Я", text: background),
+            .init(start: 300, end: 305, speaker: "Я", text: agenda),
+            .init(start: 305, end: 325, speaker: "Собеседник", text: String(repeating: "Обсудили реализацию. ", count: 10)),
+            .init(start: 325, end: 330, speaker: "Я", text: followUp)
+        ])
+        XCTAssertEqual(title, "Интеграция записи в сервис")
+    }
+
     func testGenerationFailureDoesNotMutateMeeting() async throws {
         let original = completed()
         var meeting = original
