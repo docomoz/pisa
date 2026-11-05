@@ -2,6 +2,20 @@ import XCTest
 @testable import PisyaCore
 
 final class VoiceSampleSelectionTests: XCTestCase {
+    func testRenamingAllRepliesKeepsTheVoiceGroupInPlace() {
+        let first = TranscriptSegment(start: 0, end: 3, speaker: "Борис", text: "Первая реплика")
+        var second = TranscriptSegment(start: 5, end: 8, speaker: "Голос 2", text: "Ответ")
+        var later = TranscriptSegment(start: 10, end: 16, speaker: "Голос 2", text: "Продолжение ответа")
+        let expectedIDs = [first.id, second.id]
+        XCTAssertEqual(voiceGroupAnchors(in: [first, second, later]).map(\.id), expectedIDs)
+
+        second.speaker = "Анна"
+        later.speaker = "Анна"
+        let renamed = voiceGroupAnchors(in: [first, second, later])
+        XCTAssertEqual(renamed.map(\.id), expectedIDs)
+        XCTAssertEqual(renamed.map(\.speaker), ["Борис", "Анна"])
+    }
+
     func testSelectsOnlyTwoLongestFragmentsForTheRequestedSpeakerInTimeOrder() {
         let first = TranscriptSegment(start: 0, end: 5, speaker: "Анна", text: "Первая реплика")
         let longest = TranscriptSegment(start: 30, end: 42, speaker: "Анна", text: "Длинная реплика")

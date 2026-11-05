@@ -26,10 +26,10 @@ struct VoiceManager: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         if let meeting {
-                            ForEach(meeting.speakers, id: \.self) { speaker in
+                            ForEach(voiceGroupAnchors(in: meeting.segments)) { anchor in
                                 LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                                    screenText(speaker).textStyle(PisyaDesign.Typography.bodyStrong)
-                                    ForEach(voiceSamples(for: speaker, in: meeting.segments)) { segment in
+                                    screenText(anchor.speaker).textStyle(PisyaDesign.Typography.bodyStrong)
+                                    ForEach(voiceSamples(for: anchor.speaker, in: meeting.segments)) { segment in
                                         fragmentCard(segment, in: meeting)
                                     }
                                 }

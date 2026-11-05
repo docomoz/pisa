@@ -1,5 +1,11 @@
 import Foundation
 
+/// The first transcript segment anchors each voice group across renames.
+func voiceGroupAnchors(in segments: [TranscriptSegment]) -> [TranscriptSegment] {
+    var seen = Set<String>()
+    return segments.filter { seen.insert($0.speaker).inserted }
+}
+
 /// Keep the voice picker compact while offering the longest available speech.
 func voiceSamples(for speaker: String, in segments: [TranscriptSegment]) -> [TranscriptSegment] {
     let ranked = segments.enumerated().filter { _, segment in
