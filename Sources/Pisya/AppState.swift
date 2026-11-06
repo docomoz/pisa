@@ -153,7 +153,23 @@ final class AppState: ObservableObject {
     func trash(_ m: Meeting, restore: Bool = false) {
         guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
         stopPlayback(); latest.deletedAt = restore ? nil : Date()
-        do { try library.save(latest); upsert(latest); select(filtered.first?.id) } catch { message = error.localizedDescription }
+        do {
+            try library.save(latest)
+            upsert(latest)
+            select(filtered.first?.id)
+        } catch {
+            message = error.localizedDescription
+            return
+        }
+        if !restore {
+            do {
+                try withConfiguredExportFolder { folder in
+                    _ = try MarkdownExporter.trashExport(for: latest, in: folder)
+                }
+            } catch {
+                message = "Запись в корзине Pisya. Не удалось переместить Markdown в корзину: \(error.localizedDescription)"
+            }
+        }
     }
     var canEmptyTrash: Bool {
         !demo && meetings.contains { $0.deletedAt != nil } && meetings.filter { $0.deletedAt != nil }.allSatisfy { canModify($0) }
@@ -827,13 +843,21 @@ final class AppState: ObservableObject {
         }
     }
     func exportIfConfigured(_ meeting: Meeting) {
-        guard !demo, let data = preferences.exportBookmark else { return }
+        guard meeting.deletedAt == nil else { return }
         do {
-            var stale = false; let folder = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-            let granted = folder.startAccessingSecurityScopedResource(); defer { if granted { folder.stopAccessingSecurityScopedResource() } }
-            if stale { preferences.exportBookmark = try folder.bookmarkData(options: .withSecurityScope); savePreferences() }
-            _ = try MarkdownExporter.export(meeting, to: folder)
+            try withConfiguredExportFolder { folder in
+                _ = try MarkdownExporter.export(meeting, to: folder)
+            }
         } catch { message = "Экспорт не выполнен: \(error.localizedDescription). Расшифровка сохранена на Mac" }
+    }
+    private func withConfiguredExportFolder(_ action: (URL) throws -> Void) throws {
+        guard !demo, let data = preferences.exportBookmark else { return }
+        var stale = false
+        let folder = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
+        let granted = folder.startAccessingSecurityScopedResource()
+        defer { if granted { folder.stopAccessingSecurityScopedResource() } }
+        if stale { preferences.exportBookmark = try folder.bookmarkData(options: .withSecurityScope); savePreferences() }
+        try action(folder)
     }
     func deleteAudio(_ meeting: Meeting) {
         guard !demo, meeting.status == .ready, processingID != meeting.id, activeMeeting?.id != meeting.id else { return }

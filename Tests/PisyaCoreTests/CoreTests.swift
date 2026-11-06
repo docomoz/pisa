@@ -310,6 +310,61 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(try MarkdownExporter.export(m, to: lib.root), legacy)
         XCTAssertTrue(try String(contentsOf: legacy, encoding: .utf8).contains("# Обновлённая тема"))
     }
+    func testTrashingExportUsesMeetingIDAfterRenameAndKeepsOtherNotes() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let first = Meeting(title: "Статус", source: "Толк")
+        var second = Meeting(title: first.title, source: first.source)
+        second.date = first.date
+        let target = try MarkdownExporter.export(first, to: lib.root)
+        let other = try MarkdownExporter.export(second, to: lib.root)
+        try MarkdownExporter.render(first).appending("\nМои правки\n").write(to: target, atomically: true, encoding: .utf8)
+        var renamed = first
+        renamed.title = "Обновлённая тема"
+        let trashed = try XCTUnwrap(MarkdownExporter.trashExport(for: renamed, in: lib.root))
+        defer { try? FileManager.default.removeItem(at: trashed) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
+        XCTAssertTrue(try String(contentsOf: trashed, encoding: .utf8).hasSuffix("Мои правки\n"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: other.path))
+        XCTAssertNil(try MarkdownExporter.trashExport(for: renamed, in: lib.root))
+    }
+    func testTrashingLegacyExportLeavesAManualExportAlone() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let meeting = Meeting(title: "Статус", source: "Толк")
+        let legacy = lib.root.appendingPathComponent("pisya-\(meeting.id.uuidString.lowercased()).md")
+        let manual = lib.root.appendingPathComponent("Статус.md")
+        let month = lib.root.appendingPathComponent("2026/11", isDirectory: true)
+        let datedManual = month.appendingPathComponent("2026-11-06 личные заметки.md")
+        var datedMeeting = meeting
+        datedMeeting.date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-06T12:00:00Z"))
+        let markdown = MarkdownExporter.render(meeting)
+        try markdown.write(to: legacy, atomically: true, encoding: .utf8)
+        try markdown.write(to: manual, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: month, withIntermediateDirectories: true)
+        try markdown.write(to: datedManual, atomically: true, encoding: .utf8)
+        let trashed = try XCTUnwrap(MarkdownExporter.trashExport(for: datedMeeting, in: lib.root))
+        defer { try? FileManager.default.removeItem(at: trashed) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+        XCTAssertEqual(try String(contentsOf: manual, encoding: .utf8), markdown)
+        let unexpected = try MarkdownExporter.trashExport(for: datedMeeting, in: lib.root)
+        defer { if let unexpected { try? FileManager.default.removeItem(at: unexpected) } }
+        XCTAssertNil(unexpected)
+        XCTAssertEqual(try String(contentsOf: datedManual, encoding: .utf8), markdown)
+    }
+    func testTrashingExportDoesNotFollowSymlinkedYear() throws {
+        let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
+        let outside = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: outside.root) }
+        var meeting = Meeting(title: "Статус", source: "Толк")
+        meeting.date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-06T12:00:00Z"))
+        let target = try MarkdownExporter.export(meeting, to: outside.root, timeZone: .gmt)
+        try FileManager.default.createSymbolicLink(
+            at: lib.root.appendingPathComponent("2026"),
+            withDestinationURL: outside.root.appendingPathComponent("2026")
+        )
+        let unexpected = try MarkdownExporter.trashExport(for: meeting, in: lib.root)
+        defer { if let unexpected { try? FileManager.default.removeItem(at: unexpected) } }
+        XCTAssertNil(unexpected)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target.path))
+    }
     func testExportFindsAnExistingNoteWhenTheNewTimeZoneSkippedItsDate() throws {
         let lib = try temporaryLibrary(); defer { try? FileManager.default.removeItem(at: lib.root) }
         let apia = try XCTUnwrap(TimeZone(identifier: "Pacific/Apia"))

@@ -106,13 +106,14 @@ public enum MarkdownExporter {
         exportLock.lock()
         defer { exportLock.unlock() }
 
-        let files = FileManager.default
         let markdown = render(meeting)
-        let legacy = folder.appendingPathComponent("pisya-\(meeting.id.uuidString.lowercased()).md")
-        if files.fileExists(atPath: legacy.path), try refresh(legacy, id: meeting.id, markdown: markdown) {
-            return legacy
+        if let existing = try changeExistingExport(for: meeting, in: folder, options: .forReplacing, change: {
+            try markdown.write(to: $0, atomically: true, encoding: .utf8)
+        }) {
+            return existing
         }
 
+        let files = FileManager.default
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -120,25 +121,6 @@ public enum MarkdownExporter {
         formatter.dateFormat = "yyyy-MM-dd HH-mm"
         let stamp = formatter.string(from: meeting.date)
         let directory = monthDirectory(for: stamp, in: folder)
-
-        // Every possible local date falls within a day of the UTC date.
-        formatter.timeZone = .gmt
-        let dayLength: TimeInterval = 24 * 60 * 60
-        let days = [0, -1, 1].map {
-            String(formatter.string(from: meeting.date.addingTimeInterval(Double($0) * dayLength)).prefix(10))
-        }
-        let daysByDirectory = Dictionary(grouping: days) { monthDirectory(for: $0, in: folder) }
-        for (month, possibleDays) in daysByDirectory {
-            var isDirectory: ObjCBool = false
-            guard files.fileExists(atPath: month.path, isDirectory: &isDirectory), isDirectory.boolValue else { continue }
-            let candidates = try files.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: .skipsHiddenFiles)
-            for candidate in candidates where candidate.pathExtension == "md" {
-                let day = String(candidate.lastPathComponent.prefix(10))
-                if possibleDays.contains(day), try refresh(candidate, id: meeting.id, markdown: markdown) {
-                    return month.appendingPathComponent(candidate.lastPathComponent)
-                }
-            }
-        }
 
         try files.createDirectory(at: directory, withIntermediateDirectories: true)
         let stem = "\(stamp) — \(fileTitle(meeting.title))"
@@ -154,6 +136,64 @@ public enum MarkdownExporter {
         try markdown.write(to: staged, atomically: true, encoding: .utf8)
         try files.moveItem(at: staged, to: url)
         return url
+    }
+
+    /// Move the same note an automatic export would update, preserving any edits in the Trash.
+    public static func trashExport(for meeting: Meeting, in folder: URL) throws -> URL? {
+        exportLock.lock()
+        defer { exportLock.unlock() }
+
+        let files = FileManager.default
+        guard files.isReadableFile(atPath: folder.path) else {
+            throw CocoaError(.fileReadNoPermission, userInfo: [NSURLErrorKey: folder])
+        }
+        var trashedURL: NSURL?
+        _ = try changeExistingExport(for: meeting, in: folder, options: .forDeleting) {
+            try files.trashItem(at: $0, resultingItemURL: &trashedURL)
+        }
+        return trashedURL as URL?
+    }
+
+    private static func changeExistingExport(
+        for meeting: Meeting, in folder: URL, options: NSFileCoordinator.WritingOptions, change: (URL) throws -> Void
+    ) throws -> URL? {
+        let files = FileManager.default
+        let legacy = folder.appendingPathComponent("pisya-\(meeting.id.uuidString.lowercased()).md")
+        if files.fileExists(atPath: legacy.path), try changeOwnedExport(legacy, id: meeting.id, options: options, change: change) {
+            return legacy
+        }
+
+        // Every possible local date falls within a day of the UTC date.
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .gmt
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dayLength: TimeInterval = 24 * 60 * 60
+        let days = [0, -1, 1].map {
+            String(formatter.string(from: meeting.date.addingTimeInterval(Double($0) * dayLength)).prefix(10))
+        }
+        let daysByDirectory = Dictionary(grouping: days) { monthDirectory(for: $0, in: folder) }
+        for (month, possibleDays) in daysByDirectory {
+            var isDirectory: ObjCBool = false
+            guard files.fileExists(atPath: month.path, isDirectory: &isDirectory), isDirectory.boolValue else { continue }
+            if options.contains(.forDeleting) {
+                let expected = monthDirectory(for: possibleDays[0], in: folder.resolvingSymlinksInPath())
+                guard month.resolvingSymlinksInPath().path == expected.path else { continue }
+            }
+            let candidates = try files.contentsOfDirectory(at: month, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: .skipsHiddenFiles)
+            for candidate in candidates where candidate.pathExtension == "md" {
+                let name = candidate.lastPathComponent
+                let day = String(name.prefix(10))
+                let automaticName = name.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}-[0-9]{2} — .+\.md$"#, options: .regularExpression) != nil
+                if possibleDays.contains(day), automaticName,
+                   try changeOwnedExport(candidate, id: meeting.id, options: options, change: change) {
+                    return month.appendingPathComponent(candidate.lastPathComponent)
+                }
+            }
+        }
+
+        return nil
     }
 
     private static func monthDirectory(for stamp: String, in folder: URL) -> URL {
@@ -183,14 +223,16 @@ public enum MarkdownExporter {
         return fullText.split(whereSeparator: \.isNewline).dropFirst().contains("---")
     }
 
-    private static func refresh(_ url: URL, id: UUID, markdown: String) throws -> Bool {
+    private static func changeOwnedExport(
+        _ url: URL, id: UUID, options: NSFileCoordinator.WritingOptions, change: (URL) throws -> Void
+    ) throws -> Bool {
         guard try belongsToMeeting(url, id: id) else { return false }
         var coordinationError: NSError?
         var result: Result<Bool, Error>?
-        NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordinationError) { coordinated in
+        NSFileCoordinator().coordinate(writingItemAt: url, options: options, error: &coordinationError) { coordinated in
             result = Result {
                 guard try belongsToMeeting(coordinated, id: id) else { return false }
-                try markdown.write(to: coordinated, atomically: true, encoding: .utf8)
+                try change(coordinated)
                 return true
             }
         }
