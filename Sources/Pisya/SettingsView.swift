@@ -3,6 +3,7 @@ import AppKit
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) var dismiss
+    @ObservedObject private var updates = AppUpdates.shared
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
     init(initialSection: String = "Запись") {
@@ -61,7 +62,7 @@ struct SettingsView: View {
 
                             }
                         }
-                    default:
+                    case "MCP":
                         columns {
                         block("Доступ к встречам через MCP", "Локальный сервер даёт доступ только для чтения и работает без сетевого порта") {
                             screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled).onChange(of: state.preferences.mcpEnabled) { state.savePreferences() }
@@ -85,6 +86,17 @@ struct SettingsView: View {
                             .disabled(!state.preferences.mcpEnabled)
                             .opacity(state.preferences.mcpEnabled ? 1 : 0.45)
                         }
+                    default:
+                        block("Обновления Pisya", "Новые версии загружаются с GitHub") {
+                            screenToggle("Устанавливать обновления автоматически", isOn: Binding(
+                                get: { updates.installsAutomatically },
+                                set: { updates.setAutomaticInstallation($0) }
+                            )).disabled(!updates.isReady)
+                            SupportingText("Если выключить, Pisya сообщит о новой версии и предложит установить её вручную")
+                            screenButton("Проверить обновления…") { updates.check() }
+                                .actionButton().disabled(!updates.canCheck)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     }
                 }.padding(.vertical, PisyaDesign.Spacing.compact)
@@ -164,7 +176,7 @@ struct SettingsView: View {
 private struct SettingsSectionPicker: View {
     @Binding var selection: String
     @FocusState private var focused: String?
-    private let sections = ["Запись", "Модель", "Голоса", "Экспорт", "MCP"]
+    private let sections = ["Запись", "Модель", "Голоса", "Экспорт", "MCP", "Обновления"]
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.compact) {
             ForEach(sections, id: \.self) { item in

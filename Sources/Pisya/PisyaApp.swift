@@ -4,6 +4,7 @@ import AppKit
 struct PisyaApp: App {
     @NSApplicationDelegateAdaptor(PisyaDelegate.self) private var delegate
     @StateObject private var state = AppState()
+    @ObservedObject private var updates = AppUpdates.shared
     @AppStorage("appTextSize") private var textSize = AppTextSize.normal
     var body: some Scene {
         Window("Pisya", id: "main") {
@@ -55,6 +56,8 @@ struct PisyaApp: App {
                     options[.credits] = attributedCredits
                     NSApp.orderFrontStandardAboutPanel(options: options)
                 }
+                screenButton("Проверить обновления…") { updates.check() }
+                    .disabled(!updates.canCheck)
             }
             CommandGroup(replacing: .newItem) { screenButton("Импортировать аудио…") { state.importAudio() }.keyboardShortcut("o") }
             CommandGroup(after: .toolbar) {
@@ -152,6 +155,7 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
     }
     func showStatusMenu() { statusController?.showMenu() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppUpdates.shared.start()
         if let url = Bundle.main.url(forResource: "PisyaPlain", withExtension: "icns") {
             NSApp.applicationIconImage = NSImage(contentsOf: url)
         }
