@@ -503,6 +503,7 @@ struct MeetingView: View {
             } icon: {
                 Image(systemName: systemImage)
             }
+            .labelStyle(AlignedIconLabelStyle())
             .lineLimit(1).truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
             if hasMenu {
