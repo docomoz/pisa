@@ -1,7 +1,12 @@
 :root{--ink:#191c1b;--muted:#666e69;--green:#197d3d;--line:#e6eae6;--width:1300px}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;background:#fff;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+body{position:relative;isolation:isolate;margin:0;background:#fff;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+body::before,body::after{content:"";position:fixed;z-index:-1;inset:-12%;pointer-events:none;background:url("assets/water.png") center/cover no-repeat;will-change:transform}
+body::before{opacity:.32;animation:water-flow 24s ease-in-out infinite alternate}
+body::after{opacity:.15;animation:water-shimmer 31s ease-in-out infinite alternate}
+@keyframes water-flow{from{transform:translate3d(-2%,-2%,0) scale(1.02)}to{transform:translate3d(2%,2%,0) scale(1.08)}}
+@keyframes water-shimmer{from{transform:translate3d(3%,1%,0) scale(1.08)}to{transform:translate3d(-3%,-1%,0) scale(1.02)}}
 a{color:inherit;text-decoration:none}
 a:focus-visible,button:focus-visible{outline:3px solid #55ae70;outline-offset:5px}
 .wrap{width:min(var(--width),calc(100% - 96px));margin:auto}
@@ -38,7 +43,7 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 .feature-grid h2{font-size:clamp(23px,2.4vw,33px);letter-spacing:-.05em;line-height:1.1;margin:0 0 16px}
 .feature-number{display:block;color:#699379;font-weight:500;font-variant-numeric:tabular-nums;margin-bottom:16px}
 .feature-grid p,.privacy-columns p,.install-guide p,.early p{font-size:16px;line-height:1.6;color:#59645c}
-.privacy{background:#edf6ec;padding:140px 0}
+.privacy{background:rgba(248,245,250,.45);padding:140px 0}
 .privacy-inner,.install-top{display:grid;grid-template-columns:1fr 3fr;gap:40px}
 .privacy h2,.install h2{font-size:clamp(54px,6.1vw,88px)}
 .privacy-columns{display:grid;grid-template-columns:1fr 1fr;gap:55px;margin-top:38px}
@@ -72,18 +77,7 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important}}
 @media(max-width:800px){.header{gap:12px}}
 
-.hero-waves{position:absolute;z-index:-1;top:30px;left:50%;width:min(100vw,1600px);height:480px;transform:translateX(-50%);overflow:hidden;pointer-events:none}
-.hero-waves::before,.hero-waves::after{content:"";position:absolute;width:360px;height:190px;border:1px solid rgba(167,206,180,.38);border-radius:50%;background:radial-gradient(ellipse at 30% 24%,rgba(255,255,255,.8),rgba(218,240,226,.38) 54%,rgba(189,225,204,.12));box-shadow:inset 0 2px 20px rgba(255,255,255,.85),0 14px 40px rgba(128,179,146,.08);backdrop-filter:blur(5px);animation:glass-drift 17s ease-in-out infinite alternate}
-.hero-waves::before{top:125px;left:4%;transform:rotate(-13deg)}
-.hero-waves::after{right:3%;top:240px;width:290px;height:145px;animation-delay:-9s;animation-direction:alternate-reverse}
-.hero-waves svg{position:relative;display:block;width:100%;height:100%}
-.wave{fill:none;stroke:#95c5a5;stroke-width:1.7;opacity:.56;transform-origin:center;animation:wave-drift 13s ease-in-out infinite alternate}
-.wave-two{stroke:#a6cfb1;opacity:.55;animation-duration:16s;animation-delay:-5s}
-.wave-three{stroke:#b0d6ba;opacity:.6;animation-duration:19s;animation-delay:-10s}
-@keyframes wave-drift{from{transform:translate3d(-22px,-8px,0)}to{transform:translate3d(22px,8px,0)}}
-@keyframes glass-drift{from{translate:0 -8px}to{translate:18px 10px}}
-@media(max-width:800px){.hero-waves{top:20px;height:360px}.wave{stroke-width:2}.hero-waves::before{width:220px;height:115px;left:-12%;top:100px}.hero-waves::after{width:180px;height:90px;right:-12%;top:220px}}
-@media(prefers-reduced-motion:reduce){.wave,.hero-waves::before,.hero-waves::after{animation:none}}
+@media(prefers-reduced-motion:reduce){body::before,body::after{animation:none;will-change:auto}}
 
 .copy-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 

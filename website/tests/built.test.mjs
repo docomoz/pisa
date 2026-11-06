@@ -16,6 +16,9 @@ test('the built Worker serves the page and its assets', async () => {
   const headerMark = await worker.fetch(request('/assets/mark-header.svg'), {}, {});
   assert.equal(headerMark.status, 200);
   assert.match(headerMark.headers.get('content-type'), /image\/svg\+xml/);
+  const water = await worker.fetch(request('/assets/water.png'), {}, {});
+  assert.equal(water.status, 200);
+  assert.equal(water.headers.get('content-type'), 'image/png');
   const head = await worker.fetch(request('/', 'HEAD'), {}, {});
   assert.equal(head.status, 200);
   assert.equal((await head.arrayBuffer()).byteLength, 0);
