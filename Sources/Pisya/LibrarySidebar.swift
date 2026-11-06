@@ -19,13 +19,13 @@ struct LibrarySidebar: View {
                     scope(folder.name, icon: folder.iconName, selected: state.folderFilter == folder.id && !state.showingTrash) { state.openFolder(folder.id) }
                         .popupContextMenu {
                             PopupMenuItem("Изменить папку…") { editingFolder = folder; folderName = folder.name; folderEditor = true }
-                            PopupMenuItem("Удалить папку…", role: .destructive) { deletingFolder = folder }
+                            PopupMenuItem("Удалить папку", role: .destructive) { deletingFolder = folder }
                         }
                 }
-                scope("Новая папка", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
+                scope("Новая папка…", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
                     .disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
-                    .popupContextMenu { PopupMenuItem("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
+                    .popupContextMenu { PopupMenuItem("Очистить корзину", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
             }.textStyle(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
             HStack(spacing: PisyaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.textStyle(PisyaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
             ScrollViewReader { proxy in
@@ -176,7 +176,7 @@ struct MeetingActionSet {
 
     var rename: Item { Item(title: "Переименовать…") { state.renameTarget = meeting } }
     var reprocess: Item {
-        Item(title: "Расшифровать заново…", enabled: state.hasAudio(meeting)) { state.reprocessTarget = meeting }
+        Item(title: "Расшифровать заново", enabled: state.hasAudio(meeting)) { state.reprocessTarget = meeting }
     }
     var trash: Item { Item(title: "В корзину", role: .destructive) { state.trash(meeting) } }
     var restore: Item { Item(title: "Восстановить") { state.trash(meeting, restore: true) } }

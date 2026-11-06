@@ -76,7 +76,7 @@ struct PisyaApp: App {
                 }
                 screenButton("Показать меню записи") { delegate.showStatusMenu() }.keyboardShortcut("r", modifiers: [.command, .shift])
             }
-            CommandGroup(replacing: .appSettings) { screenButton("Настройки…") { state.showingSettings = true }.keyboardShortcut(",") }
+            CommandGroup(replacing: .appSettings) { screenButton("Настройки") { state.showingSettings = true }.keyboardShortcut(",") }
         }
     }
 

@@ -61,10 +61,10 @@ struct MainView: View {
                     if state.recording {
                         Image(systemName: importIcon).textStyle(PisyaDesign.Typography.detailMedium)
                     } else {
-                        screenLabel("Импорт", systemImage: importIcon)
+                        screenLabel("Импорт…", systemImage: importIcon)
                     }
                 }.actionButton().disabled(state.demo)
-                    .screenHelp("Импортировать аудио…").accessibilityLabel("Импортировать аудио")
+                    .screenHelp("Импортировать аудио…").accessibilityLabel("Импортировать аудио…")
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
@@ -150,9 +150,9 @@ struct MeetingView: View {
     @State private var showsDetailsKeyboardFocus = false
     @FocusState private var focusedField: Field?
     private enum Field: Hashable { case title, search }
-    // Width available at a 1080-point window after the library, divider, and page insets.
-    private static let detailsColumnBreakpoint: CGFloat = 745
-    private static let detailsColumnWidth: CGFloat = 216
+    // Keep at least this much space for the transcript and the gap beside it.
+    private static let transcriptWidthWithDetails: CGFloat = 529
+    private static let detailsColumnWidth: CGFloat = 228
     private var isRecording: Bool { state.recordingMeetingID == meeting.id }
     private var isSaving: Bool { state.savingMeetingID == meeting.id }
     private var isQueued: Bool { state.isQueued(meeting.id) }
@@ -195,7 +195,7 @@ struct MeetingView: View {
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
             GeometryReader { geometry in
                 let extraWidth = Self.detailsColumnWidth * (max(1, textScale) - 1)
-                let showsColumn = showsTranscriptTools && geometry.size.width >= Self.detailsColumnBreakpoint + extraWidth
+                let showsColumn = showsTranscriptTools && geometry.size.width >= Self.transcriptWidthWithDetails + Self.detailsColumnWidth + extraWidth
                 HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
                     transcriptColumn(showsDetailsButton: !showsColumn)
                     if showsColumn {
@@ -290,7 +290,7 @@ struct MeetingView: View {
                                     screenText(segment.text, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 if showsTranscriptTools {
-                                    Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.processingID == meeting.id).screenHelp("Исправить реплику")
+                                    Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.processingID == meeting.id).screenHelp("Исправить реплику…")
                                 }
                             }
                             .id(segment.id)
@@ -351,7 +351,7 @@ struct MeetingView: View {
                 ScrollView { meetingDetails(buttonSize: .small) }
             }
             .padding(PisyaDesign.Spacing.content)
-            .frame(width: 224)
+            .frame(width: 224 * max(1, textScale))
             .frame(maxHeight: 360)
             .popupCanvas()
             .modifier(PopupKeyboardNavigation(showsFocus: $showsDetailsKeyboardFocus))
@@ -376,7 +376,7 @@ struct MeetingView: View {
                         if meeting.liveCommittedUntil != nil {
                             screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
                         } else {
-                            screenButton("Расшифровать заново…") { state.reprocessTarget = meeting }.actionButton(.primary, size: .small)
+                            screenButton("Расшифровать заново") { state.reprocessTarget = meeting }.actionButton(.primary, size: .small)
                         }
                     }
                     if isRecording && isTranscribing {
@@ -434,7 +434,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         state.voiceMeeting = meeting
                     } label: {
-                        detailsActionLabel("Разметить голоса", systemImage: "person.wave.2")
+                        detailsActionLabel("Разметить голоса…", systemImage: "person.wave.2")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
@@ -463,7 +463,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         state.exportSelected()
                     } label: {
-                        detailsActionLabel("Поделиться", systemImage: "square.and.arrow.up")
+                        detailsActionLabel("Поделиться…", systemImage: "square.and.arrow.up")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(!state.canExport(meeting))

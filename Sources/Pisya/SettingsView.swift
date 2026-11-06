@@ -26,7 +26,7 @@ struct SettingsView: View {
                             screenLabel(state.modelReady ? "Модель готова" : "Модели ещё не установлены", systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive").foregroundStyle(Color.moss)
                             if let url = state.modelURL() { screenText(verbatim: url.path).textStyle(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).foregroundStyle(Color.mutedInk).textSelection(.enabled) }
                             screenButton("Выбрать папку модели…") { state.chooseModel() }.actionButton()
-                            screenButton(state.modelReady ? "Проверить и установить модели…" : "Загрузить модели…") {
+                            screenButton(state.modelReady ? "Проверить и установить модели" : "Загрузить модели") {
                                 dismiss()
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { state.modelSetup.check(); state.modelSetup.presented = true }
                             }.actionButton()
@@ -139,8 +139,8 @@ struct SettingsView: View {
             Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                 block("Разрешения macOS", "Нужны для записи вашего голоса и собеседников") {
-                    Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон…", systemImage: "mic") }.actionButton()
-                    Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук…", systemImage: "speaker.wave.2") }.actionButton()
+                    Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон", systemImage: "mic") }.actionButton()
+                    Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук", systemImage: "speaker.wave.2") }.actionButton()
                 }.labelStyle(AlignedIconLabelStyle())
                 block("Фоновая расшифровка", "Черновик во время звонка") {
                     screenToggle("Расшифровывать во время записи", isOn: Binding(get: { state.preferences.usesBackgroundTranscription }, set: { state.setBackgroundTranscription($0) }))
