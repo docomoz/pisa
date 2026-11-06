@@ -102,7 +102,18 @@ struct SettingsView: View {
                 }.padding(.vertical, PisyaDesign.Spacing.compact)
             }.id(section)
             }
-            HStack(spacing: PisyaDesign.Spacing.inline) { screenText("Ранняя версия Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")").textStyle(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
+            HStack(spacing: PisyaDesign.Spacing.inline) {
+                Image(nsImage: BrandMark.headerIcon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
+                screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                    .textStyle(PisyaDesign.Typography.footnote)
+                    .foregroundStyle(Color.mutedInk)
+                Spacer()
+                screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
+            }
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
