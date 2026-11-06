@@ -890,12 +890,32 @@ final class AppState: ObservableObject {
     func canExport(_ meeting: Meeting) -> Bool {
         canModify(meeting) && !meeting.segments.isEmpty
     }
-    func exportSelected() {
-        guard let meeting = selected, canExport(meeting) else { return }
+    func exportTranscript(_ meeting: Meeting) {
+        guard canExport(meeting) else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = "\(meeting.title.replacingOccurrences(of: "/", with: "-" )).md"
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.isExtensionHidden = false; panel.canCreateDirectories = true
         if panel.runModal() == .OK, let url = panel.url { do { try MarkdownExporter.render(meeting).write(to: url, atomically: true, encoding: .utf8) } catch { message = error.localizedDescription } }
+    }
+    func canExportAudio(_ meeting: Meeting) -> Bool {
+        guard canModify(meeting), let sources = try? MeetingAudioExport.sources(for: meeting, in: library) else { return false }
+        return !sources.isEmpty
+    }
+    func exportAudio(_ meeting: Meeting) async {
+        guard canExportAudio(meeting) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = meeting.title.replacingOccurrences(of: "/", with: "-") + ".m4a"
+        panel.allowedContentTypes = [UTType(filenameExtension: "m4a") ?? .mpeg4Audio]
+        panel.isExtensionHidden = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let granted = url.startAccessingSecurityScopedResource()
+        defer { if granted { url.stopAccessingSecurityScopedResource() } }
+        do {
+            try await MeetingAudioExport.write(meeting, from: library, to: url)
+        } catch {
+            message = "Не удалось экспортировать аудио: \(error.localizedDescription)"
+        }
     }
     func showDemo() {
         guard !recording, processingID == nil else { return }

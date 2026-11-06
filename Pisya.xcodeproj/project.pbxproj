@@ -100,6 +100,7 @@
 		C1D8F1C10F2B975E48010526 /* EchoDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6585D6825AB0F029B1B85B64 /* EchoDetector.swift */; };
 		C807E5C802ED610ACC40A178 /* AudioDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B8C8390CB5ED142F254257 /* AudioDiagnostics.swift */; };
 		C9778B81F97258A3D7A7A345 /* BrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BAEB36AD45E0E5879222A8 /* BrandMark.swift */; };
+		CB1B615B84672315A1DD9B5D /* MeetingAudioExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A1640F3C829A3EAC42947F /* MeetingAudioExport.swift */; };
 		CBAFCE5C4DA223C7EDAA20AD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF61299E592DACDA66C9038 /* SettingsView.swift */; };
 		D1626134BEE0985B1B54AC2F /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0403C059496E9F8503E765 /* LibrarySidebar.swift */; };
 		D2F70CEA6A01FA1EB8A392CF /* AudioCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09969B370892AC83AE29E503 /* AudioCaptureTests.swift */; };
@@ -206,6 +207,7 @@
 		DD7AF6950D9FFD20B57A50ED /* ModelSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetup.swift; sourceTree = "<group>"; };
 		DFC3E3635B3F0244989D1CBF /* RussianSpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RussianSpeechRecognizer.swift; sourceTree = "<group>"; };
 		E15F1BA27798D440B4BD55F1 /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
+		E4A1640F3C829A3EAC42947F /* MeetingAudioExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingAudioExport.swift; sourceTree = "<group>"; };
 		E6601E0D6722B292A4DA886E /* SlimScrollbars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlimScrollbars.swift; sourceTree = "<group>"; };
 		E8D29E4EB39C41317655BE91 /* InterfacePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfacePreview.swift; sourceTree = "<group>"; };
 		F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePipelineTests.swift; sourceTree = "<group>"; };
@@ -306,6 +308,7 @@
 				9D0403C059496E9F8503E765 /* LibrarySidebar.swift */,
 				F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */,
 				44679205B2926073F8B63DF5 /* MainView.swift */,
+				E4A1640F3C829A3EAC42947F /* MeetingAudioExport.swift */,
 				DD71002B72F9BE98287243E9 /* MeetingTitleModel.swift */,
 				86EAE0DD35522A2219AE9975 /* MeetingTitleTests.swift */,
 				DD7AF6950D9FFD20B57A50ED /* ModelSetup.swift */,
@@ -584,6 +587,7 @@
 				4DAC4E2D09BD62303E9E6FF3 /* LiveTranscriptionSchedule.swift in Sources */,
 				866AC88D6DE7932CFDB566F6 /* MCP.swift in Sources */,
 				8E4EF95AD5D77069EEEC1B34 /* MainView.swift in Sources */,
+				CB1B615B84672315A1DD9B5D /* MeetingAudioExport.swift in Sources */,
 				4F4B10C1F067950014A95DAC /* MeetingSearch.swift in Sources */,
 				7D4728E1022BA680F4873477 /* MeetingTitleModel.swift in Sources */,
 				4975DAE1B4F37A312F602A8D /* MeetingTitleTests.swift in Sources */,

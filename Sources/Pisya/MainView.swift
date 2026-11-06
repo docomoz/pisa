@@ -447,14 +447,22 @@ struct MeetingView: View {
                     .disabled(!state.canModify(meeting))
                     .screenHelp(folder?.name ?? "Переместить в папку")
 
-                    Button {
-                        showsMeetingDetails = false
-                        state.exportSelected()
+                    NativeActionMenu {
+                        [
+                            NativeActionMenuItem("Расшифровка…", enabled: state.canExport(meeting)) {
+                                showsMeetingDetails = false
+                                state.exportTranscript(meeting)
+                            },
+                            NativeActionMenuItem("Аудио…", enabled: state.canExportAudio(meeting)) {
+                                showsMeetingDetails = false
+                                Task { await state.exportAudio(meeting) }
+                            }
+                        ]
                     } label: {
-                        detailsActionLabel("Поделиться…", systemImage: "square.and.arrow.up")
+                        detailsActionLabel("Поделиться", systemImage: "square.and.arrow.up", hasMenu: true)
                     }
                     .actionButton(size: buttonSize)
-                    .disabled(!state.canExport(meeting))
+                    .disabled(!state.canExport(meeting) && !state.canExportAudio(meeting))
 
                     NativeActionMenu {
                         meetingMenuItems
