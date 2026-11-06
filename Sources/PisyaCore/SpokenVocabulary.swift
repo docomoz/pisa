@@ -12,12 +12,30 @@ struct SpokenVocabulary {
     private let vocabulary: String
     private let entries: [Entry]
     private let phones: [String: [String]]
+    private let explicitTerms: Set<String>
+    private let cyrillicInitialisms: [(term: String, latin: String)]
+    private let nameInstrumentals: [String]
     private static let standaloneWords: Set<String> = ["в", "во", "с", "со", "к", "и", "а", "у", "о", "на", "из", "от", "я", "ты", "мы", "он", "она", "они", "вы", "да", "но", "не", "же", "ли", "бы", "для", "по", "за"]
 
     init(_ vocabulary: String, pronunciations: String = "") {
         self.vocabulary = vocabulary
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        explicitTerms = Set(terms.map { $0.lowercased() })
+        cyrillicInitialisms = terms.compactMap { term in
+            guard (4...8).contains(term.count), Self.isRussianWord(term), term == term.uppercased(),
+                  let latin = term.applyingTransform(.toLatin, reverse: false)?.uppercased(),
+                  latin.unicodeScalars.allSatisfy({ (65...90).contains($0.value) }) else { return nil }
+            return (term, latin)
+        }
+        nameInstrumentals = terms.compactMap { term in
+            // Only regular single title-case а-stems. Other declensions need
+            // explicit linguistic support; e.g. Маша must not become Машой.
+            guard term.count >= 4, Self.isRussianWord(term), term.hasSuffix("а"),
+                  term == term.prefix(1).uppercased() + term.dropFirst().lowercased(),
+                  let consonant = term.dropLast().last, "бвдзлмнпрстф".contains(consonant) else { return nil }
+            return String(term.dropLast()) + "ой"
+        }
         let english = terms.filter { $0.unicodeScalars.contains { (65...90).contains($0.value) || (97...122).contains($0.value) } }
         let needed = Set(english.flatMap { Self.parts($0).map { $0.lowercased() } })
         var phones: [String: [String]] = [:]
@@ -75,12 +93,40 @@ struct SpokenVocabulary {
     }
 
     /// Near misses are suggestions for a fresh audio decode, never direct text
-    /// replacements. Short initialisms are excluded: BFC may really mean BFC.
+    /// replacements. Short English initialisms stay unchanged; a unique explicit
+    /// Cyrillic initialism can supply a cross-script audio hypothesis.
     func promptHypothesis(_ text: String) -> String {
+        promptResult(text).text
+    }
+
+    /// These conservative hints must not authorize a rewrite of an entire turn.
+    /// Report the actual prompt traversal, including normalization and competing
+    /// phrase matches, so callers can require a localized audio-confirmed repair.
+    func hasCyrillicHints(in text: String) -> Bool {
+        promptResult(text).hasCyrillicHints
+    }
+
+    /// Give the audio decoder only explicit name phrases independently heard by
+    /// the verifier. Its unrelated wording must not outweigh the original audio.
+    func focusedNameHypothesis(original: String, corroboration: String) -> String? {
+        var seen: Set<String> = []
+        let phrases = nameInstrumentals.compactMap { name -> String? in
+            let pattern = #"(?<![\p{L}\p{N}])с\s+"# + NSRegularExpression.escapedPattern(for: name) + #"(?![\p{L}\p{N}])"#
+            let options: String.CompareOptions = [.regularExpression, .caseInsensitive]
+            guard corroboration.range(of: pattern, options: options) != nil,
+                  original.range(of: pattern, options: options) == nil,
+                  seen.insert(name).inserted else { return nil }
+            return "с " + name
+        }
+        return phrases.isEmpty ? nil : phrases.joined(separator: ", ")
+    }
+
+    private func promptResult(_ text: String) -> (text: String, hasCyrillicHints: Bool) {
         let normalized = apply(to: text)
         let ns = normalized as NSString
         let words = Self.words(normalized)
         var replacements: [(NSRange, String)] = []
+        var hasCyrillicHints = false
         var index = 0
         while index < words.count {
             var found: (NSRange, String, Int)?
@@ -88,6 +134,10 @@ struct SpokenVocabulary {
                 let range = NSRange(location: words[index].range.location,
                     length: NSMaxRange(words[index + count - 1].range) - words[index].range.location)
                 let source = ns.substring(with: range)
+                if count == 1, let suggestion = cyrillicSuggestion(source) {
+                    hasCyrillicHints = true
+                    found = (range, suggestion, count); break
+                }
                 guard source.filter(\.isLetter).count >= 6, Self.joinable(source) else { continue }
                 if count > 1, Self.standaloneWords.contains(words[index].text.lowercased()) || Self.standaloneWords.contains(words[index + count - 1].text.lowercased()) { continue }
                 if let suggestion = suggestion(source) { found = (range, suggestion, count); break }
@@ -97,7 +147,36 @@ struct SpokenVocabulary {
         }
         let output = NSMutableString(string: normalized)
         for (range, replacement) in replacements.reversed() { output.replaceCharacters(in: range, with: replacement) }
-        return output as String
+        return (output as String, hasCyrillicHints)
+    }
+
+    private func cyrillicSuggestion(_ source: String) -> String? {
+        guard !explicitTerms.contains(source.lowercased()) else { return nil }
+        if (4...8).contains(source.count), source.unicodeScalars.allSatisfy({ (65...90).contains($0.value) }) {
+            // An exact transliterated spelling is already plausible. Never
+            // trade it for a neighboring dictionary acronym.
+            guard !cyrillicInitialisms.contains(where: { $0.latin == source }) else { return nil }
+            let matches = Set(cyrillicInitialisms.filter {
+                $0.latin.count == source.count && Self.distance(source, $0.latin) == 1
+            }.map(\.term))
+            return matches.count == 1 ? matches.first : nil
+        }
+        let lower = source.lowercased()
+        guard lower.hasPrefix("с"), Self.isRussianWord(source) else { return nil }
+        let form = String(lower.dropFirst())
+        // Only repair a fused preposition before an inflected known name.
+        // A correctly spelled competing name always defeats a fuzzy match.
+        guard form.count >= 5, !nameInstrumentals.contains(where: { $0.lowercased() == form }) else { return nil }
+        let matches = Set(nameInstrumentals.filter {
+            $0.lowercased().first == form.first && Self.distance(form, $0.lowercased()) == 1
+        })
+        return matches.count == 1 ? matches.first.map { "с " + $0 } : nil
+    }
+
+    private static func isRussianWord(_ text: String) -> Bool {
+        !text.isEmpty && text.unicodeScalars.allSatisfy {
+            (0x410...0x44f).contains($0.value) || $0.value == 0x401 || $0.value == 0x451
+        }
     }
 
     private func suggestion(_ source: String) -> String? {

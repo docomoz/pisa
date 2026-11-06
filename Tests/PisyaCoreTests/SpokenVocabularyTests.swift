@@ -45,4 +45,67 @@ final class SpokenVocabularyTests: XCTestCase {
         XCTAssertEqual(vocabulary.promptHypothesis("Наши клиенты, clients и Clients."), "Наши клиенты, clients и Clients.")
         XCTAssertEqual(vocabulary.promptHypothesis("Передадим данные в Vie Clince."), "Передадим данные в YClients.")
     }
+
+    func testExplicitCyrillicInitialismCanGuideAudioWithoutReplacingTranscript() {
+        let vocabulary = SpokenVocabulary("ЦРТС")
+        XCTAssertEqual(vocabulary.apply(to: "Поговорили с PRTS."), "Поговорили с PRTS.")
+        XCTAssertEqual(vocabulary.promptHypothesis("Поговорили с PRTS."), "Поговорили с ЦРТС.")
+        XCTAssertEqual(SpokenVocabulary("КРТС").promptHypothesis("Ответил KRTZ."), "Ответил КРТС.")
+    }
+
+    func testInitialismHintsRequireUniqueExplicitEvidence() {
+        for dictionary in ["", "ЦРТС, PRTS", "ЦРТС, ПРТК"] {
+            XCTAssertEqual(SpokenVocabulary(dictionary).promptHypothesis("Встреча PRTS."), "Встреча PRTS.")
+        }
+        XCTAssertEqual(SpokenVocabulary("ЦРТС, КРТС").promptHypothesis("Встреча CRTS."), "Встреча CRTS.")
+        let vocabulary = SpokenVocabulary("ЦРТС")
+        for text in ["Встреча prts.", "Встреча PARTS.", "Встреча BFC.", "Встреча ПРТС."] {
+            XCTAssertEqual(vocabulary.promptHypothesis(text), text)
+        }
+    }
+
+    func testFusedPrepositionAndExplicitNameCanGuideAudioWithInflection() {
+        let vocabulary = SpokenVocabulary("Анжела")
+        let text = "Обсудим Санджелой детали."
+        XCTAssertEqual(vocabulary.apply(to: text), text)
+        XCTAssertEqual(vocabulary.promptHypothesis(text), "Обсудим с Анжелой детали.")
+        XCTAssertEqual(SpokenVocabulary("Марина").promptHypothesis("Обсудим Смаринойй детали."), "Обсудим с Мариной детали.")
+    }
+
+    func testNameHintsDoNotRewriteCompetingNamesOrOrdinaryWords() {
+        for dictionary in ["", "Анжела, Анджела", "Анжела, Андела"] {
+            XCTAssertEqual(SpokenVocabulary(dictionary).promptHypothesis("Обсудим Санджелой детали."), "Обсудим Санджелой детали.")
+        }
+        let vocabulary = SpokenVocabulary("Анжела")
+        for text in ["Обсудим с Анджелой детали.", "Анджела ответила.", "Обсудим сандалии.", "Обсудим Сангрию."] {
+            XCTAssertEqual(vocabulary.promptHypothesis(text), text)
+        }
+        XCTAssertEqual(SpokenVocabulary("Маша").promptHypothesis("Обсудим Смашей детали."), "Обсудим Смашей детали.")
+    }
+
+    func testCyrillicHintSignalDistinguishesNewHintsFromEnglishAndUnchangedText() {
+        XCTAssertTrue(SpokenVocabulary("ЦРТС").hasCyrillicHints(in: "Поговорили с PRTS."))
+        XCTAssertTrue(SpokenVocabulary("Анжела").hasCyrillicHints(in: "Обсудим Санджелой детали."))
+        XCTAssertFalse(SpokenVocabulary("YClients", pronunciations: pronunciations).hasCyrillicHints(in: "Работаем с Wirklience."))
+        XCTAssertFalse(SpokenVocabulary("ЦРТС, ПРТК").hasCyrillicHints(in: "Встреча PRTS."))
+        XCTAssertFalse(SpokenVocabulary("").hasCyrillicHints(in: "PRTS и Санджелой."))
+        XCTAssertFalse(SpokenVocabulary("ЦРТС, Анжела").hasCyrillicHints(in: "Обсудим с Анжелой и ЦРТС."))
+    }
+
+    func testFocusedNameHintUsesOnlyExactIndependentExplicitNamePhrase() {
+        let vocabulary = SpokenVocabulary("Анжела, Марина")
+        XCTAssertEqual(vocabulary.focusedNameHypothesis(original: "Обсудим Санджело детали.",
+            corroboration: "Вообще завтра обсудим с Анжелой другие детали."), "с Анжелой")
+        XCTAssertEqual(vocabulary.focusedNameHypothesis(original: "Обсудим с Мариной и Санджело.",
+            corroboration: "Обсудим с Анжелой и с Мариной."), "с Анжелой")
+    }
+
+    func testFocusedNameHintRejectsAbsentVocabularyCompetingNamesAndPartialWords() {
+        let vocabulary = SpokenVocabulary("Анжела")
+        XCTAssertNil(vocabulary.focusedNameHypothesis(original: "Обсудим с анжелой детали.", corroboration: "Обсудим с Анжелой."))
+        for raw in ["Обсудим с Анджелой.", "Обсудим без Анжелой.", "Обсудим с Анжелойтовой.", "Обсудим с. Анжелой."] {
+            XCTAssertNil(vocabulary.focusedNameHypothesis(original: "Обсудим Санджело.", corroboration: raw))
+        }
+        XCTAssertNil(SpokenVocabulary("").focusedNameHypothesis(original: "Обсудим Санджело.", corroboration: "Обсудим с Анжелой."))
+    }
 }

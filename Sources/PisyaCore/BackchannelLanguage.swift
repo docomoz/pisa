@@ -3,32 +3,51 @@ import Foundation
 /// Language-neutral vocal acknowledgments need nearby conversation context.
 /// The Russian alternative must come from audio, never from translating text.
 enum BackchannelLanguage {
+    private static let englishVocalizations: Set<String> = ["ah", "uh", "huh", "uhhuh", "hmm", "mm", "mhm", "um"]
+    private static let englishAffirmatives: Set<String> = ["yeah", "yep", "yes"]
+    private static let englishOpenVowels: Set<String> = ["ah", "uh", "um"]
+    private static let russianVocalizations: Set<String> = ["угу", "ага", "мгм", "хм", "мм", "м", "эм"]
+    private static let russianOpenVowels: Set<String> = ["а", "аа"]
+
     static func shouldRecheck(_ text: String, duration: Double) -> Bool {
+        guard duration <= 3 else { return false }
         let words = RussianRecognition.words(text)
-        return duration <= 3 && (1...3).contains(words.count) && words.joined().unicodeScalars.allSatisfy {
+        if isAmbiguous(words) { return true }
+        return (1...3).contains(words.count) && words.joined().unicodeScalars.allSatisfy {
             (0x61...0x7A).contains($0.value)
         }
     }
 
-    static func isAmbiguous(_ text: String, duration: Double) -> Bool {
-        guard duration <= 3 else { return false }
-        return ["uh huh", "hmm", "mm hmm", "mhm", "um", "uh", "huh", "mm"]
-            .contains(RussianRecognition.words(text).joined(separator: " "))
+    private static func isAmbiguous(_ words: [String]) -> Bool {
+        words.contains(where: englishVocalizations.contains) && words.allSatisfy {
+            englishVocalizations.contains($0) || englishAffirmatives.contains($0)
+        }
     }
 
-    static func acceptsAlternative(_ text: String) -> Bool {
+    static func acceptsAlternative(_ text: String, allowingAffirmative: Bool = false, allowingOpenVowels: Bool = false) -> Bool {
         let words = RussianRecognition.words(text)
-        let acknowledgments: Set<String> = ["угу", "ага", "мгм", "хм", "мм", "м", "эм"]
-        return (1...3).contains(words.count) && words.allSatisfy(acknowledgments.contains)
+        guard (1...3).contains(words.count) else { return false }
+        if allowingOpenVowels, words.allSatisfy(russianOpenVowels.contains) { return true }
+        return words.contains(where: russianVocalizations.contains) && words.allSatisfy {
+            russianVocalizations.contains($0) || (allowingAffirmative && $0 == "да")
+        }
     }
 
     /// A forced language decode may translate real English. For lexical replies,
-    /// require the independent acoustic recognizer to hear the same Russian word.
-    /// Vocal acknowledgments have no lexical language: nearby speech decides.
+    /// require the independent acoustic recognizer to hear the same Russian words.
+    /// A vocal acknowledgment may include a brief affirmative in either decode.
     static func alternative(original: String, russian: String, corroboration: String?, vocabulary: String = "") -> String? {
-        if isAmbiguous(original, duration: 0) {
-            let candidate = acceptsAlternative(russian) ? russian : corroboration.flatMap { acceptsAlternative($0) ? $0 : nil }
-            return candidate.flatMap { RussianRecognition.preservesVocabulary(candidate: $0, original: original, vocabulary: vocabulary) ? $0 : nil }
+        let originalWords = RussianRecognition.words(original)
+        if isAmbiguous(originalWords) {
+            let hasAffirmative = originalWords.contains(where: englishAffirmatives.contains)
+            let allowsOpenVowels = originalWords.allSatisfy(englishOpenVowels.contains)
+            let candidate = [russian, corroboration].compactMap { $0 }.first {
+                acceptsAlternative($0, allowingAffirmative: hasAffirmative, allowingOpenVowels: allowsOpenVowels)
+            }
+            if let candidate {
+                return RussianRecognition.preservesVocabulary(candidate: candidate, original: original, vocabulary: vocabulary) ? candidate : nil
+            }
+            if !hasAffirmative { return nil }
         }
         let words = RussianRecognition.words(russian)
         guard (1...3).contains(words.count), words.joined().unicodeScalars.allSatisfy({ (0x0400...0x052F).contains($0.value) }),
@@ -41,7 +60,10 @@ enum BackchannelLanguage {
     }
 
     static func resolve(_ segments: [TranscriptSegment], alternatives: [UUID: String], preceding: [TranscriptSegment]) -> [TranscriptSegment] {
-        let anchors = (preceding + segments).filter { RussianRecognition.words($0.text).count >= 4 && language($0.text) != nil }
+        let anchors = (preceding + segments).filter {
+            let words = RussianRecognition.words($0.text)
+            return words.count >= 4 && !isAmbiguous(words) && language($0.text) != nil
+        }
         return segments.map { segment in
             guard shouldRecheck(segment.text, duration: segment.end - segment.start),
                   let alternative = alternatives[segment.id] else { return segment }

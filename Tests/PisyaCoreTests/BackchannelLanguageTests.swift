@@ -20,8 +20,7 @@ final class BackchannelLanguageTests: XCTestCase {
         let english = segment(3, "Please send the report before Friday")
         XCTAssertEqual(BackchannelLanguage.resolve([short, english], alternatives: [short.id: "Угу."], preceding: [])[0].text, "Uh huh.")
         XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [short.id: "Угу."], preceding: [])[0].text, "Uh huh.")
-        XCTAssertFalse(BackchannelLanguage.isAmbiguous("Thank you.", duration: 1))
-        XCTAssertFalse(BackchannelLanguage.isAmbiguous("Uh huh, please send the report", duration: 3))
+        XCTAssertFalse(BackchannelLanguage.shouldRecheck("Uh huh, please send the report", duration: 3))
     }
 
     func testLiveWindowsUseRecentSpeechFromTheSameTrack() {
@@ -53,6 +52,65 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh huh.", russian: "угу", corroboration: "Нет."), "угу")
         XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh huh.", russian: "Да.", corroboration: "Угу."), "Угу.")
         XCTAssertNil(BackchannelLanguage.alternative(original: "Uh huh.", russian: "Нет.", corroboration: "Нет."))
+        XCTAssertEqual(BackchannelLanguage.alternative(original: "uh-huh, yeah.", russian: "Угу, да.", corroboration: "Угу."), "Угу, да.")
+    }
+
+    func testCompoundAcknowledgmentUsesIndependentAudioInRussianContext() {
+        var short = segment(71.6798125, "uh-huh, yeah.", mic: false)
+        short.end = 72.9878125
+        let russian = segment(68, "Теперь обсудим следующий вопрос проекта", mic: false)
+        let english = segment(68, "Let us discuss the next question", mic: false)
+        XCTAssertTrue(BackchannelLanguage.shouldRecheck(short.text, duration: short.end - short.start))
+        // Automatic Qwen, forced Russian Qwen, and GigaAM outputs on the exact audio fragment.
+        let alternative = BackchannelLanguage.alternative(original: short.text, russian: "Да.", corroboration: "Угу. Да.")
+        XCTAssertEqual(alternative, "Угу. Да.")
+        let alternatives = alternative.map { [short.id: $0] } ?? [:]
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [russian])[0].text, "Угу. Да.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [english])[0].text, short.text)
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [])[0].text, short.text)
+    }
+
+    func testRepeatedAcknowledgmentsAreRetriedWithoutBecomingLanguageAnchors() {
+        let repeated = segment(70, "Uh-huh, uh-huh.")
+        let short = segment(71, "Hmm.")
+        let russian = segment(74, "Теперь обсудим следующий вопрос проекта")
+        XCTAssertTrue(BackchannelLanguage.shouldRecheck(repeated.text, duration: 2))
+        XCTAssertFalse(BackchannelLanguage.shouldRecheck(repeated.text, duration: 4))
+        XCTAssertEqual(BackchannelLanguage.alternative(original: repeated.text, russian: "Угу, угу.", corroboration: nil), "Угу, угу.")
+        let result = BackchannelLanguage.resolve([repeated, short, russian], alternatives: [repeated.id: "Угу, угу.", short.id: "Хм."], preceding: [])
+        XCTAssertEqual(result.map(\.text), ["Угу, угу.", "Хм.", russian.text])
+    }
+
+    func testOpenVowelFillersUseRussianAudioInRussianContext() {
+        for (start, end, original, forced, independent) in [
+            (11.607, 12.400, "Um.", "а.", "А"),
+            (684.219, 685.164, "Ah.", "аа", "А"),
+            (684.219, 685.164, "Ah-ah.", "А-а.", "А"),
+        ] {
+            var short = segment(start, original, mic: false)
+            short.end = end
+            let russian = segment(start - 3, "Теперь обсудим следующий вопрос проекта", mic: false)
+            let english = segment(start - 3, "Let us discuss the next question", mic: false)
+            let alternative = BackchannelLanguage.alternative(original: original, russian: forced, corroboration: independent)
+            XCTAssertEqual(alternative, forced)
+            let alternatives = alternative.map { [short.id: $0] } ?? [:]
+            XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [russian])[0].text, forced)
+            XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [english])[0].text, original)
+            XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [])[0].text, original)
+        }
+    }
+
+    func testOpenVowelsDoNotDisplaceConfirmedAcknowledgmentsOrDictionaryTerms() {
+        XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh-huh.", russian: "А.", corroboration: "Угу."), "Угу.")
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Ah.", russian: "А.", corroboration: "А", vocabulary: "Ah"))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Hmm.", russian: "Вот.", corroboration: nil))
+    }
+
+    func testCompoundAcknowledgmentDoesNotRelaxChecksForEnglishWordsOrDictionaryTerms() {
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Yeah.", russian: "Да.", corroboration: nil))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Uh-huh, John.", russian: "Угу.", corroboration: nil))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Uh-huh, yeah.", russian: "Угу, да.", corroboration: "Угу.", vocabulary: "Yeah"))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Uh-huh, yeah.", russian: "Угу, нет.", corroboration: nil))
     }
 
     func testVerifiedShortWordStillRequiresRussianConversation() {

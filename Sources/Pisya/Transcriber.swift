@@ -208,13 +208,30 @@ actor Transcriber {
         if result.language?.lowercased() == "russian", duration >= 2,
            let rawHypothesis = russian?.recognize(samples) {
             let hypothesis = spokenVocabulary.promptHypothesis(rawHypothesis)
+            let usesCyrillicHints = spokenVocabulary.hasCyrillicHints(in: rawHypothesis)
             if RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
                 try Task.checkCancellation()
                 let checked = generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
                 let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
                 if checked.language?.lowercased() == "russian",
-                   RussianRecognition.accepts(candidate: candidate, original: text, vocabulary: context) {
-                    text = candidate
+                   let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
+                        corroboration: rawHypothesis, hypothesis: hypothesis, vocabulary: context,
+                        usesCyrillicHints: usesCyrillicHints) {
+                    text = revised
+                }
+                // Different acoustic boundaries can make the broad hypothesis
+                // distract from a name. Retry only a still-missing explicit
+                // name heard by the verifier; keep successful repairs intact.
+                if let focusedName = spokenVocabulary.focusedNameHypothesis(original: text, corroboration: rawHypothesis) {
+                    try Task.checkCancellation()
+                    let focused = generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: focusedName))
+                    let candidate = spokenVocabulary.apply(to: focused.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                    if focused.language?.lowercased() == "russian",
+                       let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
+                            corroboration: rawHypothesis, hypothesis: focusedName, vocabulary: context, usesCyrillicHints: false),
+                       spokenVocabulary.focusedNameHypothesis(original: revised, corroboration: rawHypothesis) == nil {
+                        text = revised
+                    }
                 }
             }
         }
