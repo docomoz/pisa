@@ -2,13 +2,6 @@
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{position:relative;isolation:isolate;margin:0;background:#fff;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
-.water-layer{position:fixed;z-index:-1;inset:0;overflow:hidden;pointer-events:none;background:#fff}
-.water-layer svg{position:absolute;inset:-8% -18%;width:136%;height:116%}
-.water-wave{will-change:transform}
-.water-wave-one{animation:water-drift-one 18s ease-in-out infinite alternate}
-.water-wave-two{animation:water-drift-two 23s ease-in-out infinite alternate}
-@keyframes water-drift-one{from{transform:translate3d(-5%, -1.5%, 0)}to{transform:translate3d(5%, 1.5%, 0)}}
-@keyframes water-drift-two{from{transform:translate3d(5%, 1.5%, 0)}to{transform:translate3d(-5%, -1.5%, 0)}}
 a{color:inherit;text-decoration:none}
 a:focus-visible,button:focus-visible{outline:3px solid #55ae70;outline-offset:5px}
 .wrap{width:min(var(--width),calc(100% - 96px));margin:auto}
@@ -22,6 +15,8 @@ a:focus-visible,button:focus-visible{outline:3px solid #55ae70;outline-offset:5p
 .header nav a:hover,.text-link:hover,.footer a:hover{color:var(--green)}
 .button{display:inline-flex;align-items:center;justify-content:center;gap:40px;background:var(--ink);color:#fff;border:1px solid var(--ink);border-radius:7px;padding:19px 22px;font-size:15px;font-weight:650;transition:background .2s,transform .2s}
 .button:hover{background:#355b40;transform:translateY(-2px)}
+.button span{display:inline-block;animation:download-nudge 7s ease-in-out infinite}
+@keyframes download-nudge{0%,85%,100%{transform:translateY(0)}92%{transform:translateY(4px)}}
 .button-small{padding:12px 16px;gap:25px;font-size:13px}
 .hero{position:relative;isolation:isolate;text-align:center;padding:65px 0 0}
 .eyebrow,.section-label,.status,.product-caption{font-size:11px;font-weight:750;letter-spacing:.13em;text-transform:uppercase}
@@ -38,6 +33,8 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 .hero-product{margin:80px auto 0;max-width:1170px;text-align:left}
 .product-caption{display:flex;justify-content:space-between;color:#5f6d62;padding:0 8px 14px;font-size:9px}
 .hero-product img{display:block;width:100%;border:1px solid #e4e8e5;border-radius:13px;box-shadow:0 35px 90px #293a2a18}
+.hero-product img{animation:product-float 9s ease-in-out infinite}
+@keyframes product-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 .section-label{color:#5f6d62;line-height:1.5}
 .features{padding:145px 0 150px;display:grid;grid-template-columns:1fr 3fr;gap:40px}
 .feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:42px}
@@ -76,7 +73,7 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 @media(max-width:1050px){.features,.privacy-inner,.install-top,.early{grid-template-columns:1fr 3fr}.feature-grid{gap:24px}}
 @media(max-width:800px){.wrap{width:min(100% - 40px,600px)}.header{height:75px;grid-template-columns:minmax(0,1fr) auto}.header nav{display:none}.header .button{margin-left:auto}.hero{padding-top:48px}.hero-logo img{width:140px;height:140px}.hero-copy{font-size:17px}.hero-product{margin-top:65px}.features,.privacy-inner,.install-top,.early{grid-template-columns:1fr;gap:25px}.features{padding:100px 0}.feature-grid{grid-template-columns:1fr;gap:30px}.feature-grid h2{margin:0 0 10px}.privacy{padding:100px 0}.privacy-columns{grid-template-columns:1fr;gap:28px}.install{padding-top:105px}.install-guide{grid-template-columns:1fr;gap:40px;margin-top:80px}.footer{flex-wrap:wrap}.footer-links{margin-left:auto}.section-lead,.privacy-columns .section-lead{font-size:18px}}
 @media(max-width:420px){h1{font-size:52px}.hero-actions{flex-direction:column;gap:20px}.code{align-items:flex-start;flex-direction:column}.footer-identity{gap:8px 20px}.footer-links{margin-left:0;gap:18px}}
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important}.water-wave{animation:none;will-change:auto}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important}.button span,.hero-product img{animation:none}}
 @media(max-width:800px){.header{gap:12px}}
 
 .copy-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

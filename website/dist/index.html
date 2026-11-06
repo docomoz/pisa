@@ -11,27 +11,6 @@
   <script src="script.js" defer></script>
 </head>
 <body>
-  <div class="water-layer" aria-hidden="true">
-    <svg viewBox="0 0 1600 1000" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="water-shade" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stop-color="#d5dad7" stop-opacity="0"/>
-          <stop offset=".42" stop-color="#d5dad7" stop-opacity=".48"/>
-          <stop offset=".68" stop-color="#fff" stop-opacity=".8"/>
-          <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-        </linearGradient>
-        <filter id="water-soft"><feGaussianBlur stdDeviation="15"/></filter>
-      </defs>
-      <g class="water-wave water-wave-one" fill="url(#water-shade)" filter="url(#water-soft)">
-        <path d="M-600 200 C-260 60 40 70 360 185 S950 350 1290 205 S1870 65 2200 195 L2200 350 C1870 215 1610 225 1290 350 S700 490 360 330 S-260 210 -600 345Z"/>
-        <path d="M-600 695 C-270 555 50 565 380 675 S950 830 1290 680 S1860 550 2200 670 L2200 825 C1860 705 1600 720 1290 835 S700 965 380 820 S-260 715 -600 840Z"/>
-      </g>
-      <g class="water-wave water-wave-two" fill="url(#water-shade)" filter="url(#water-soft)">
-        <path d="M-600 440 C-260 565 50 550 370 420 S950 290 1280 425 S1860 560 2200 425 L2200 575 C1860 705 1600 690 1280 570 S700 440 370 565 S-260 710 -600 590Z"/>
-        <path d="M-600 925 C-260 1045 50 1030 370 905 S950 775 1280 910 S1860 1040 2200 910 L2200 1060 C1860 1190 1600 1170 1280 1055 S700 925 370 1050 S-260 1195 -600 1075Z"/>
-      </g>
-    </svg>
-  </div>
   <header class="header wrap">
     <div class="header-brand"><a class="brand" href="#top" aria-label="Pisya — наверх"><img src="assets/mark-header.svg" alt=""><span>Pisya</span></a><span class="brand-mood" id="brand-mood"><span class="brand-mood-phrase">в хорошем настроении</span> <span class="brand-mood-emoji">✨</span></span></div>
     <nav aria-label="Основная навигация"><a href="#features">Возможности</a><a href="#privacy">Приватность</a><a href="https://github.com/docomoz/pisya">GitHub ↗</a></nav>
