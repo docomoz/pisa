@@ -20,6 +20,36 @@ final class MCPContextTests: XCTestCase {
                         "params": ["name": tool, "arguments": arguments]])!
     }
 
+    func testUnreadablePreferencesProduceProtocolErrorAndActionableMessage() throws {
+        try library.savePreferences(Preferences())
+        let path = library.root.appendingPathComponent("preferences.json")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: path.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path) }
+        let list = try XCTUnwrap(handler.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"]))
+        XCTAssertNil(list["result"])
+        let error = try XCTUnwrap(list["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, -32603)
+        let message = try XCTUnwrap(error["message"] as? String)
+        XCTAssertTrue(message.contains("Доступ"))
+        XCTAssertTrue(message.contains("Конфиденциальность"))
+        XCTAssertFalse(message.contains(path.path))
+        let result = try XCTUnwrap(response("list_folders")["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, true)
+        XCTAssertNotNil(result["content"])
+    }
+
+    func testCorruptPreferencesProduceGenericProtocolErrorWithoutPath() throws {
+        let path = library.root.appendingPathComponent("preferences.json")
+        try Data("invalid json".utf8).write(to: path)
+        let list = try XCTUnwrap(handler.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"]))
+        XCTAssertNil(list["result"])
+        let error = try XCTUnwrap(list["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? Int, -32603)
+        let message = try XCTUnwrap(error["message"] as? String)
+        XCTAssertFalse(message.contains("Конфиденциальность"))
+        XCTAssertFalse(message.contains(path.path))
+    }
+
     private func payload(_ tool: String, _ arguments: [String: Any] = [:]) throws -> [String: Any] {
         let reply = response(tool, arguments)
         let result = try XCTUnwrap(reply["result"] as? [String: Any], String(describing: reply))

@@ -67,8 +67,22 @@ public final class MCPHandler {
                            "structuredContent": payload, "isError": false])
         } catch let invalid as InvalidArgument {
             return error(-32602, invalid.message)
-        } catch {
-            return result(["content": [["type": "text", "text": "Не удалось прочитать локальную библиотеку"]],
+        } catch let failure {
+            var cause: NSError? = failure as NSError
+            var permissionDenied = false
+            while let current = cause {
+                if (current.domain == NSCocoaErrorDomain && current.code == NSFileReadNoPermissionError) ||
+                    (current.domain == NSPOSIXErrorDomain && (current.code == Int(EPERM) || current.code == Int(EACCES))) {
+                    permissionDenied = true
+                    break
+                }
+                cause = current.userInfo[NSUnderlyingErrorKey] as? NSError
+            }
+            let message = permissionDenied
+                ? "Доступ к библиотеке Писи запрещён. Разрешите MCP-клиенту доступ к Писе в настройках macOS: Конфиденциальность и безопасность → Файлы и папки."
+                : "Не удалось прочитать локальную библиотеку"
+            if method != "tools/call" { return error(-32603, message) }
+            return result(["content": [["type": "text", "text": message]],
                            "isError": true])
         }
     }
