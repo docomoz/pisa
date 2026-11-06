@@ -475,7 +475,8 @@ final class AppState: ObservableObject {
                 let startedAt = Date()
                 do {
                     liveStatus = stopped ? "Завершаю расшифровку" : "Готовлю черновик"
-                    var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, quiet: stopped ? preferences.usesQuietProcessing : true)
+                    let preceding = try library.read(id).segments.filter { $0.end <= window.start && $0.end >= window.start - 300 }
+                    var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, quiet: stopped ? preferences.usesQuietProcessing : true, preceding: preceding)
                     var committedEnd = LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: segments)
                     if committedEnd <= window.start + 0.001 {
                         if !stopped {
@@ -487,7 +488,7 @@ final class AppState: ObservableObject {
                         // A continuous turn longer than a batch has no safe
                         // boundary. Recognize this still-uncommitted batch
                         // without lookahead and make progress after stop.
-                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, quiet: preferences.usesQuietProcessing)
+                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, quiet: preferences.usesQuietProcessing, preceding: preceding)
                         committedEnd = window.end
                     } else { segments.removeAll { $0.end > committedEnd } }
                     try Task.checkCancellation()
@@ -520,7 +521,7 @@ final class AppState: ObservableObject {
         liveTask = nil; liveStatus = ""; liveAudioDuration = nil; processingID = nil; phase = ""; runNext()
     }
 
-    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, quiet: Bool) async throws -> [TranscriptSegment] {
+    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, quiet: Bool, preceding: [TranscriptSegment] = []) async throws -> [TranscriptSegment] {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-window-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -528,7 +529,7 @@ final class AppState: ObservableObject {
             try CaptureWindow.copy(tracks, start: window.start, end: end, directory: directory)
         }.value
         guard !files.isEmpty else { return [] }
-        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), profiles: voiceProfiles, quiet: quiet, live: true) { _, _ in }
+        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), profiles: voiceProfiles, quiet: quiet, live: true, preceding: preceding) { _, _ in }
         return try result.map { segment in
             var mapped = segment
             guard let temporaryName = segment.audioFile,

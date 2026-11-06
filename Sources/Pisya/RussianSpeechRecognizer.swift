@@ -35,6 +35,10 @@ final class RussianSpeechRecognizer {
     deinit { SherpaOnnxDestroyOfflineRecognizer(recognizer) }
 
     func recognize(_ samples: [Float]) -> String? {
+        recognizeDetailed(samples)?.text
+    }
+
+    func recognizeDetailed(_ samples: [Float]) -> RecognitionAcousticResult? {
         guard !samples.isEmpty, samples.count <= 16000 * 30,
               let stream = SherpaOnnxCreateOfflineStream(recognizer) else { return nil }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
@@ -43,6 +47,28 @@ final class RussianSpeechRecognizer {
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else { return nil }
         defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
         guard let text = result.pointee.text else { return nil }
-        return String(cString: text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcript = String(cString: text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let count = Int(result.pointee.count)
+        guard count > 0, count <= 100_000, let times = result.pointee.timestamps,
+              let pieces = result.pointee.tokens_arr else {
+            return RecognitionAcousticResult(text: transcript, words: [])
+        }
+        var tokens: [String] = []
+        var timestamps: [Double] = []
+        tokens.reserveCapacity(count)
+        timestamps.reserveCapacity(count)
+        for index in 0..<count {
+            guard let piece = pieces[index] else { return RecognitionAcousticResult(text: transcript, words: []) }
+            tokens.append(String(cString: piece))
+            timestamps.append(Double(times[index]))
+        }
+        let words = RecognitionTimedWords.map(text: transcript, tokens: tokens, timestamps: timestamps,
+                                               duration: Double(samples.count) / 16000)
+        return RecognitionAcousticResult(text: transcript, words: words)
     }
+}
+
+struct RecognitionAcousticResult {
+    let text: String
+    let words: [RecognitionTimedWord]
 }
