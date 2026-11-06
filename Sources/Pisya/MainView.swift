@@ -188,7 +188,9 @@ struct MeetingView: View {
                 .disabled(!state.canRename(meeting))
                 .onSubmit { saveTitle(resetIfEmpty: true); focusedField = nil }
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
-                .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { _, value in title = value }
+                .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { old, value in
+                    if focusedField != .title || title == old { title = value }
+                }
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
             GeometryReader { geometry in
                 let extraWidth = Self.detailsColumnWidth * (max(1, textScale) - 1)

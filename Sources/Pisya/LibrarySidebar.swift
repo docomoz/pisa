@@ -136,8 +136,9 @@ struct MeetingActionSet {
         let voices = NativeActionMenuItem("Разметить голоса…", enabled: canModify && !meeting.segments.isEmpty) { state.voiceMeeting = meeting }
         let move = NSMenuItem(title: "Переместить в папку", action: nil, keyEquivalent: "")
         move.submenu = nativeActionMenu(items: folderMenuItems)
-        let items = [voices, rename.nativeItem, move, .separator(), reprocess.nativeItem, .separator(), trash.nativeItem]
-        if !canModify { items.filter { !$0.isSeparatorItem }.forEach { $0.isEnabled = false } }
+        let renameItem = rename.nativeItem
+        let items = [voices, renameItem, move, .separator(), reprocess.nativeItem, .separator(), trash.nativeItem]
+        if !canModify { items.filter { !$0.isSeparatorItem && $0 !== renameItem }.forEach { $0.isEnabled = false } }
         return items
     }
 
@@ -161,7 +162,7 @@ struct MeetingActionSet {
         return items
     }
 
-    var rename: Item { Item(title: "Переименовать…") { state.renameTarget = meeting } }
+    var rename: Item { Item(title: "Переименовать…", enabled: state.canRename(meeting)) { state.renameTarget = meeting } }
     var reprocess: Item {
         Item(title: "Расшифровать заново", enabled: state.hasAudio(meeting)) { state.reprocessTarget = meeting }
     }

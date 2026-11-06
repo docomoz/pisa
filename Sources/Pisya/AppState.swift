@@ -128,7 +128,7 @@ final class AppState: ObservableObject {
         select(filtered.first?.id)
     }
     func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !pending.contains(m.id) }
-    func canRename(_ m: Meeting) -> Bool { !demo && (recordingMeetingID == m.id || canModify(m)) }
+    func canRename(_ m: Meeting) -> Bool { !demo }
     func isQueued(_ id: UUID) -> Bool { pending.contains(id) }
     func stageRecordingTitle(_ title: String, for meeting: Meeting) {
         guard recordingMeetingID == meeting.id else { return }

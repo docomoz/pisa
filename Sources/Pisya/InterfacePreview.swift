@@ -14,6 +14,7 @@ final class InterfacePreview: NSObject {
         state.modelSetup.phase = .ready
         var fixture = Meeting(title: "Обсуждение планов и результатов проверки интерфейса", source: "Тестовое аудио")
         fixture.status = .ready
+        if CommandLine.arguments.contains("--processing-preview") { fixture.status = .processing }
         fixture.duration = 180
         if let example = state.voiceProfiles.first?.examples?.first {
             let file = "preview-mic.caf"
@@ -28,6 +29,10 @@ final class InterfacePreview: NSObject {
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)
+        if CommandLine.arguments.contains("--processing-preview") {
+            state.processingID = fixture.id
+            state.liveStatus = "Завершаю расшифровку"
+        }
         if CommandLine.arguments.contains("--queue-preview") {
             state.processingID = UUID()
             state.enqueue(fixture.id, reprocess: true)
@@ -91,9 +96,23 @@ final class InterfacePreview: NSObject {
         state.update(first); state.update(second); state.processingID = active
         state.enqueue(first.id, reprocess: true); state.enqueue(second.id)
         guard state.isQueued(first.id), state.isQueued(second.id) else { throw PisyaError.message("Записи не добавлены в очередь") }
+        state.rename(first, to: "Название в очереди")
+        guard try state.library.read(first.id).title == "Название в очереди" else { throw PisyaError.message("Не удалось переименовать запись в очереди") }
+        var processing = Meeting(title: "Исходное название", source: "Аудио")
+        processing.status = .processing
+        processing.segments = [.init(start: 0, end: 1, speaker: "Я", text: "Привет")]
+        state.update(processing); state.processingID = processing.id
+        state.rename(processing, to: "Название во время расшифровки")
+        var completed = try state.library.read(processing.id)
+        guard completed.title == "Название во время расшифровки", completed.segments == processing.segments else { throw PisyaError.message("Переименование во время расшифровки не сохранилось или изменило текст") }
+        completed.status = .ready
+        _ = completed.applyGeneratedTitle("Автоматическое название")
+        try state.library.save(completed)
+        guard try state.library.read(processing.id).title == "Название во время расшифровки" else { throw PisyaError.message("Название изменилось после завершения расшифровки") }
+        state.processingID = active
         state.cancelQueued(first.id)
         guard !state.isQueued(first.id), state.isQueued(second.id), state.processingID == active,
-              try state.library.read(first.id) == first else { throw PisyaError.message("Отмена изменила запись или другую задачу") }
+              try state.library.read(first.id).title == "Название в очереди" else { throw PisyaError.message("Отмена изменила запись или другую задачу") }
         state.enqueue(first.id)
         guard state.isQueued(first.id) else { throw PisyaError.message("Запись нельзя снова добавить в очередь") }
         state.cancelQueued(first.id); state.cancelQueued(second.id); state.cancelQueued(active)
