@@ -36,15 +36,20 @@ struct MainView: View {
     }
     private var sidebar: some View { LibrarySidebar() }
     private var topbar: some View {
-        HStack(spacing: PisyaDesign.Spacing.related) {
-            if state.recording, let started = state.recordingStarted {
-                RecordingIndicator(monitor: state.recordingMonitor, started: started)
-            } else {
-                HStack(spacing: PisyaDesign.Spacing.inline) {
-                    Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
-                    BrandMoodView()
-                }.accessibilityElement(children: .combine).layoutPriority(-1)
+        HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
+            Group {
+                if state.recording, let started = state.recordingStarted {
+                    RecordingIndicator(monitor: state.recordingMonitor, started: started)
+                } else {
+                    HStack(spacing: PisyaDesign.Spacing.inline) {
+                        Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
+                        BrandMoodView()
+                    }.accessibilityElement(children: .combine)
+                }
             }
+            .frame(minHeight: PisyaDesign.Metrics.regularHeight)
+            .padding(.top, PisyaDesign.Spacing.content)
+            .layoutPriority(state.recording ? 0 : -1)
             Spacer(minLength: PisyaDesign.Spacing.none)
                 .frame(maxHeight: .infinity)
                 .background(TitleBarZoom().allowsHitTesting(false))
@@ -67,7 +72,7 @@ struct MainView: View {
                 }.actionButton(.recording)
                     .disabled(state.starting || state.demo)
             }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
-
+                .padding(.top, PisyaDesign.Spacing.content)
         }.padding(.horizontal, PisyaDesign.Spacing.page).frame(height: 76)
     }
     private var welcome: some View {
