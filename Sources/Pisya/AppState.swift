@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     @Published var newFolderMeeting: Meeting?
     @Published var voiceMeeting: Meeting?
     @Published var reprocessTarget: Meeting?
+    private var termReplacementUndo: [UUID: (before: [UUID: String], after: [UUID: String])] = [:]
     private var searchIndex: [UUID: String] = [:]
     @Published var preferences = Preferences()
     @Published var search = ""
@@ -179,7 +180,10 @@ final class AppState: ObservableObject {
         guard canEmptyTrash else { return }
         stopPlayback()
         do {
-            for m in meetings where m.deletedAt != nil { try library.purgeTrashed(m.id) }
+            for m in meetings where m.deletedAt != nil {
+                try library.purgeTrashed(m.id)
+                termReplacementUndo[m.id] = nil
+            }
         } catch { message = error.localizedDescription }
         do {
             meetings = try library.all(includeDeleted: true)
@@ -781,6 +785,56 @@ final class AppState: ObservableObject {
         catch { try? FileManager.default.removeItem(at: url); throw error }
     }
     func cancelProcessing() { processingTask?.cancel(); if processingID != recordingMeetingID { liveTask?.cancel() } }
+    func canReviewTerms(_ meeting: Meeting) -> Bool {
+        meeting.status == .ready && meeting.liveCommittedUntil == nil && meeting.deletedAt == nil &&
+            !meeting.segments.isEmpty && canModify(meeting)
+    }
+    func replaceTerms(_ occurrences: [TermOccurrence], with replacement: String, meetingID: UUID) throws {
+        guard var meeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(meeting),
+              let updated = TranscriptTerms.replacing(occurrences, with: replacement, in: meeting.segments) else {
+            throw PisyaError.message("Не удалось применить замену. Проверьте написание и выберите вхождения заново")
+        }
+        var before: [UUID: String] = [:]
+        var after: [UUID: String] = [:]
+        for (original, edited) in zip(meeting.segments, updated) where original.text != edited.text {
+            before[original.id] = original.text
+            after[original.id] = edited.text
+        }
+        guard !before.isEmpty else { return }
+        meeting.segments = updated
+        try library.save(meeting)
+        termReplacementUndo[meetingID] = (before, after)
+        upsert(meeting)
+        exportIfConfigured(meeting)
+    }
+    func canUndoTermReplacement(meetingID: UUID) -> Bool {
+        guard let undo = termReplacementUndo[meetingID],
+              let meeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(meeting) else { return false }
+        return meeting.segments.filter { undo.after[$0.id] == $0.text }.count == undo.after.count
+    }
+    func undoTermReplacement(meetingID: UUID) throws {
+        guard canUndoTermReplacement(meetingID: meetingID), let undo = termReplacementUndo[meetingID],
+              var meeting = meetings.first(where: { $0.id == meetingID }) else {
+            throw PisyaError.message("Расшифровка изменилась. Последнюю замену уже нельзя отменить")
+        }
+        for index in meeting.segments.indices {
+            if let original = undo.before[meeting.segments[index].id] { meeting.segments[index].text = original }
+        }
+        try library.save(meeting)
+        termReplacementUndo[meetingID] = nil
+        upsert(meeting)
+        exportIfConfigured(meeting)
+    }
+    func addRecognitionTerm(_ term: String) throws {
+        guard !demo else { return }
+        var updated = preferences
+        updated.vocabulary = TranscriptTerms.adding(term, to: preferences.vocabulary)
+        guard updated.vocabulary != preferences.vocabulary else {
+            throw PisyaError.message("Введите один новый термин без запятых и точек с запятой")
+        }
+        try library.savePreferences(updated)
+        preferences = updated
+    }
     func update(_ value: Meeting) {
         var meeting = value
         if let previous = meetings.first(where: { $0.id == meeting.id }) {

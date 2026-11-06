@@ -138,6 +138,7 @@ struct MeetingView: View {
     @Environment(\.appTextScale) private var textScale
     let meeting: Meeting
     @State private var editing: TranscriptSegment?
+    @State private var reviewingTerms = false
     @State private var speakerName = ""
     @State private var speakerToRename: String?
     @State private var title = ""
@@ -237,6 +238,7 @@ struct MeetingView: View {
             ) { state.deleteAudio(meeting) }
         }
         .sheet(item: $editing) { segment in SegmentEditor(segment: segment) { edited in var m = meeting; if let i = m.segments.firstIndex(where: { $0.id == edited.id }) { m.segments[i] = edited; state.update(m) }; editing = nil } }
+        .sheet(isPresented: $reviewingTerms) { TermReview(meeting: meeting).environmentObject(state) }
         .alert("Имя участника", isPresented: Binding(get: { speakerToRename != nil }, set: { if !$0 { speakerToRename = nil } })) {
             TextField("Имя", text: $speakerName)
             screenButton("Сохранить") { if let old = speakerToRename { state.renameSpeaker(old, to: speakerName, meeting: meeting) }; speakerToRename = nil }
@@ -323,6 +325,11 @@ struct MeetingView: View {
                     if !meeting.segments.isEmpty {
                         SearchField(title: "Поиск внутри записи", text: $transcriptSearch)
                             .focused($focusedField, equals: .search)
+                        if state.canReviewTerms(meeting) {
+                            Button { reviewingTerms = true } label: {
+                                screenLabel("Разметить термины", systemImage: "text.magnifyingglass").fixedSize()
+                            }.actionButton()
+                        }
                     }
                     if showsDetailsButton { detailsButton }
                 }.frame(maxWidth: .infinity, alignment: .trailing)
