@@ -19,13 +19,13 @@ struct LibrarySidebar: View {
                     scope(folder.name, icon: folder.iconName, selected: state.folderFilter == folder.id && !state.showingTrash) { state.openFolder(folder.id) }
                         .popupContextMenu {
                             PopupMenuItem("Изменить папку…") { editingFolder = folder; folderName = folder.name; folderEditor = true }
-                            PopupMenuItem("Удалить папку…", role: .destructive) { deletingFolder = folder }
+                            PopupMenuItem("Удалить папку", role: .destructive) { deletingFolder = folder }
                         }
                 }
-                scope("Новая папка", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
+                scope("Новая папка…", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
                     .disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
-                    .popupContextMenu { PopupMenuItem("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
+                    .popupContextMenu { PopupMenuItem("Очистить корзину", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
             }.textStyle(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
             HStack(spacing: PisyaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.textStyle(PisyaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
             ScrollViewReader { proxy in
@@ -112,51 +112,76 @@ struct LibrarySidebar: View {
 struct MeetingActions: View {
     @EnvironmentObject var state: AppState
     let meeting: Meeting
-    var includesVoiceAndFolderActions = true
-    var onDeleteAudio: (() -> Void)?
 
     var body: some View {
+        let actions = MeetingActionSet(state: state, meeting: meeting)
         Group {
             if meeting.deletedAt != nil {
-                PopupMenuItem("Восстановить") { state.trash(meeting, restore: true) }.disabled(!state.canModify(meeting))
+                actions.restore.popupItem
             } else {
-                if includesVoiceAndFolderActions {
-                    PopupMenuItem("Разметить голоса…") { state.voiceMeeting = meeting }.disabled(meeting.segments.isEmpty || !state.canModify(meeting))
-                }
-                PopupMenuItem("Переименовать…") { state.renameTarget = meeting }.disabled(!state.canModify(meeting))
-                if includesVoiceAndFolderActions {
-                    PopupMenu(arrowEdge: .leading) {
-                        PopupMenuItem("Без папки", systemImage: meeting.folderID == nil ? "checkmark" : "tray") {
-                            state.move(meeting, to: nil)
-                        }
-                        if !state.folders.isEmpty { Divider() }
-                        ForEach(state.folders) { folder in
-                            PopupMenuItem(folder.name, systemImage: meeting.folderID == folder.id ? "checkmark" : folder.iconName) {
-                                state.move(meeting, to: folder.id)
-                            }
-                        }
-                        Divider()
-                        PopupMenuItem("Новая папка…", systemImage: "folder.badge.plus") { state.newFolderMeeting = meeting }
-                    } label: {
-                        HStack(spacing: PisyaDesign.Spacing.inline) {
-                            screenText("Переместить в папку")
-                            Spacer()
-                            Image(systemName: "chevron.right").accessibilityHidden(true)
-                        }
-                    }.popupMenuRow().disabled(!state.canModify(meeting))
-                }
+                PopupMenuItem("Разметить голоса…") { state.voiceMeeting = meeting }.disabled(meeting.segments.isEmpty)
+                actions.rename.popupItem
+                moveToFolder
                 Divider()
-                PopupMenuItem("Расшифровать заново…") { state.reprocessTarget = meeting }.disabled(!state.hasAudio(meeting) || !state.canModify(meeting))
+                actions.reprocess.popupItem
                 Divider()
-                PopupMenuItem("В корзину", role: .destructive) { state.trash(meeting) }.disabled(!state.canModify(meeting))
-            }
-            if let onDeleteAudio {
-                if meeting.deletedAt != nil { Divider() }
-                PopupMenuItem("Удалить аудио", role: .destructive, action: onDeleteAudio)
+                actions.trash.popupItem
             }
         }.disabled(!state.canModify(meeting))
     }
+
+    private var moveToFolder: some View {
+        PopupMenu(arrowEdge: .leading) {
+            PopupMenuItem("Без папки", systemImage: meeting.folderID == nil ? "checkmark" : "tray") {
+                state.move(meeting, to: nil)
+            }
+            if !state.folders.isEmpty { Divider() }
+            ForEach(state.folders) { folder in
+                PopupMenuItem(folder.name, systemImage: meeting.folderID == folder.id ? "checkmark" : folder.iconName) {
+                    state.move(meeting, to: folder.id)
+                }
+            }
+            Divider()
+            PopupMenuItem("Новая папка…", systemImage: "folder.badge.plus") { state.newFolderMeeting = meeting }
+        } label: {
+            HStack(spacing: PisyaDesign.Spacing.inline) {
+                screenText("Переместить в папку")
+                Spacer()
+                Image(systemName: "chevron.right").accessibilityHidden(true)
+            }
+        }.popupMenuRow()
+    }
 }
+
+@MainActor
+struct MeetingActionSet {
+    let state: AppState
+    let meeting: Meeting
+
+    @MainActor
+    struct Item {
+        let title: String
+        var role: ButtonRole? = nil
+        var enabled = true
+        let perform: () -> Void
+
+        var popupItem: some View {
+            PopupMenuItem(title, role: role, action: perform).disabled(!enabled)
+        }
+
+        var nativeItem: NSMenuItem {
+            NativeActionMenuItem(title, enabled: enabled, perform: perform)
+        }
+    }
+
+    var rename: Item { Item(title: "Переименовать…") { state.renameTarget = meeting } }
+    var reprocess: Item {
+        Item(title: "Расшифровать заново", enabled: state.hasAudio(meeting)) { state.reprocessTarget = meeting }
+    }
+    var trash: Item { Item(title: "В корзину", role: .destructive) { state.trash(meeting) } }
+    var restore: Item { Item(title: "Восстановить") { state.trash(meeting, restore: true) } }
+}
+
 struct NameEditor: View {
     let title: String
     let initial: String

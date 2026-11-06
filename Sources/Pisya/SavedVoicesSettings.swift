@@ -89,7 +89,7 @@ struct SavedVoicesSettings: View {
             PopupMenu {
                 PopupMenuItem("Переименовать…") { renaming = profile }
                 Divider()
-                PopupMenuItem("Забыть голос…", role: .destructive) { forgetting = profile }
+                PopupMenuItem("Забыть голос", role: .destructive) { forgetting = profile }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(PisyaDesign.Typography.Icon.medium)
