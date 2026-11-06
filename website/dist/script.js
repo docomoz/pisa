@@ -1,24 +1,3 @@
-const waterFilter = document.querySelector('#water-filter');
-const waterMotion = document.querySelector('#water-motion');
-if (waterFilter && waterMotion && window.matchMedia) {
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  let running = false;
-  const updateWater = () => {
-    if (reducedMotion.matches) {
-      if (running) waterMotion.endElement();
-      running = false;
-    } else if (!running) {
-      waterMotion.beginElement();
-      running = true;
-    }
-    if (document.hidden) waterFilter.pauseAnimations();
-    else waterFilter.unpauseAnimations();
-  };
-  reducedMotion.addEventListener('change', updateWater);
-  document.addEventListener('visibilitychange', updateWater);
-  updateWater();
-}
-
 const copy = document.querySelector('.copy');
 const copyStatus = document.querySelector('.copy-status');
 copy?.addEventListener('click', async () => {
