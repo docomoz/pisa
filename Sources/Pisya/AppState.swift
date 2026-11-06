@@ -650,7 +650,7 @@ final class AppState: ObservableObject {
         if !startPlayback(segment, in: meeting, toggle: true) { message = "Аудио этого фрагмента недоступно" }
     }
     @discardableResult
-    private func startPlayback(_ segment: TranscriptSegment, in meeting: Meeting, toggle: Bool) -> Bool {
+    private func startPlayback(_ segment: TranscriptSegment, in meeting: Meeting, toggle: Bool, normalizePreview: Bool = false) -> Bool {
         guard !demo, !recording else { stopPlayback(); return false }
         if toggle && playingSegmentID == segment.id { stopPlayback(); return true }
         let name = segment.audioFile ?? meeting.audioFiles.first { segment.speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") } ?? meeting.audioFiles.first
@@ -665,10 +665,19 @@ final class AppState: ObservableObject {
               start < candidate.duration, candidate.duration > 0 else { stopPlayback(); return false }
         if !toggle && playingSegmentID == segment.id && player?.isPlaying == true { return true }
         stopPlayback()
-        candidate.currentTime = max(0, start)
-        guard candidate.play() else { return false }
-        player = candidate
-        playbackEnd = min(end, candidate.duration)
+        let clipStart = max(0, start), clipEnd = min(end, candidate.duration)
+        if normalizePreview,
+           let data = try? AudioPreview.normalizedData(from: url, start: clipStart, end: clipEnd),
+           let preview = try? AVAudioPlayer(data: data, fileTypeHint: AVFileType.caf.rawValue),
+           preview.play() {
+            player = preview
+            playbackEnd = preview.duration
+        } else {
+            candidate.currentTime = clipStart
+            guard candidate.play() else { return false }
+            player = candidate
+            playbackEnd = clipEnd
+        }
         playingSegmentID = segment.id
         schedulePlaybackStop()
         return true
@@ -683,7 +692,11 @@ final class AppState: ObservableObject {
         }
     }
     func preview(_ segment: TranscriptSegment, in meeting: Meeting) {
-        var clip = segment; clip.end = min(clip.end, clip.start + 8); play(clip, in: meeting)
+        var clip = segment
+        clip.end = min(clip.end, clip.start + 8)
+        if !startPlayback(clip, in: meeting, toggle: true, normalizePreview: true) {
+            message = "Аудио этого фрагмента недоступно"
+        }
     }
     func playExample(_ example: VoiceExample) {
         guard !recording else { return }
