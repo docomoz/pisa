@@ -361,6 +361,7 @@ struct MeetingView: View {
                     } else {
                         SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
                     }
+                    Spacer(minLength: PisyaDesign.Spacing.none)
                     if meeting.status == .failed && meeting.deletedAt == nil && !state.recording
                         && !isSaving && state.canModify(meeting) && state.hasAudio(meeting) {
                         if meeting.liveCommittedUntil != nil {
@@ -369,7 +370,6 @@ struct MeetingView: View {
                             screenButton("Расшифровать заново…") { state.reprocessTarget = meeting }.actionButton(.primary, size: .small)
                         }
                     }
-                    Spacer(minLength: 0)
                     if isRecording && isTranscribing {
                         screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
                             .actionButton(size: .small)
@@ -381,9 +381,11 @@ struct MeetingView: View {
                     }
                 }
                 if isSaving || (isTranscribing && !isRecording && !state.livePaused) {
-                    let hasFraction = isTranscribing && state.liveStatus.isEmpty && !state.phase.isEmpty
-                    TranscriptionProgress(fraction: hasFraction ? state.progress : nil,
-                                          label: isSaving ? "Сохранение записи" : "Ход расшифровки")
+                    let isLive = !isSaving && !state.liveStatus.isEmpty
+                    let fraction = isSaving ? nil : isLive ? liveAudioProgress : processingProgress
+                    TranscriptionProgress(fraction: fraction,
+                                          label: isSaving ? "Сохранение записи" : isLive ? "Доля обработанного аудио" : "Ход расшифровки",
+                                          roundsDown: isLive)
                 }
             }
         }
@@ -400,9 +402,14 @@ struct MeetingView: View {
     }
     private var transcriptionDetail: String? {
         guard isTranscribing, !isRecording, !isSaving else { return nil }
-        if finishesRecording { return "Запись сохранена" }
-        return state.phase.isEmpty ? nil : state.phase
+        if !state.liveStatus.isEmpty { return liveAudioProgress == nil ? nil : "Доля обработанного аудио" }
+        if !state.phase.isEmpty { return state.phase }
+        return finishesRecording ? "Запись сохранена" : nil
     }
+    private var liveAudioProgress: Double? {
+        LiveTranscriptionSchedule.audioProgress(committed: meeting.liveCommittedUntil, duration: state.liveAudioDuration)
+    }
+    private var processingProgress: Double? { state.phase.isEmpty ? nil : state.progress }
     private func saveTitle(resetIfEmpty: Bool = false) {
         let savedTitle = state.meetings.first(where: { $0.id == meeting.id })?.headingTitle ?? meeting.headingTitle
         if title != savedTitle { state.rename(meeting, to: title, resetIfEmpty: resetIfEmpty) }
@@ -506,6 +513,7 @@ struct MeetingView: View {
 private struct TranscriptionProgress: View {
     let fraction: Double?
     let label: String
+    var roundsDown = false
     @Environment(\.locale) private var locale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -532,7 +540,8 @@ private struct TranscriptionProgress: View {
             }
             .frame(height: PisyaDesign.Metrics.progressHeight)
             if let fraction {
-                screenText(fraction.formatted(.percent.precision(.fractionLength(0)).locale(locale)))
+                screenText(fraction.formatted(.percent.precision(.fractionLength(0))
+                    .rounded(rule: roundsDown ? .down : .toNearestOrEven).locale(locale)))
                     .textStyle(PisyaDesign.Typography.detailStrong)
                     .monospacedDigit()
                     .foregroundStyle(Color.moss)

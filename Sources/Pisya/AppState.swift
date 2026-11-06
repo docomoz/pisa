@@ -31,6 +31,7 @@ final class AppState: ObservableObject {
     @Published var callActive = false
     @Published var livePaused = false
     @Published var liveStatus = ""
+    @Published private(set) var liveAudioDuration: Double?
     @Published private(set) var isReprocessing = false
     let source = "Системный звук"
     @Published var demo = false
@@ -448,12 +449,16 @@ final class AppState: ObservableObject {
                 let available = stopped ? (ends.max() ?? 0) : (ends.min() ?? 0)
                 guard available.isFinite else { throw PisyaError.message("Некорректная длительность аудиодорожки") }
                 if stopped && available + 0.05 < schedule.committed { throw PisyaError.message("Сохранённый черновик выходит за доступную длину аудио") }
+                if stopped && liveAudioDuration != available { liveAudioDuration = available }
                 // The two seconds after the proposed cut are uncommitted
                 // lookahead, so a turn crossing the cut can move wholly to the
                 // next window without ever rereading the committed prefix.
                 let schedulable = stopped ? available : max(0, available - 2)
                 guard let window = schedule.next(available: schedulable, stopped: stopped) else {
                     if stopped {
+                        liveStatus = "Собираю расшифровку"
+                        await transcriber.finishLive()
+                        try Task.checkCancellation()
                         var latest = try library.read(id)
                         let availableNames = Set(tracks.map { $0.url.lastPathComponent })
                         guard latest.segments.allSatisfy({ $0.audioFile.map(availableNames.contains) ?? true }) else { throw PisyaError.message("Аудио черновика недоступно") }
@@ -461,7 +466,6 @@ final class AppState: ObservableObject {
                         latest.duration = max(latest.duration, available)
                         latest.status = .ready; latest.error = nil; latest.liveCommittedUntil = nil
                         try library.save(latest); upsert(latest)
-                        await transcriber.finishLive()
                         await nameCompletedMeeting(id, exportOnCompletion: true)
                         break
                     }
@@ -513,7 +517,7 @@ final class AppState: ObservableObject {
         }
         await transcriber.finishLive()
         if granted { model.stopAccessingSecurityScopedResource() }
-        liveTask = nil; liveStatus = ""; processingID = nil; phase = ""; runNext()
+        liveTask = nil; liveStatus = ""; liveAudioDuration = nil; processingID = nil; phase = ""; runNext()
     }
 
     private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, quiet: Bool) async throws -> [TranscriptSegment] {
@@ -559,7 +563,7 @@ final class AppState: ObservableObject {
             m.status = .processing; m.error = nil
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }
             upsert(m); processingID = id; progress = 0
-            liveStopped = true; livePaused = false; liveStatus = "Завершаю расшифровку"
+            liveStopped = true; livePaused = false; liveStatus = "Подготавливаю аудио"
             liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model) }
             return
         }

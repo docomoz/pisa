@@ -2,6 +2,21 @@ import XCTest
 @testable import PisyaCore
 
 final class LiveTranscriptionScheduleTests: XCTestCase {
+    func testAudioProgressTracksOnlyCommittedAudio() {
+        var schedule = LiveTranscriptionSchedule(committed: 15)
+        let window = schedule.next(available: 60, stopped: true)!
+        XCTAssertEqual(LiveTranscriptionSchedule.audioProgress(committed: schedule.committed, duration: 60), 0.25)
+        schedule.commit(window)
+        XCTAssertEqual(LiveTranscriptionSchedule.audioProgress(committed: schedule.committed, duration: 60), 0.5)
+    }
+
+    func testAudioProgressRequiresValidFinalDuration() {
+        XCTAssertNil(LiveTranscriptionSchedule.audioProgress(committed: 15, duration: nil))
+        XCTAssertNil(LiveTranscriptionSchedule.audioProgress(committed: 0, duration: 0))
+        XCTAssertNil(LiveTranscriptionSchedule.audioProgress(committed: 15, duration: .infinity))
+        XCTAssertNil(LiveTranscriptionSchedule.audioProgress(committed: 15, duration: 14))
+    }
+
     func testOnlyCommittedWindowsAdvanceCursorAndStopDrainsTail() {
         var schedule = LiveTranscriptionSchedule(batchDuration: 15)
         XCTAssertNil(schedule.next(available: 14, stopped: false))
