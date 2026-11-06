@@ -1,4 +1,29 @@
 import SwiftUI
+import AppKit
+
+private struct SelectableVoiceName: NSViewRepresentable {
+    let name: String
+    @Environment(\.appTextScale) private var textScale
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(labelWithString: name)
+        field.isSelectable = true
+        field.maximumNumberOfLines = 0
+        field.lineBreakMode = .byWordWrapping
+        field.focusRingType = .none
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        field.stringValue = name
+        field.font = .systemFont(ofSize: PisyaDesign.Typography.bodyStrong.size * textScale, weight: .semibold)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
+        let width = proposal.width ?? nsView.intrinsicContentSize.width
+        return nsView.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
+    }
+}
 
 struct VoiceManager: View {
     @EnvironmentObject var state: AppState
@@ -8,22 +33,42 @@ struct VoiceManager: View {
     @State private var selected: UUID?
     @State private var name = ""
     @FocusState private var nameFocused: Bool
+    @State private var showSuggestions = false
+    @State private var selectedSuggestion: Int?
+    @State private var lastChosenName: String?
     @State private var allMatching = true
     @State private var remember = true
     private var meeting: Meeting? { state.meetings.first { $0.id == meetingID } }
     private var sample: TranscriptSegment? { meeting?.segments.first { $0.id == selected } }
     private var canApplyName: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var suggestions: [String] {
+        guard showSuggestions else { return [] }
+        return voiceNameSuggestions(query: name, meetingNames: meeting?.segments.map(\.speaker) ?? [], savedNames: state.voiceProfiles.map(\.name))
+    }
     private var automaticSample: TranscriptSegment? {
         guard let meeting, let selected else { return nil }
         return state.voiceSample(for: selected, in: meeting, allMatching: allMatching)
     }
     private func select(_ segment: TranscriptSegment) {
+        showSuggestions = false
+        selectedSuggestion = nil
         name = voiceNameForSelection(currentID: selected, currentName: name, segment: segment)
+        lastChosenName = name
         selected = segment.id
+    }
+
+    private func chooseSuggestion(_ suggestion: String) {
+        lastChosenName = suggestion
+        name = suggestion
+        showSuggestions = false
+        selectedSuggestion = nil
+        nameFocused = true
     }
 
     private func applyName() {
         guard canApplyName, let selected else { return }
+        showSuggestions = false
+        selectedSuggestion = nil
         state.assignVoice(meetingID: meetingID, segmentID: selected, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
     }
 
@@ -36,7 +81,7 @@ struct VoiceManager: View {
                         if let meeting {
                             ForEach(voiceGroupAnchors(in: meeting.segments)) { anchor in
                                 LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                                    screenText(anchor.speaker).textStyle(PisyaDesign.Typography.bodyStrong)
+                                    SelectableVoiceName(name: anchor.speaker)
                                     ForEach(voiceSamples(for: anchor.speaker, in: meeting.segments)) { segment in
                                         fragmentCard(segment, in: meeting)
                                     }
@@ -54,7 +99,34 @@ struct VoiceManager: View {
                                 TextField("Имя участника", text: $name)
                                     .textFieldStyle(PisyaTextFieldStyle(editingOffset: nameFocused ? 1 : 0))
                                     .focused($nameFocused)
-                                    .onSubmit(applyName)
+                                    .onChange(of: name) { _, newName in
+                                        showSuggestions = nameFocused && newName != lastChosenName
+                                        selectedSuggestion = nil
+                                    }
+                                    .onKeyPress(.downArrow) {
+                                        guard !suggestions.isEmpty else { return .ignored }
+                                        selectedSuggestion = min((selectedSuggestion ?? -1) + 1, suggestions.count - 1)
+                                        return .handled
+                                    }
+                                    .onKeyPress(.upArrow) {
+                                        guard let index = selectedSuggestion, !suggestions.isEmpty else { return .ignored }
+                                        selectedSuggestion = max(index - 1, 0)
+                                        return .handled
+                                    }
+                                    .onKeyPress(.escape) {
+                                        guard showSuggestions, !suggestions.isEmpty else { return .ignored }
+                                        showSuggestions = false
+                                        selectedSuggestion = nil
+                                        return .handled
+                                    }
+                                    .onSubmit {
+                                        if let index = selectedSuggestion, suggestions.indices.contains(index) {
+                                            chooseSuggestion(suggestions[index])
+                                        } else { applyName() }
+                                    }
+                                if !suggestions.isEmpty {
+                                    suggestionList
+                                }
                             }
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
@@ -76,6 +148,33 @@ struct VoiceManager: View {
                 }.id(selected).textStyle(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350 * max(1, textScale))
             }
         }.dialogContent().frame(width: 940, height: 660).background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
+    }
+
+    private var suggestionList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
+                    ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
+                        Button { chooseSuggestion(suggestion) } label: {
+                            screenText(verbatim: suggestion)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.regularHeight, alignment: .leading)
+                                .padding(.horizontal, PisyaDesign.Spacing.related)
+                                .background(index == selectedSuggestion ? PisyaDesign.Colors.selection : .clear)
+                                .contentShape(Rectangle())
+                        }
+                        .shapeAwarePlainButton()
+                        .screenHelp(suggestion)
+                        .id(index)
+                    }
+                }
+            }
+            .frame(height: min(CGFloat(suggestions.count) * PisyaDesign.Metrics.regularHeight, PisyaDesign.Metrics.editorHeight))
+            .background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+            .onChange(of: selectedSuggestion) { _, index in
+                if let index { proxy.scrollTo(index) }
+            }
+        }
     }
 
     private func fragmentCard(_ segment: TranscriptSegment, in meeting: Meeting) -> some View {
