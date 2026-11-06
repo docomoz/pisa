@@ -41,7 +41,8 @@ def synthetic_corpus(root):
         ("fast-speech", "Коллеги, давайте сначала договоримся о критериях качества. Если пользователь не находит нужную организацию, он просто уходит в другое приложение. Поэтому мы проверяем не только скорость ответа, но и полноту результатов, правильность адресов и актуальность времени работы.", 220, ""),
         ("long-turn", "Я предлагаю сначала проверить результаты эксперимента и только после этого принимать решение о запуске. Нам важно понять, почему пользователи закрывают карточку организации и возвращаются к поиску. Возможно, им не хватает фотографий, а возможно, они просто не видят нужную кнопку. Давайте отдельно посмотрим новые города, сравним мобильное приложение с сайтом и обсудим выводы на следующей встрече. Если данных окажется недостаточно, продлим эксперимент ещё на неделю.", 180, ""),
         ("english", "Please send the updated report before Friday. We will discuss the launch at our next meeting.", 170, "Северный Атлас, Геопэй"),
-        ("numeric-vocabulary", "Проверим поиск внутри 2ГИС и обсудим результаты.", 170, "2ГИС"),
+        ("numeric-vocabulary", "Проверим поиск внутри 2ГИС'а и обсудим результаты.", 170, "2ГИС"),
+        ("numeric-nominative", "Наша компания 2ГИС работает в Новосибирске.", 170, "2ГИС"),
         ("spoken-english-vocabulary", "Передадим данные в YClients и обсудим Retail Media.", 170, "YClients, Retail Media"),
         ("spoken-acronyms", "Это B2C продукт. Посчитаем PNL'ку.", 170, "B2C, PNL"),
         ("dictionary-near-misses", "Покажите панель. Эти клиенты уже пришли. Откройте пенал.", 170, "YClients, Retail Media, B2C, PNL"),
@@ -52,7 +53,9 @@ def synthetic_corpus(root):
     for name, reference, rate, context in phrases:
         aiff, wav = root / (name + ".aiff"), root / (name + ".wav")
         voice = "Samantha" if name == "english" else "Milena (Russian (Russia))"
-        spoken = reference.replace("2ГИС", "два гиса") if name == "numeric-vocabulary" else reference
+        spoken = reference.replace("2ГИС'а", "два гиса") if name == "numeric-vocabulary" else reference
+        if name == "numeric-nominative":
+            spoken = reference.replace("2ГИС", "два гис")
         if name == "spoken-english-vocabulary":
             spoken = reference.replace("YClients", "вай клиентс").replace("Retail Media", "ритейл медиа")
         if name == "spoken-acronyms":
@@ -76,11 +79,13 @@ def synthetic_corpus(root):
         fixtures.append(dict(name=name, reference=reference, samples=samples, context=context,
                              required_spellings=required,
                              maximum_errors=1 if name in {"long-turn", "spoken-english-vocabulary", "spoken-acronyms"} else 0))
-    # Forcing Russian can translate actual English. Surround lexical replies
-    # with Russian speech to exercise the language-context decision as well.
+    # Preserve genuine English sentences. The explicit Russian conversation
+    # preference spells short affirmatives/fillers in Russian even when the
+    # recognizer uses their English spelling. Keep identical audio for both.
     anchor = next(fixture for fixture in fixtures if fixture["name"] == "numeric-vocabulary")
-    replies = [(f"english-reply-{index}", reply, reply, "Samantha", "2ГИС")
-               for index, reply in enumerate(["Thank you.", "All right.", "And what?", "Friends.", "Okay.", "Yes."])]
+    replies = [(f"english-reply-{index}", reply, {"Okay.": "Окей.", "Yes.": "Да.", "Sorry.": "Сорри."}.get(reply, reply), "Samantha", "2ГИС")
+               for index, reply in enumerate(["Thank you.", "All right.", "And what?", "Friends.", "Okay.", "Yes.",
+                                               "Sorry.", "Sorry, I cannot attend the meeting today."])]
     replies.append(("short-dictionary-name", "Конфлюенс.", "Confluence.", "Milena (Russian (Russia))", "2ГИС, Confluence"))
     for name, spoken, reply, voice, context in replies:
         aiff, wav = root / f"{name}.aiff", root / f"{name}.wav"

@@ -160,12 +160,37 @@ final class CoreTests: XCTestCase {
     }
     func testScreenTypographyBindsShortWordsDatesAndUnitsWithoutChangingCode() {
         XCTAssertEqual(typographicText("В папку отправляется текст для встречи"), "В\u{00a0}папку отправляется текст для\u{00a0}встречи")
-        XCTAssertEqual(typographicText("3 ноября · 45 секунд · 16 кГц · 25%"), "3\u{00a0}ноября · 45\u{00a0}секунд · 16\u{00a0}кГц · 25\u{00a0}%")
+        XCTAssertEqual(typographicText("3 ноября · 45 секунд · 16 кГц · 25%"), "3\u{00a0}ноября · 45\u{00a0}секунд · 16\u{00a0}кГц · 25%")
         XCTAssertEqual(typographicText("команда\nи результат"), "команда\nи\u{00a0}результат")
         XCTAssertEqual(typographicText("https://example.com/a/b?x=1"), "https://example.com/a/b?x=1")
         XCTAssertEqual(typographicText("https://example.com/a?x=25%20"), "https://example.com/a?x=25%20")
         let text = "А в папку для записи — через 45 секунд"
         XCTAssertEqual(typographicText(typographicText(text)), typographicText(text))
+    }
+    func testScreenTypographyKeepsPercentagesCompactWithoutChangingCurrency() {
+        let text = "75% · 75 % · 75\u{00a0}% · 75\u{202f}% · 12,5 % · 12.5\u{202f}% · 50 ₽"
+        XCTAssertEqual(typographicText(text), "75% · 75% · 75% · 75% · 12,5% · 12.5% · 50\u{00a0}₽")
+    }
+
+    func testScreenTypographySeparatesAWordFromADollarPrice() {
+        XCTAssertEqual(typographicText("Купили за$37, позже за$12.50."), "Купили за\u{00a0}$37, позже за\u{00a0}$12.50.")
+        XCTAssertEqual(typographicText("От$5 до$20, по$7 за штуку."), "От\u{00a0}$5 до\u{00a0}$20, по\u{00a0}$7 за\u{00a0}штуку.")
+        XCTAssertEqual(typographicText("«За$37»"), "«За\u{00a0}$37»")
+        XCTAssertEqual(typographicText("Купили за\u{00a0}$37."), "Купили за\u{00a0}$37.")
+    }
+
+    func testScreenTypographyLeavesDollarSignsInPathsURLsAndCode() {
+        for value in ["/tmp/за$37", "за$37.txt", "https://example.com/за$37?q=37", "https://example.com/?q=за$37", "цена$37", "`echo за$37 test`"] {
+            XCTAssertEqual(typographicText(value), value)
+        }
+    }
+
+    func testMarkdownCompactsPercentagesInSavedTranscript() {
+        var meeting = Meeting(title: "План", source: "Аудиофайл")
+        let segment = TranscriptSegment(start: 0, end: 3, speaker: "Я", text: "Готовность 75\u{202f}%, время 45 секунд.")
+        meeting.segments = [segment]
+        XCTAssertTrue(MarkdownExporter.render(meeting).contains("Готовность 75%, время 45\u{00a0}секунд."))
+        XCTAssertEqual(meeting.segments.first?.text, segment.text)
     }
     func temporaryLibrary() throws -> MeetingLibrary { try MeetingLibrary(root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)) }
     func testFailedStartupDiscardsOnlyEmptyJournal() throws {

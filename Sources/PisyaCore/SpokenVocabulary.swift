@@ -7,9 +7,12 @@ struct SpokenVocabulary {
         var term: String
         var keys: Set<String>
         var initialism: Bool
+        var cyrillicSpelling: String?
     }
     private struct Word { var text: String; var range: NSRange }
     private let vocabulary: String
+    let decodingVocabulary: String
+    private let terms: [String]
     private let entries: [Entry]
     private let phones: [String: [String]]
     private let explicitTerms: Set<String>
@@ -21,9 +24,27 @@ struct SpokenVocabulary {
         self.vocabulary = vocabulary
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        self.terms = terms
+        func key(_ value: String) -> String {
+            value.lowercased().replacingOccurrences(of: "’", with: "'").replacingOccurrences(of: "'", with: "")
+        }
+        var seen = Set(terms.map(key))
+        var bases: Set<String> = []
+        var forms: [String] = []
+        for term in terms where RecognitionVocabulary.numericForms(for: term) != nil {
+            guard bases.count < 4 else { break }
+            guard bases.insert(key(term)).inserted else { continue }
+            // Keep the hint compact and in the glossary's list format. A
+            // separate, exhaustive paradigm can bias short audio decodes.
+            for ending in ["а", "ом", "е", "у"] {
+                let form = term + "'" + ending
+                if seen.insert(key(form)).inserted { forms.append(form) }
+            }
+        }
+        decodingVocabulary = forms.isEmpty ? vocabulary : vocabulary + ", " + forms.joined(separator: ", ")
         explicitTerms = Set(terms.map { $0.lowercased() })
         cyrillicInitialisms = terms.compactMap { term in
-            guard (4...8).contains(term.count), Self.isRussianWord(term), term == term.uppercased(),
+            guard (3...8).contains(term.count), Self.isRussianWord(term), term == term.uppercased(),
                   let latin = term.applyingTransform(.toLatin, reverse: false)?.uppercased(),
                   latin.unicodeScalars.allSatisfy({ (65...90).contains($0.value) }) else { return nil }
             return (term, latin)
@@ -52,13 +73,20 @@ struct SpokenVocabulary {
         self.entries = english.map { term in
             let initialism = Self.isInitialism(term)
             var sounds = [Self.sound(term, phones: phones), Self.sound(term, phones: [:])]
-            if initialism { sounds.append(Self.transliterate(term.lowercased())) }
+            if initialism {
+                sounds.append(Self.transliterate(term.lowercased()))
+                // Adjacent English letter names can contract in Russian speech:
+                // джи + ар → джар. Keep the affricate; жар is not equivalent.
+                sounds += sounds.map { $0.replacingOccurrences(of: "джиар", with: "джар") }
+            }
             // In Russian, the initial English Y is commonly pronounced both
             // /wai/ and /ai/. Limit this variant to a separate letter in a name.
             if Self.parts(term).first?.uppercased() == "Y" {
                 sounds += sounds.filter { $0.hasPrefix("вай") }.map { String($0.dropFirst()) }
             }
-            return Entry(term: term, keys: Set(sounds.map(Self.key).filter { $0.count >= 3 }), initialism: initialism)
+            let spelling = initialism && term.count >= 3 ? Self.transliterate(term.lowercased()) : nil
+            return Entry(term: term, keys: Set(sounds.map(Self.key).filter { $0.count >= 3 }), initialism: initialism,
+                         cyrillicSpelling: spelling)
         }
     }
 
@@ -67,6 +95,7 @@ struct SpokenVocabulary {
         guard !entries.isEmpty else { return original }
         let ns = original as NSString
         let words = Self.words(original)
+        let protected = TranscriptOrthography.literalRanges(in: original)
         var replacements: [(NSRange, String)] = []
         var index = 0
         while index < words.count {
@@ -74,6 +103,7 @@ struct SpokenVocabulary {
             for count in stride(from: min(6, words.count - index), through: 1, by: -1) {
                 let range = NSRange(location: words[index].range.location,
                     length: NSMaxRange(words[index + count - 1].range) - words[index].range.location)
+                guard !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { continue }
                 let source = ns.substring(with: range)
                 guard Self.joinable(source) else { continue }
                 if count > 1, Self.standaloneWords.contains(words[index].text.lowercased()) || Self.standaloneWords.contains(words[index + count - 1].text.lowercased()) { continue }
@@ -92,11 +122,53 @@ struct SpokenVocabulary {
         return output as String
     }
 
+    func needsNumericEndingCheck(in text: String) -> Bool {
+        RussianRecognition.needsNumericEndingCheck(in: text, vocabulary: vocabulary)
+    }
+
     /// Near misses are suggestions for a fresh audio decode, never direct text
     /// replacements. Short English initialisms stay unchanged; a unique explicit
     /// Cyrillic initialism can supply a cross-script audio hypothesis.
+    /// Numeric near misses suggest a spelling only; the fresh decode must
+    /// independently contain that exact form at the same local anchors.
+    func numericRepairContext(in original: String) -> String? {
+        RussianRecognition.numericRepairContext(in: original, vocabulary: vocabulary, expected: numericRepairForm)
+    }
+
+    func restoringNumericName(original: String, candidate: String) -> String? {
+        RussianRecognition.restoringNumericName(original: original, candidate: apply(to: candidate),
+                                                  vocabulary: vocabulary, expected: numericRepairForm)
+    }
+
+    private func numericRepairForm(_ source: String) -> String? {
+        guard Self.isRussianWord(source), apply(to: source) == source,
+              !terms.contains(where: { RecognitionVocabulary.contains($0, in: source) }),
+              let suggestion = numericSuggestion(source), promptHypothesis(source) == suggestion,
+              let apostrophe = suggestion.firstIndex(of: "'") else { return nil }
+        let term = String(suggestion[..<apostrophe])
+        let ending = String(suggestion[suggestion.index(after: apostrophe)...]).lowercased()
+        let acronym = String(term.drop(while: \.isNumber)).lowercased().replacingOccurrences(of: "ё", with: "е")
+        let lower = source.lowercased().replacingOccurrences(of: "ё", with: "е")
+        guard !ending.isEmpty, lower.hasSuffix(acronym + ending),
+              !terms.contains(where: { $0 != term && RecognitionVocabulary.contains($0, in: suggestion) }) else { return nil }
+        return suggestion
+    }
+
     func promptHypothesis(_ text: String) -> String {
         promptResult(text).text
+    }
+
+    /// A compact glossary for a fresh decode, containing only terms observed in
+    /// either hypothesis or supported by the existing conservative hint path.
+    func relevantTerms(in texts: [String]) -> String {
+        let observed = texts.flatMap { [$0, promptHypothesis($0)] }
+        var seen: Set<String> = []
+        var relevant: [String] = []
+        for term in terms where observed.contains(where: { RecognitionVocabulary.contains(term, in: $0) }) {
+            if seen.insert(term.lowercased()).inserted { relevant.append(term) }
+            if relevant.count == 8 { break }
+        }
+        return relevant.joined(separator: ", ")
     }
 
     /// These conservative hints must not authorize a rewrite of an entire turn.
@@ -125,6 +197,7 @@ struct SpokenVocabulary {
         let normalized = apply(to: text)
         let ns = normalized as NSString
         let words = Self.words(normalized)
+        let protected = TranscriptOrthography.literalRanges(in: normalized)
         var replacements: [(NSRange, String)] = []
         var hasCyrillicHints = false
         var index = 0
@@ -133,12 +206,20 @@ struct SpokenVocabulary {
             for count in stride(from: min(3, words.count - index), through: 1, by: -1) {
                 let range = NSRange(location: words[index].range.location,
                     length: NSMaxRange(words[index + count - 1].range) - words[index].range.location)
+                guard !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { continue }
                 let source = ns.substring(with: range)
                 if count == 1, let suggestion = cyrillicSuggestion(source) {
                     hasCyrillicHints = true
                     found = (range, suggestion, count); break
                 }
-                guard source.filter(\.isLetter).count >= 6, Self.joinable(source) else { continue }
+                guard source.filter(\.isLetter).count >= 6 else { continue }
+                if source.contains("&") {
+                    guard count > 1, source.allSatisfy({ $0.isLetter || $0.isNumber || $0.isWhitespace || "-'’&".contains($0) }),
+                          let span = Range(range, in: normalized) else { continue }
+                    let surrounding = String(normalized[..<span.lowerBound].reversed().prefix { !$0.isWhitespace }.reversed())
+                        + source + normalized[span.upperBound...].prefix { !$0.isWhitespace }
+                    guard !surrounding.contains(where: { ":/\\@=_`\"«»“”".contains($0) }) else { continue }
+                } else if !Self.joinable(source) { continue }
                 if count > 1, Self.standaloneWords.contains(words[index].text.lowercased()) || Self.standaloneWords.contains(words[index + count - 1].text.lowercased()) { continue }
                 if let suggestion = suggestion(source) { found = (range, suggestion, count); break }
             }
@@ -151,13 +232,15 @@ struct SpokenVocabulary {
     }
 
     private func cyrillicSuggestion(_ source: String) -> String? {
-        guard !explicitTerms.contains(source.lowercased()) else { return nil }
-        if (4...8).contains(source.count), source.unicodeScalars.allSatisfy({ (65...90).contains($0.value) }) {
+        guard !terms.contains(where: { RecognitionVocabulary.contains($0, in: source) }) else { return nil }
+        if let numeric = numericSuggestion(source) { return numeric }
+        if (3...8).contains(source.count), source.unicodeScalars.allSatisfy({ (65...90).contains($0.value) }) {
             // An exact transliterated spelling is already plausible. Never
             // trade it for a neighboring dictionary acronym.
             guard !cyrillicInitialisms.contains(where: { $0.latin == source }) else { return nil }
             let matches = Set(cyrillicInitialisms.filter {
-                $0.latin.count == source.count && Self.distance(source, $0.latin) == 1
+                (source.count >= 4 && $0.latin.count == source.count && Self.distance(source, $0.latin) == 1)
+                    || Self.omitsRepeatedLetter(source, from: $0.latin)
             }.map(\.term))
             return matches.count == 1 ? matches.first : nil
         }
@@ -173,17 +256,67 @@ struct SpokenVocabulary {
         return matches.count == 1 ? matches.first.map { "с " + $0 } : nil
     }
 
+    /// A hint requires a whole fused numeral, acronym and recognized ending.
+    /// Permit a miss in either the numeral or the acronym, never both.
+    private func numericSuggestion(_ source: String) -> String? {
+        let lower = source.lowercased().replacingOccurrences(of: "ё", with: "е")
+        guard Self.isRussianWord(lower) else { return nil }
+        var candidates: [(term: String, ending: String, distance: Int)] = []
+        for term in terms {
+            guard let forms = RecognitionVocabulary.numericForms(for: term) else { continue }
+            let acronym = String(term.drop(while: \.isNumber)).lowercased().replacingOccurrences(of: "ё", with: "е")
+            for ending in ["ами", "ам", "ах", "ов", "ом", "а", "у", "е", "ы"] where lower.hasSuffix(ending) {
+                let stem = String(lower.dropLast(ending.count))
+                guard stem.count >= acronym.count + 2 else { continue }
+                let prefix = String(stem.dropLast(acronym.count))
+                let actualAcronym = String(stem.suffix(acronym.count))
+                let acronymDistance = Self.distance(actualAcronym, acronym)
+                for form in forms {
+                    let numeral = form.replacingOccurrences(of: "ё", with: "е")
+                    guard prefix.first == numeral.first else { continue }
+                    let numeralDistance = Self.distance(prefix, numeral)
+                    guard (acronymDistance == 0 && numeralDistance <= 2)
+                        || (numeralDistance == 0 && acronymDistance <= 1) else { continue }
+                    let distance = numeralDistance + acronymDistance
+                    if distance > 0 { candidates.append((term, ending, distance)) }
+                }
+            }
+        }
+        guard let best = candidates.map(\.distance).min() else { return nil }
+        let winners = candidates.filter { $0.distance == best }
+        let replacements = Set(winners.map { $0.term + "'" + $0.ending })
+        return replacements.count == 1 ? replacements.first : nil
+    }
+
     private static func isRussianWord(_ text: String) -> Bool {
         !text.isEmpty && text.unicodeScalars.allSatisfy {
             (0x410...0x44f).contains($0.value) || $0.value == 0x401 || $0.value == 0x451
         }
     }
 
+    private static func omitsRepeatedLetter(_ source: String, from target: String) -> Bool {
+        let letters = Array(target)
+        guard letters.count == source.count + 1 else { return false }
+        return (1..<letters.count).contains { index in
+            letters[index] == letters[index - 1]
+                && String(letters[..<index] + letters[(index + 1)...]) == source
+        }
+    }
+
     private func suggestion(_ source: String) -> String? {
+        guard !terms.contains(where: { RecognitionVocabulary.contains($0, in: source) }) else { return nil }
         var forms = [(source, "")]
         if source.lowercased().hasPrefix("с") { forms.append((String(source.dropFirst()), "с ")) }
+        let completeForms = forms
+        for (form, prefix) in completeForms {
+            for ending in ["ами", "ями", "ого", "ому", "ов", "ом", "ем", "ам", "ах", "ям", "ях", "а", "у", "е", "ы", "и"] where form.lowercased().hasSuffix(ending) {
+                let stem = String(form.dropLast(ending.count))
+                if (stem.split(whereSeparator: \.isWhitespace).last?.count ?? 0) >= 3 { forms.append((stem, prefix)) }
+            }
+        }
         var candidates: [(term: String, replacement: String, distance: Int)] = []
         for entry in entries where !entry.initialism {
+            if source.contains("&"), entry.term.split(whereSeparator: \.isWhitespace).count < 2 { continue }
             for (form, prefix) in forms {
                 let key = Self.key(Self.sound(form, phones: phones))
                 for target in entry.keys where min(key.count, target.count) >= 5 && key.first == target.first {
@@ -194,7 +327,7 @@ struct SpokenVocabulary {
                 }
             }
         }
-        guard let best = candidates.map(\.distance).min(), best > 0 else { return nil }
+        guard let best = candidates.map(\.distance).min(), best > 0 || source.contains("&") else { return nil }
         let winners = candidates.filter { $0.distance == best }
         return Set(winners.map(\.term)).count == 1 ? winners.first?.replacement : nil
     }
@@ -212,19 +345,29 @@ struct SpokenVocabulary {
         }
         for (variant, prefix) in variants {
             let lower = variant.lowercased()
-            var stems: [(String, String)] = [(variant, "")]
+            var stems: [(text: String, phoneticSuffix: String, literalSuffix: String)] = [(variant, "", "")]
             for ending in ["ами", "ями", "ого", "ому", "ов", "ом", "ем", "ам", "ах", "ям", "ях", "а", "у", "е", "ы", "и"] where lower.hasSuffix(ending) {
-                stems.append((String(variant.dropLast(ending.count)), ""))
+                stems.append((String(variant.dropLast(ending.count)), "", "'" + ending))
             }
             if entry.initialism {
                 for ending in ["ками", "кой", "ках", "кам", "ка", "ку", "ке", "ки", "ок"] where lower.hasSuffix(ending) {
-                    stems.append((String(variant.dropLast(ending.count)), "'" + ending))
+                    stems.append((String(variant.dropLast(ending.count)), "'" + ending, "'" + ending))
                 }
             }
-            for (stem, suffix) in stems {
+            for (stem, phoneticSuffix, literalSuffix) in stems {
                 guard stem == stem.trimmingCharacters(in: .whitespacesAndNewlines) else { continue }
+                // A separately supplied Russian name takes precedence over an
+                // acronym pronunciation, including its recognized case ending.
+                let literal = stem.trimmingCharacters(in: CharacterSet(charactersIn: "'’")).lowercased()
+                if Self.isRussianWord(literal), explicitTerms.contains(literal) { return nil }
+                // Exact letters retain repetitions that a phonetic key collapses
+                // (LLM is not LM or LMM). Preserve an ending attached to that
+                // explicit spelling without interpreting a Latin M as Russian ем.
+                if entry.initialism, literal == entry.term.lowercased() || literal == entry.cyrillicSpelling {
+                    return (prefix, literalSuffix)
+                }
                 let key = Self.key(Self.sound(stem, phones: phones))
-                if entry.keys.contains(key) { return (prefix, suffix) }
+                if entry.keys.contains(key) { return (prefix, phoneticSuffix) }
             }
         }
         return nil

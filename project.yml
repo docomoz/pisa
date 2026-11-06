@@ -29,7 +29,12 @@ targets:
         basedOnDependencyAnalysis: false
     sources:
       - Sources/Pisya
-      - Sources/PisyaCore
+      - path: Sources/PisyaCore
+        excludes: [Resources]
+      - path: Sources/PisyaCore/Resources/PisyaYoWords.deflate
+        buildPhase: resources
+      - path: Sources/PisyaCore/Resources/PisyaYoWords-LICENSE.txt
+        buildPhase: resources
       - path: Resources/silero_vad.onnx
         buildPhase: resources
       - path: Resources/Silero-LICENSE
@@ -82,7 +87,8 @@ targets:
     platform: macOS
     sources:
       - Sources/PisyaMCP
-      - Sources/PisyaCore
+      - path: Sources/PisyaCore
+        excludes: [Resources]
     settings:
       base:
         PRODUCT_NAME: pisya-mcp

@@ -12,6 +12,7 @@ enum RecognitionQualityTests {
         var context: String?
         var track: String?
         var live: Bool?
+        var referenceSamples: [Float]?
     }
     private struct Request: Decodable {
         var fixtures: [Fixture]
@@ -24,6 +25,11 @@ enum RecognitionQualityTests {
         let modes = Set(["pipeline", "acoustic", "auto", "russian", "unpenalized", "russian-unpenalized"])
         guard !request.fixtures.isEmpty, request.modes.allSatisfy(modes.contains),
               request.fixtures.allSatisfy({ !$0.samples.isEmpty && $0.samples.count <= 16000 * 120 && $0.samples.allSatisfy(\.isFinite) }),
+              request.fixtures.allSatisfy({ fixture in
+                  guard let reference = fixture.referenceSamples else { return true }
+                  return fixture.track != "remote" && !reference.isEmpty && reference.count <= 16000 * 120
+                      && reference.allSatisfy(\.isFinite)
+              }),
               !request.modes.contains("acoustic") || request.fixtures.allSatisfy({ $0.samples.count <= 16000 * 30 }) else {
             throw PisyaError.message("Invalid recognition fixtures or modes")
         }
@@ -47,7 +53,10 @@ enum RecognitionQualityTests {
                 let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
                 for fixture in request.fixtures {
                     let live = fixture.live ?? true
-                    if !live { await transcriber.finishLive() }
+                    // Each fixture starts at zero and represents a separate
+                    // conversation. Its language must not leak from the prior
+                    // fixture merely because VAD found a later first syllable.
+                    await transcriber.finishLive()
                     let track = fixture.track == "remote" ? "remote" : "mic"
                     let url = root.appendingPathComponent("fixture-\(track).caf")
                     let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(fixture.samples.count))!
@@ -55,10 +64,21 @@ enum RecognitionQualityTests {
                     fixture.samples.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: $0.count) }
                     let writer = try AVAudioFile(forWriting: url, settings: format.settings)
                     try writer.write(from: buffer); writer.close()
+                    var files = [(url, 0.0)]
+                    if let reference = fixture.referenceSamples {
+                        let referenceURL = root.appendingPathComponent("reference-remote.caf")
+                        let referenceBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(reference.count))!
+                        referenceBuffer.frameLength = AVAudioFrameCount(reference.count)
+                        reference.withUnsafeBufferPointer { referenceBuffer.floatChannelData![0].update(from: $0.baseAddress!, count: $0.count) }
+                        let referenceWriter = try AVAudioFile(forWriting: referenceURL, settings: format.settings)
+                        try referenceWriter.write(from: referenceBuffer); referenceWriter.close()
+                        files.append((referenceURL, 0))
+                    }
                     let began = Date()
-                    let segments = try await transcriber.transcribe(files: [(url, 0)], modelDirectory: directory,
+                    let recognized = try await transcriber.transcribe(files: files, modelDirectory: directory,
                         context: fixture.context ?? "", speakerDirectory: userRoot.appendingPathComponent("Models/Speakers"),
                         profiles: [], quiet: false, live: live, russianVerification: request.russianVerification ?? true) { _, _ in }
+                    let segments = fixture.referenceSamples == nil ? recognized : recognized.filter { $0.audioFile?.contains("-mic.") == true }
                     var extra: [String: Any] = ["live": live,
                         "segments": segments.map { ["start": $0.start, "end": $0.end, "text": $0.text] }]
                     if live { extra["russianVerifierLoaded"] = await transcriber.liveRussianModelIdentity() != nil }

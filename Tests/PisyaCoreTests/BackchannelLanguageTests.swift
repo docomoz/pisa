@@ -86,6 +86,8 @@ final class BackchannelLanguageTests: XCTestCase {
             (11.607, 12.400, "Um.", "а.", "А"),
             (684.219, 685.164, "Ah.", "аа", "А"),
             (684.219, 685.164, "Ah-ah.", "А-а.", "А"),
+            (2112, 2113, "Uh.", "Аааа.", "А"),
+            (2112, 2113, "Uh.", "А-а-а-а.", "А"),
         ] {
             var short = segment(start, original, mic: false)
             short.end = end
@@ -104,6 +106,89 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh-huh.", russian: "А.", corroboration: "Угу."), "Угу.")
         XCTAssertNil(BackchannelLanguage.alternative(original: "Ah.", russian: "А.", corroboration: "А", vocabulary: "Ah"))
         XCTAssertNil(BackchannelLanguage.alternative(original: "Hmm.", russian: "Вот.", corroboration: nil))
+        XCTAssertNil(BackchannelLanguage.alternative(original: "Uh.", russian: "Аааа, да.", corroboration: nil))
+    }
+
+    func testRussianConversationLocalizesKnownFillersWithoutAnAudioAlternative() {
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта", mic: false)
+        for (original, expected) in [
+            ("Uh.", "Аааа."), ("Um.", "Ааа."), ("Ah!", "А!"), ("Hmm?", "Хм?"),
+            ("Uh-huh.", "Угу."), ("Mhm.", "Угу."), ("Yeah.", "Да."), ("Yep.", "Да."),
+            ("Yes.", "Да."), ("Okay.", "Окей."), ("Sorry.", "Сорри."), ("Uh-huh, yeah.", "Угу, да."),
+            ("Uh-huh, uh-huh.", "Угу, угу."),
+        ] {
+            let short = segment(30, original, mic: false)
+            let result = BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian])
+            XCTAssertEqual(result[0].text, expected, original)
+        }
+    }
+
+    func testFillerFallbackPreservesEnglishSpeechAndUnknownContext() {
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта")
+        let english = segment(27, "Let us discuss the next question", mic: false)
+        let short = segment(30, "Yeah.", mic: false)
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian, english])[0].text, short.text)
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [])[0].text, short.text)
+        let apology = segment(30, "Sorry.", mic: false)
+        XCTAssertEqual(BackchannelLanguage.resolve([apology], alternatives: [:], preceding: [russian, english])[0].text, "Sorry.")
+        for text in ["Yeah, send the report.", "Uh-huh, John.", "Sorry, I cannot attend.", "Focus.", "Y-1."] {
+            let speech = segment(30, text)
+            XCTAssertEqual(BackchannelLanguage.resolve([speech], alternatives: [:], preceding: [russian])[0].text, text)
+        }
+    }
+
+    func testNearbyShortEnglishSentenceOutweighsOlderRussianSpeech() {
+        let russian = segment(0, "Теперь обсудим следующий вопрос проекта")
+        let english = segment(10, "Are you ready?")
+        let name = segment(10, "John Patrick Doe.")
+        let short = segment(12, "Yeah.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian, english])[0].text, "Yeah.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian, name])[0].text, "Да.")
+        XCTAssertEqual(BackchannelLanguage.resolve([english], alternatives: [english.id: "Вы готовы?"], preceding: [russian])[0].text, "Вы готовы?")
+    }
+
+    func testFillerFallbackPreservesQuotedAndPathLikeLiterals() {
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта")
+        for text in ["`Yes`", "«Yes»", "\"Yes\"", "'Yes'.", "yes/yes", "yes.yes"] {
+            let short = segment(30, text)
+            XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian])[0].text, text)
+            XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [short.id: "Да."], preceding: [russian])[0].text, text)
+        }
+        let filler = segment(30, "Uh-huh,yeah.")
+        XCTAssertEqual(BackchannelLanguage.resolve([filler], alternatives: [:], preceding: [russian])[0].text, "Угу, да.")
+        let quotedApology = segment(30, "«Sorry».")
+        XCTAssertEqual(BackchannelLanguage.resolve([quotedApology], alternatives: [quotedApology.id: "Сорри."], preceding: [russian])[0].text, "«Sorry».")
+    }
+
+    func testRepeatedRussianFillersDoNotEstablishLanguageInFollowingWindows() {
+        let repeated = segment(25, "Да, да, да, да.")
+        let short = segment(30, "Yeah.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [repeated])[0].text, short.text)
+    }
+
+    func testLongFillerSequenceLocalizesWithoutRequestingAnAudioRetry() {
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта")
+        let english = segment(25, "Let us discuss the next question")
+        var short = segment(30, "Yeah! Yeah! Yeah! Yeah!")
+        short.end = 34.1
+        XCTAssertFalse(BackchannelLanguage.shouldRecheck(short.text, duration: short.end - short.start))
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian])[0].text, "Да, да, да, да!")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [english])[0].text, short.text)
+    }
+
+    func testAudioAlternativeTakesPrecedenceOverFillerFallback() {
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта")
+        let short = segment(30, "Um.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [short.id: "Эм."], preceding: [russian])[0].text, "Эм.")
+    }
+
+    func testFillerFallbackAndAudioKeepDictionarySpelling() {
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта")
+        let short = segment(30, "Yeah.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian], vocabulary: "Yeah")[0].text, "Yeah.")
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [short.id: "Да."], preceding: [russian], vocabulary: "Yeah")[0].text, "Yeah.")
+        let apology = segment(30, "Sorry.")
+        XCTAssertEqual(BackchannelLanguage.resolve([apology], alternatives: [:], preceding: [russian], vocabulary: "Sorry")[0].text, "Sorry.")
     }
 
     func testCompoundAcknowledgmentDoesNotRelaxChecksForEnglishWordsOrDictionaryTerms() {
