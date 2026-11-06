@@ -11,6 +11,8 @@
   <script src="script.js" defer></script>
 </head>
 <body>
+  <svg class="water-filter" id="water-filter" aria-hidden="true" width="0" height="0" xmlns="http://www.w3.org/2000/svg"><filter id="water-distortion" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".006 .014" numOctaves="2" seed="8" result="ripple"><animate id="water-motion" attributeName="baseFrequency" values=".006 .014;.009 .009;.006 .014" dur="24s" repeatCount="indefinite" begin="indefinite"/></feTurbulence><feDisplacementMap in="SourceGraphic" in2="ripple" scale="25" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
+  <div class="water-layer" aria-hidden="true"></div>
   <header class="header wrap">
     <div class="header-brand"><a class="brand" href="#top" aria-label="Pisya — наверх"><img src="assets/mark-header.svg" alt=""><span>Pisya</span></a><span class="brand-mood" id="brand-mood"><span class="brand-mood-phrase">в хорошем настроении</span> <span class="brand-mood-emoji">✨</span></span></div>
     <nav aria-label="Основная навигация"><a href="#features">Возможности</a><a href="#privacy">Приватность</a><a href="https://github.com/docomoz/pisya">GitHub ↗</a></nav>
@@ -22,7 +24,7 @@
       <p class="eyebrow">Рекордер встреч для Mac</p>
       <h1>Pisya пишет<br><em>за вас</em></h1>
       <p class="hero-copy"><span>Записывает встречи и расшифровывает их на Mac.</span><span>Подключайте через MCP любимый AI‑инструмент с локальной или облачной моделью и спрашивайте его о встречах.</span></p>
-      <div class="hero-actions"><a class="button" href="#install-guide">Попробовать Pisya <span aria-hidden="true">↓</span></a><a class="text-link" href="#features">Что умеет <span aria-hidden="true">↓</span></a></div>
+      <div class="hero-actions"><a class="button" href="#install-guide">Попробовать Pisya <span aria-hidden="true">↓</span></a></div>
       <p class="fine-print">Mac с Apple Silicon · macOS 15 и новее</p>
       <div class="hero-product"><div class="product-caption"><span>ЗАПИСАЛА</span><span>НЕ ЗАБЫЛА</span></div><img src="assets/meeting.png" alt="Вымышленная встреча «Планы по планированию» в Pisya: список встреч и расшифровка"></div>
     </section>
