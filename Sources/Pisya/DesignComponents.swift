@@ -124,7 +124,7 @@ struct FormTextEditor: View {
 struct AlignedIconLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
-            configuration.icon.frame(width: PisyaDesign.Metrics.labelIconWidth)
+            configuration.icon.frame(width: PisyaDesign.Metrics.labelIconWidth, alignment: .leading)
             configuration.title
         }
     }

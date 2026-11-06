@@ -128,7 +128,7 @@ final class AppState: ObservableObject {
         select(filtered.first?.id)
     }
     func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !pending.contains(m.id) }
-    func canRename(_ m: Meeting) -> Bool { !demo && (recordingMeetingID == m.id || canModify(m)) }
+    func canRename(_ m: Meeting) -> Bool { !demo }
     func isQueued(_ id: UUID) -> Bool { pending.contains(id) }
     func stageRecordingTitle(_ title: String, for meeting: Meeting) {
         guard recordingMeetingID == meeting.id else { return }
@@ -475,7 +475,8 @@ final class AppState: ObservableObject {
                 let startedAt = Date()
                 do {
                     liveStatus = stopped ? "Завершаю расшифровку" : "Готовлю черновик"
-                    var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, quiet: stopped ? preferences.usesQuietProcessing : true)
+                    let preceding = try library.read(id).segments.filter { $0.end <= window.start && $0.end >= window.start - 300 }
+                    var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, quiet: stopped ? preferences.usesQuietProcessing : true, preceding: preceding)
                     var committedEnd = LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: segments)
                     if committedEnd <= window.start + 0.001 {
                         if !stopped {
@@ -487,7 +488,7 @@ final class AppState: ObservableObject {
                         // A continuous turn longer than a batch has no safe
                         // boundary. Recognize this still-uncommitted batch
                         // without lookahead and make progress after stop.
-                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, quiet: preferences.usesQuietProcessing)
+                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, quiet: preferences.usesQuietProcessing, preceding: preceding)
                         committedEnd = window.end
                     } else { segments.removeAll { $0.end > committedEnd } }
                     try Task.checkCancellation()
@@ -520,7 +521,7 @@ final class AppState: ObservableObject {
         liveTask = nil; liveStatus = ""; liveAudioDuration = nil; processingID = nil; phase = ""; runNext()
     }
 
-    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, quiet: Bool) async throws -> [TranscriptSegment] {
+    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, quiet: Bool, preceding: [TranscriptSegment] = []) async throws -> [TranscriptSegment] {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-window-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -528,7 +529,7 @@ final class AppState: ObservableObject {
             try CaptureWindow.copy(tracks, start: window.start, end: end, directory: directory)
         }.value
         guard !files.isEmpty else { return [] }
-        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), profiles: voiceProfiles, quiet: quiet, live: true) { _, _ in }
+        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), profiles: voiceProfiles, quiet: quiet, live: true, preceding: preceding) { _, _ in }
         return try result.map { segment in
             var mapped = segment
             guard let temporaryName = segment.audioFile,
@@ -650,7 +651,7 @@ final class AppState: ObservableObject {
         if !startPlayback(segment, in: meeting, toggle: true) { message = "Аудио этого фрагмента недоступно" }
     }
     @discardableResult
-    private func startPlayback(_ segment: TranscriptSegment, in meeting: Meeting, toggle: Bool) -> Bool {
+    private func startPlayback(_ segment: TranscriptSegment, in meeting: Meeting, toggle: Bool, normalizePreview: Bool = false) -> Bool {
         guard !demo, !recording else { stopPlayback(); return false }
         if toggle && playingSegmentID == segment.id { stopPlayback(); return true }
         let name = segment.audioFile ?? meeting.audioFiles.first { segment.speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") } ?? meeting.audioFiles.first
@@ -665,10 +666,19 @@ final class AppState: ObservableObject {
               start < candidate.duration, candidate.duration > 0 else { stopPlayback(); return false }
         if !toggle && playingSegmentID == segment.id && player?.isPlaying == true { return true }
         stopPlayback()
-        candidate.currentTime = max(0, start)
-        guard candidate.play() else { return false }
-        player = candidate
-        playbackEnd = min(end, candidate.duration)
+        let clipStart = max(0, start), clipEnd = min(end, candidate.duration)
+        if normalizePreview,
+           let data = try? AudioPreview.normalizedData(from: url, start: clipStart, end: clipEnd),
+           let preview = try? AVAudioPlayer(data: data, fileTypeHint: AVFileType.caf.rawValue),
+           preview.play() {
+            player = preview
+            playbackEnd = preview.duration
+        } else {
+            candidate.currentTime = clipStart
+            guard candidate.play() else { return false }
+            player = candidate
+            playbackEnd = clipEnd
+        }
         playingSegmentID = segment.id
         schedulePlaybackStop()
         return true
@@ -683,7 +693,11 @@ final class AppState: ObservableObject {
         }
     }
     func preview(_ segment: TranscriptSegment, in meeting: Meeting) {
-        var clip = segment; clip.end = min(clip.end, clip.start + 8); play(clip, in: meeting)
+        var clip = segment
+        clip.end = min(clip.end, clip.start + 8)
+        if !startPlayback(clip, in: meeting, toggle: true, normalizePreview: true) {
+            message = "Аудио этого фрагмента недоступно"
+        }
     }
     func playExample(_ example: VoiceExample) {
         guard !recording else { return }
@@ -877,12 +891,32 @@ final class AppState: ObservableObject {
     func canExport(_ meeting: Meeting) -> Bool {
         canModify(meeting) && !meeting.segments.isEmpty
     }
-    func exportSelected() {
-        guard let meeting = selected, canExport(meeting) else { return }
+    func exportTranscript(_ meeting: Meeting) {
+        guard canExport(meeting) else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = "\(meeting.title.replacingOccurrences(of: "/", with: "-" )).md"
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.isExtensionHidden = false; panel.canCreateDirectories = true
         if panel.runModal() == .OK, let url = panel.url { do { try MarkdownExporter.render(meeting).write(to: url, atomically: true, encoding: .utf8) } catch { message = error.localizedDescription } }
+    }
+    func canExportAudio(_ meeting: Meeting) -> Bool {
+        guard canModify(meeting), let sources = try? MeetingAudioExport.sources(for: meeting, in: library) else { return false }
+        return !sources.isEmpty
+    }
+    func exportAudio(_ meeting: Meeting) async {
+        guard canExportAudio(meeting) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = meeting.title.replacingOccurrences(of: "/", with: "-") + ".m4a"
+        panel.allowedContentTypes = [UTType(filenameExtension: "m4a") ?? .mpeg4Audio]
+        panel.isExtensionHidden = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let granted = url.startAccessingSecurityScopedResource()
+        defer { if granted { url.stopAccessingSecurityScopedResource() } }
+        do {
+            try await MeetingAudioExport.write(meeting, from: library, to: url)
+        } catch {
+            message = "Не удалось экспортировать аудио: \(error.localizedDescription)"
+        }
     }
     func showDemo() {
         guard !recording, processingID == nil else { return }

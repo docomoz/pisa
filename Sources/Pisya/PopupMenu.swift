@@ -10,7 +10,7 @@ struct NativeActionMenu<Label: View>: View {
     var body: some View {
         Button(action: open, label: label)
             .background(Anchor(view: anchor).allowsHitTesting(false).accessibilityHidden(true))
-            .onKeyPress(keys: [.return, .downArrow]) { _ in
+            .onKeyPress(keys: [.return, .downArrow, .rightArrow]) { _ in
                 guard enabled else { return .ignored }
                 open()
                 return .handled
@@ -19,11 +19,7 @@ struct NativeActionMenu<Label: View>: View {
 
     private func open() {
         guard anchor.window != nil else { return }
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.showsStateColumn = false
-        menu.minimumWidth = anchor.bounds.width
-        menu.items = items()
+        let menu = nativeActionMenu(items: items(), minimumWidth: anchor.bounds.width)
         let location = NSPoint(x: anchor.bounds.minX, y: anchor.bounds.minY - PisyaDesign.Spacing.compact)
         menu.popUp(positioning: nil, at: location, in: anchor)
     }
@@ -33,6 +29,15 @@ struct NativeActionMenu<Label: View>: View {
         func makeNSView(context: Context) -> NSView { view }
         func updateNSView(_ nsView: NSView, context: Context) {}
     }
+}
+
+func nativeActionMenu(items: [NSMenuItem], minimumWidth: CGFloat = 0) -> NSMenu {
+    let menu = NSMenu()
+    menu.autoenablesItems = false
+    menu.showsStateColumn = false
+    menu.minimumWidth = minimumWidth
+    menu.items = items
+    return menu
 }
 
 final class NativeActionMenuItem: NSMenuItem {
@@ -107,191 +112,48 @@ struct PopupKeyboardNavigation: ViewModifier {
     }
 }
 
-struct PopupMenu<Items: View, Label: View>: View {
-    var arrowEdge: Edge = .trailing
-    @ViewBuilder var items: () -> Items
-    @ViewBuilder var label: () -> Label
-    @State private var isPresented = false
-    @State private var showsFocus = false
-    @Environment(\.isEnabled) private var enabled
-
-    var body: some View {
-        Button {
-            open(keyboard: PopupKeyboardNavigation.openedWithKeyboard)
-        } label: {
-            label()
-        }
-        .accessibilityValue(isPresented ? "Открыто" : "Закрыто")
-        .onKeyPress(keys: [.return, .downArrow, .rightArrow]) { _ in
-            guard enabled else { return .ignored }
-            open(keyboard: true)
-            return .handled
-        }
-        .popover(isPresented: $isPresented, arrowEdge: arrowEdge) {
-            PopupMenuSurface(showsFocus: $showsFocus, close: { isPresented = false }, items: items)
-        }
-    }
-
-    private func open(keyboard: Bool) {
-        showsFocus = keyboard
-        isPresented.toggle()
-    }
-}
-
-struct PopupMenuSurface<Items: View>: View {
-    @Binding var showsFocus: Bool
-    var close: () -> Void
-    @ViewBuilder var items: () -> Items
-    @Environment(\.closePopupMenus) private var closeParent
-
-    var body: some View {
-        ViewThatFits(in: .vertical) {
-            rows.fixedSize(horizontal: false, vertical: true)
-            ScrollView { rows }
-        }
-        .padding(PisyaDesign.Spacing.inline)
-        .frame(idealWidth: 248, maxHeight: 360)
-        .fixedSize(horizontal: true, vertical: false)
-        .popupCanvas()
-        .environment(\.closePopupMenus, { close(); closeParent?() })
-        .modifier(PopupKeyboardNavigation(showsFocus: $showsFocus, supportsArrowKeys: true,
-                                          closeOnEscape: close))
-    }
-
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.hairline, content: items)
-    }
-}
-
-private struct ClosePopupMenusKey: EnvironmentKey {
-    static let defaultValue: (() -> Void)? = nil
-}
-
-private extension EnvironmentValues {
-    var closePopupMenus: (() -> Void)? {
-        get { self[ClosePopupMenusKey.self] }
-        set { self[ClosePopupMenusKey.self] = newValue }
-    }
-}
-
-struct PopupMenuItem: View {
-    let title: String
-    var systemImage: String? = nil
-    var role: ButtonRole? = nil
-    var closesOnAction = true
-    let action: () -> Void
-    @Environment(\.closePopupMenus) private var close
-    @Environment(\.isEnabled) private var enabled
-
-    init(_ title: String, systemImage: String? = nil, role: ButtonRole? = nil,
-         closesOnAction: Bool = true, action: @escaping () -> Void) {
-        self.title = title
-        self.systemImage = systemImage
-        self.role = role
-        self.closesOnAction = closesOnAction
-        self.action = action
-    }
-
-    var body: some View {
-        Button(role: role, action: activate) {
-            if let systemImage {
-                screenLabel(title, systemImage: systemImage)
-            } else {
-                screenText(title)
-            }
-        }
-        .popupMenuRow()
-        .onKeyPress(.return) {
-            guard enabled else { return .ignored }
-            activate()
-            return .handled
-        }
-    }
-
-    private func activate() {
-        if closesOnAction { close?() }
-        action()
-    }
-}
-
 extension View {
-    func popupMenuRow() -> some View {
-        buttonStyle(PopupMenuRowStyle()).controlKeyboardFocus()
+    func popupContextMenu(onOpen: @escaping () -> Void = {}, items: @escaping () -> [NSMenuItem]) -> some View {
+        modifier(NativeContextMenu(onOpen: onOpen, items: items))
     }
 }
 
-private struct PopupMenuRowStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Row(label: configuration.label, pressed: configuration.isPressed, destructive: configuration.role == .destructive)
-    }
-
-    private struct Row: View {
-        let label: ButtonStyleConfiguration.Label
-        let pressed: Bool
-        let destructive: Bool
-        @Environment(\.isEnabled) private var enabled
-        @Environment(\.controlFocused) private var focused
-        @State private var hovered = false
-
-        private var fill: Color {
-            guard enabled else { return .clear }
-            if pressed || focused { return PisyaDesign.Colors.secondaryPressed }
-            return hovered ? PisyaDesign.Colors.secondaryHover : .clear
-        }
-
-        var body: some View {
-            label.textStyle(PisyaDesign.Typography.detail)
-                .foregroundStyle(enabled ? (destructive ? Color.recordingRed : Color.ink) : Color.disabledInk)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, PisyaDesign.Spacing.inline)
-                .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.smallHeight, alignment: .leading)
-                .background(fill, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
-                .contentShape(Rectangle())
-                .onHover { hovered = $0 }
-        }
-    }
-}
-
-extension View {
-    func popupContextMenu<Items: View>(onOpen: @escaping () -> Void = {}, @ViewBuilder items: @escaping () -> Items) -> some View {
-        modifier(PopupContextMenu(onOpen: onOpen, items: items))
-    }
-}
-
-private struct PopupContextMenu<Items: View>: ViewModifier {
+private struct NativeContextMenu: ViewModifier {
     let onOpen: () -> Void
-    @ViewBuilder var items: () -> Items
-    @State private var isPresented = false
-    @State private var anchor = UnitPoint.bottomLeading
-    @State private var showsFocus = false
+    let items: () -> [NSMenuItem]
+    @State private var anchor = SecondaryClickObserver.ClickView()
 
     func body(content: Content) -> some View {
         content
-            .background(SecondaryClickObserver { point in open(at: point, keyboard: false) }.allowsHitTesting(false))
-            .accessibilityAction(named: Text("Показать действия")) { open(at: .bottomLeading, keyboard: true) }
-            .popover(isPresented: $isPresented, attachmentAnchor: .point(anchor), arrowEdge: .leading) {
-                PopupMenuSurface(showsFocus: $showsFocus, close: { isPresented = false }, items: items)
+            .background(SecondaryClickObserver(view: anchor, onOpen: onOpen, items: items)
+                .allowsHitTesting(false).accessibilityHidden(true))
+            .accessibilityAction(named: Text("Показать действия")) {
+                anchor.open(at: NSPoint(x: anchor.bounds.minX, y: anchor.bounds.minY))
             }
-    }
-
-    private func open(at point: UnitPoint, keyboard: Bool) {
-        onOpen()
-        anchor = point
-        showsFocus = keyboard
-        isPresented = true
     }
 }
 
 private struct SecondaryClickObserver: NSViewRepresentable {
-    var action: (UnitPoint) -> Void
+    let view: ClickView
+    var onOpen: () -> Void
+    var items: () -> [NSMenuItem]
 
-    func makeNSView(context: Context) -> ClickView { ClickView() }
-    func updateNSView(_ view: ClickView, context: Context) { view.action = action }
+    func makeNSView(context: Context) -> ClickView { view }
+    func updateNSView(_ view: ClickView, context: Context) {
+        view.onOpen = onOpen
+        view.items = items
+    }
 
     final class ClickView: NSView {
-        var action: (UnitPoint) -> Void = { _ in }
+        var onOpen: () -> Void = {}
+        var items: () -> [NSMenuItem] = { [] }
         private var monitor: Any?
+
+        func open(at point: NSPoint) {
+            guard window != nil else { return }
+            onOpen()
+            nativeActionMenu(items: items()).popUp(positioning: nil, at: point, in: self)
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -303,9 +165,7 @@ private struct SecondaryClickObserver: NSViewRepresentable {
                       bounds.width > 0, bounds.height > 0 else { return event }
                 let point = convert(event.locationInWindow, from: nil)
                 guard bounds.intersection(visibleRect).contains(point) else { return event }
-                let x = (point.x - bounds.minX) / bounds.width
-                let y = (point.y - bounds.minY) / bounds.height
-                action(UnitPoint(x: x, y: isFlipped ? y : 1 - y))
+                open(at: point)
                 return nil
             }
         }

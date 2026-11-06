@@ -1,6 +1,6 @@
 import Foundation
 
-struct VoiceRegion { var start: Double; var end: Double; var embedding: [Float]? }
+struct VoiceRegion { var start: Double; var end: Double; var embedding: [Float]?; var recoveredSpeech = false }
 final class SpeakerEngine {
     private var diarizer: OpaquePointer?
     private var extractor: OpaquePointer?

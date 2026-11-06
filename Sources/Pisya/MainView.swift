@@ -188,7 +188,9 @@ struct MeetingView: View {
                 .disabled(!state.canRename(meeting))
                 .onSubmit { saveTitle(resetIfEmpty: true); focusedField = nil }
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
-                .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { _, value in title = value }
+                .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { old, value in
+                    if focusedField != .title || title == old { title = value }
+                }
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
             GeometryReader { geometry in
                 let extraWidth = Self.detailsColumnWidth * (max(1, textScale) - 1)
@@ -284,7 +286,7 @@ struct MeetingView: View {
                                 }
                                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                     screenText(segment.speaker, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.detailStrong).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
-                                    screenText(segment.text, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                    screenText(segment.displayText, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 if showsTranscriptTools {
                                     Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.processingID == meeting.id).screenHelp("Исправить реплику…")
@@ -436,19 +438,8 @@ struct MeetingView: View {
                     .actionButton(size: buttonSize)
                     .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
 
-                    PopupMenu {
-                        PopupMenuItem("Без папки") { state.move(meeting, to: nil) }
-                        if !state.folders.isEmpty { Divider() }
-                        ForEach(state.folders) { folder in
-                            PopupMenuItem(folder.name, systemImage: folder.iconName) { state.move(meeting, to: folder.id) }
-                        }
-                        if meeting.deletedAt == nil {
-                            Divider()
-                            PopupMenuItem("Новая папка…", systemImage: "folder.badge.plus") {
-                                showsMeetingDetails = false
-                                state.newFolderMeeting = meeting
-                            }
-                        }
+                    NativeActionMenu {
+                        MeetingActionSet(state: state, meeting: meeting).folderMenuItems { showsMeetingDetails = false }
                     } label: {
                         detailsActionLabel(folder?.name ?? "Папка", systemImage: folder?.iconName ?? "folder", hasMenu: true)
                     }
@@ -456,14 +447,22 @@ struct MeetingView: View {
                     .disabled(!state.canModify(meeting))
                     .screenHelp(folder?.name ?? "Переместить в папку")
 
-                    Button {
-                        showsMeetingDetails = false
-                        state.exportSelected()
+                    NativeActionMenu {
+                        [
+                            NativeActionMenuItem("Расшифровка…", enabled: state.canExport(meeting)) {
+                                showsMeetingDetails = false
+                                state.exportTranscript(meeting)
+                            },
+                            NativeActionMenuItem("Аудио…", enabled: state.canExportAudio(meeting)) {
+                                showsMeetingDetails = false
+                                Task { await state.exportAudio(meeting) }
+                            }
+                        ]
                     } label: {
-                        detailsActionLabel("Поделиться…", systemImage: "square.and.arrow.up")
+                        detailsActionLabel("Поделиться", systemImage: "square.and.arrow.up", hasMenu: true)
                     }
                     .actionButton(size: buttonSize)
-                    .disabled(!state.canExport(meeting))
+                    .disabled(!state.canExport(meeting) && !state.canExportAudio(meeting))
 
                     NativeActionMenu {
                         meetingMenuItems
@@ -512,6 +511,7 @@ struct MeetingView: View {
             } icon: {
                 Image(systemName: systemImage)
             }
+            .labelStyle(AlignedIconLabelStyle())
             .lineLimit(1).truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
             if hasMenu {

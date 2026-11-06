@@ -12,6 +12,7 @@ struct VoiceManager: View {
     @State private var remember = true
     private var meeting: Meeting? { state.meetings.first { $0.id == meetingID } }
     private var sample: TranscriptSegment? { meeting?.segments.first { $0.id == selected } }
+    private var canApplyName: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var automaticSample: TranscriptSegment? {
         guard let meeting, let selected else { return nil }
         return state.voiceSample(for: selected, in: meeting, allMatching: allMatching)
@@ -20,6 +21,12 @@ struct VoiceManager: View {
         name = voiceNameForSelection(currentID: selected, currentName: name, segment: segment)
         selected = segment.id
     }
+
+    private func applyName() {
+        guard canApplyName, let selected else { return }
+        state.assignVoice(meetingID: meetingID, segmentID: selected, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             HStack(spacing: PisyaDesign.Spacing.inline) { SectionHeading("Голоса встречи", subtitle: "Послушайте фрагмент, назначьте имя и сохраните образец для следующих встреч", style: .dialog); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
@@ -47,6 +54,7 @@ struct VoiceManager: View {
                                 TextField("Имя участника", text: $name)
                                     .textFieldStyle(PisyaTextFieldStyle(editingOffset: nameFocused ? 1 : 0))
                                     .focused($nameFocused)
+                                    .onSubmit(applyName)
                             }
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
@@ -60,9 +68,8 @@ struct VoiceManager: View {
                                 } else if automaticSample == nil {
                                     screenText("Нет подходящего образца от 2 секунд с голосовым слепком и доступным аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 }
-                                screenButton("Применить имя") {
-                                    state.assignVoice(meetingID: meetingID, segmentID: sample.id, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
-                                }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                screenButton("Применить имя", action: applyName)
+                                    .actionButton(.primary).disabled(!canApplyName)
                             }
                         } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
