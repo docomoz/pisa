@@ -49,7 +49,6 @@ struct MainView: View {
             }
             .frame(minHeight: PisyaDesign.Metrics.regularHeight)
             .padding(.top, PisyaDesign.Spacing.content)
-            .layoutPriority(state.recording ? 0 : -1)
             Spacer(minLength: PisyaDesign.Spacing.none)
                 .frame(maxHeight: .infinity)
                 .background(TitleBarZoom().allowsHitTesting(false))
