@@ -41,8 +41,7 @@ struct MainView: View {
                 RecordingIndicator(monitor: state.recordingMonitor, started: started)
                     .frame(minHeight: PisyaDesign.Metrics.regularHeight)
                     .padding(.top, PisyaDesign.Spacing.content)
-                Spacer(minLength: PisyaDesign.Spacing.none)
-                    .frame(maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(TitleBarZoom().allowsHitTesting(false))
             } else {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
@@ -60,12 +59,7 @@ struct MainView: View {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
-                    let importIcon = "tray.and.arrow.down"
-                    if state.recording {
-                        Image(systemName: importIcon).textStyle(PisyaDesign.Typography.detailMedium)
-                    } else {
-                        screenLabel("Импорт…", systemImage: importIcon)
-                    }
+                    screenLabel("Импорт…", systemImage: "tray.and.arrow.down")
                 }.actionButton().disabled(state.demo)
                     .screenHelp("Импортировать аудио…").accessibilityLabel("Импортировать аудио…")
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
@@ -596,21 +590,38 @@ private struct RecordingIndicator: View {
     @State private var showsWaveforms = false
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            indicator(compact: false)
+            indicator(compact: true)
+        }
+    }
+
+    private func indicator(compact: Bool) -> some View {
         HStack(spacing: PisyaDesign.Spacing.related) {
             HStack(spacing: PisyaDesign.Spacing.inline) {
-                Circle().fill(Color.recordingRed).frame(width: 7, height: 7).accessibilityHidden(true)
+                Circle().fill(Color.recordingRed).frame(width: 7, height: 7)
+                    .accessibilityLabel("Идёт запись")
+                    .accessibilityHidden(!compact)
                 HStack(alignment: .firstTextBaseline, spacing: PisyaDesign.Spacing.inline) {
-                    screenText("Идёт запись")
-                        .textStyle(PisyaDesign.Typography.detailStrong)
-                        .foregroundStyle(Color.recordingRed)
-                        .fixedSize()
+                    if !compact {
+                        screenText("Идёт запись")
+                            .textStyle(PisyaDesign.Typography.detailStrong)
+                            .foregroundStyle(Color.recordingRed)
+                    }
                     RecordingElapsed(started: started)
                 }
             }
+            .accessibilityElement(children: .combine)
             Button { showsWaveforms.toggle() } label: {
-                HStack(spacing: PisyaDesign.Spacing.related) {
-                    meter("mic", track: monitor.microphone)
-                    meter("speaker.wave.2", track: monitor.system)
+                Group {
+                    if compact {
+                        Image(systemName: "waveform")
+                    } else {
+                        HStack(spacing: PisyaDesign.Spacing.related) {
+                            meter("mic", track: monitor.microphone)
+                            meter("speaker.wave.2", track: monitor.system)
+                        }
+                    }
                 }.accessibilityHidden(true)
             }
             .actionButton(size: .small)
@@ -620,7 +631,7 @@ private struct RecordingIndicator: View {
             .popover(isPresented: $showsWaveforms, arrowEdge: .bottom) {
                 RecordingWaveformView(monitor: monitor)
             }
-        }
+        }.fixedSize(horizontal: true, vertical: false)
     }
 
     private func missingSignal(_ track: AudioMeterTrack) -> Bool {
