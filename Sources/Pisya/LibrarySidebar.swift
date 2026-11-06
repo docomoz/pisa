@@ -17,15 +17,15 @@ struct LibrarySidebar: View {
                 scope("Без папки", icon: "doc", selected: state.unfiledOnly && !state.showingTrash) { state.openFolder(unfiled: true) }
                 ForEach(state.folders) { folder in
                     scope(folder.name, icon: folder.iconName, selected: state.folderFilter == folder.id && !state.showingTrash) { state.openFolder(folder.id) }
-                        .contextMenu {
-                            screenButton("Изменить папку…") { editingFolder = folder; folderName = folder.name; folderEditor = true }
-                            screenButton("Удалить папку…", role: .destructive) { deletingFolder = folder }
+                        .popupContextMenu {
+                            PopupMenuItem("Изменить папку…") { editingFolder = folder; folderName = folder.name; folderEditor = true }
+                            PopupMenuItem("Удалить папку…", role: .destructive) { deletingFolder = folder }
                         }
                 }
                 scope("Новая папка", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
                     .disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
-                    .contextMenu { screenButton("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
+                    .popupContextMenu { PopupMenuItem("Очистить корзину…", role: .destructive) { confirmEmptyTrash = true }.disabled(!state.canEmptyTrash) }
             }.textStyle(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
             HStack(spacing: PisyaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.textStyle(PisyaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
             ScrollViewReader { proxy in
@@ -58,13 +58,14 @@ struct LibrarySidebar: View {
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
                         .plainSelection(state.selection == meeting.id)
                         .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.id(meeting.id)
-                        .background(SecondaryClickObserver {
-                            if state.selection != meeting.id { state.select(meeting.id) }
-                            recordingsFocused = true
-                        })
                         .accessibilityAddTraits(state.selection == meeting.id ? .isSelected : [])
                         .accessibilityAction { state.select(meeting.id) }
-                        .contextMenu { MeetingActions(meeting: meeting) }
+                        .popupContextMenu(onOpen: {
+                            if state.selection != meeting.id { state.select(meeting.id) }
+                            recordingsFocused = true
+                        }) {
+                            MeetingActions(meeting: meeting)
+                        }
                 }
               }
               }.focusable().focusEffectDisabled().focused($recordingsFocused)
@@ -108,33 +109,6 @@ struct LibrarySidebar: View {
         Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(PisyaDesign.Spacing.inline).plainSelection(selected, radius: PisyaDesign.Metrics.navigationRadius).contentShape(Rectangle()) }.shapeAwarePlainButton()
     }
 }
-// Observe the click without intercepting it, so SwiftUI can still open its context menu.
-private struct SecondaryClickObserver: NSViewRepresentable {
-    var action: () -> Void
-
-    func makeNSView(context: Context) -> ClickView { ClickView() }
-    func updateNSView(_ view: ClickView, context: Context) { view.action = action }
-
-    final class ClickView: NSView {
-        var action: () -> Void = {}
-        private var monitor: Any?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
-            guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
-                guard let self, event.window === self.window,
-                      event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
-                      self.bounds.intersection(self.visibleRect).contains(self.convert(event.locationInWindow, from: nil)) else { return event }
-                self.action()
-                return event
-            }
-        }
-
-        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
-    }
-}
 struct MeetingActions: View {
     @EnvironmentObject var state: AppState
     let meeting: Meeting
@@ -144,37 +118,41 @@ struct MeetingActions: View {
     var body: some View {
         Group {
             if meeting.deletedAt != nil {
-                screenButton("Восстановить") { state.trash(meeting, restore: true) }.disabled(!state.canModify(meeting))
+                PopupMenuItem("Восстановить") { state.trash(meeting, restore: true) }.disabled(!state.canModify(meeting))
             } else {
                 if includesVoiceAndFolderActions {
-                    screenButton("Разметить голоса…") { state.voiceMeeting = meeting }.disabled(meeting.segments.isEmpty || !state.canModify(meeting))
+                    PopupMenuItem("Разметить голоса…") { state.voiceMeeting = meeting }.disabled(meeting.segments.isEmpty || !state.canModify(meeting))
                 }
-                screenButton("Переименовать…") { state.renameTarget = meeting }.disabled(!state.canModify(meeting))
+                PopupMenuItem("Переименовать…") { state.renameTarget = meeting }.disabled(!state.canModify(meeting))
                 if includesVoiceAndFolderActions {
-                    screenMenu("Переместить в папку") {
-                        Button { state.move(meeting, to: nil) } label: {
-                            screenLabel("Без папки", systemImage: meeting.folderID == nil ? "checkmark" : "tray")
+                    PopupMenu(arrowEdge: .leading) {
+                        PopupMenuItem("Без папки", systemImage: meeting.folderID == nil ? "checkmark" : "tray") {
+                            state.move(meeting, to: nil)
                         }
                         if !state.folders.isEmpty { Divider() }
                         ForEach(state.folders) { folder in
-                            Button { state.move(meeting, to: folder.id) } label: {
-                                screenLabel(folder.name, systemImage: meeting.folderID == folder.id ? "checkmark" : folder.iconName)
+                            PopupMenuItem(folder.name, systemImage: meeting.folderID == folder.id ? "checkmark" : folder.iconName) {
+                                state.move(meeting, to: folder.id)
                             }
                         }
                         Divider()
-                        Button { state.newFolderMeeting = meeting } label: {
-                            screenLabel("Новая папка…", systemImage: "folder.badge.plus")
+                        PopupMenuItem("Новая папка…", systemImage: "folder.badge.plus") { state.newFolderMeeting = meeting }
+                    } label: {
+                        HStack(spacing: PisyaDesign.Spacing.inline) {
+                            screenText("Переместить в папку")
+                            Spacer()
+                            Image(systemName: "chevron.right").accessibilityHidden(true)
                         }
-                    }.disabled(!state.canModify(meeting))
+                    }.popupMenuRow().disabled(!state.canModify(meeting))
                 }
                 Divider()
-                screenButton("Расшифровать заново…") { state.reprocessTarget = meeting }.disabled(!state.hasAudio(meeting) || !state.canModify(meeting))
+                PopupMenuItem("Расшифровать заново…") { state.reprocessTarget = meeting }.disabled(!state.hasAudio(meeting) || !state.canModify(meeting))
                 Divider()
-                screenButton("В корзину", role: .destructive) { state.trash(meeting) }.disabled(!state.canModify(meeting))
+                PopupMenuItem("В корзину", role: .destructive) { state.trash(meeting) }.disabled(!state.canModify(meeting))
             }
             if let onDeleteAudio {
                 if meeting.deletedAt != nil { Divider() }
-                screenButton("Удалить аудио", role: .destructive, action: onDeleteAudio)
+                PopupMenuItem("Удалить аудио", role: .destructive, action: onDeleteAudio)
             }
         }.disabled(!state.canModify(meeting))
     }

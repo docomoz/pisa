@@ -23,6 +23,7 @@
 		1E68A7277D6783115F030439 /* title-model.json in Resources */ = {isa = PBXBuildFile; fileRef = 824AF412AFF73F8747886FA1 /* title-model.json */; };
 		1E88D27B914F6D7BFCFFB2DE /* RecognitionVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA4DDD0B324BCE771B200F4F /* RecognitionVocabulary.swift */; };
 		1EB3CB67E4A82CF80EA3EFEC /* DesignComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D9A6D4429E9E71D9335F19 /* DesignComponents.swift */; };
+		2061334A8B16D54A58F9663D /* PopupMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B27C934D4F510B3483336C /* PopupMenu.swift */; };
 		24FC614084878FC2F9729297 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04715BFB01C5131C9A26F890 /* Models.swift */; };
 		2B57D9DE8F0252674F78B36C /* RussianRecognition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E86CDF57C8B39BC9E0F902E /* RussianRecognition.swift */; };
 		31B3EA58BE206A9B53E81D2F /* EchoAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */; };
@@ -146,6 +147,7 @@
 		1F05358694772907ED757BDA /* SpeechChunking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechChunking.swift; sourceTree = "<group>"; };
 		1FCB04E139346C9651C66548 /* BrandMoodView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMoodView.swift; sourceTree = "<group>"; };
 		1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoAnalysis.swift; sourceTree = "<group>"; };
+		20B27C934D4F510B3483336C /* PopupMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupMenu.swift; sourceTree = "<group>"; };
 		28B8C8390CB5ED142F254257 /* AudioDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDiagnostics.swift; sourceTree = "<group>"; };
 		2E3383FB572B040008A8A958 /* AudioTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTimeline.swift; sourceTree = "<group>"; };
 		30E01BFA0522999304AB49C2 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
@@ -307,6 +309,7 @@
 				A697488CF0DDBEB0150E6F5B /* ModelSetupTests.swift */,
 				829890694CC528DAFC4CCB21 /* PCMRead.swift */,
 				A4FF1C5BBACF2D807BA97CDB /* PisyaApp.swift */,
+				20B27C934D4F510B3483336C /* PopupMenu.swift */,
 				FE6BEA1B4280E0B3BD52B39A /* RecognitionMeetingPreview.swift */,
 				C12586443E3A2083AE98B8CE /* RecognitionQualityTests.swift */,
 				DFC3E3635B3F0244989D1CBF /* RussianSpeechRecognizer.swift */,
@@ -587,6 +590,7 @@
 				24FC614084878FC2F9729297 /* Models.swift in Sources */,
 				76C8F12E768DF0333089517A /* PCMRead.swift in Sources */,
 				31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */,
+				2061334A8B16D54A58F9663D /* PopupMenu.swift in Sources */,
 				E893E1A7E91D90F1181602E4 /* RecognitionMeetingPreview.swift in Sources */,
 				8ACD4812146E7322047472AB /* RecognitionQualityTests.swift in Sources */,
 				8EACB38620F8051ED782BCA3 /* RecognitionVocabulary.swift in Sources */,

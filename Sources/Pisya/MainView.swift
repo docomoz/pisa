@@ -339,8 +339,7 @@ struct MeetingView: View {
 
     private var detailsButton: some View {
         Button {
-            let eventType = NSApp.currentEvent?.type
-            showsDetailsKeyboardFocus = eventType == .keyDown || eventType == .keyUp
+            showsDetailsKeyboardFocus = PopupKeyboardNavigation.openedWithKeyboard
             showsMeetingDetails.toggle()
         } label: {
             screenLabel("Детали", systemImage: "sidebar.right").fixedSize()
@@ -356,7 +355,7 @@ struct MeetingView: View {
             .frame(width: 224)
             .frame(maxHeight: 360)
             .popupCanvas()
-            .modifier(DetailsKeyboardNavigation(showsFocus: $showsDetailsKeyboardFocus))
+            .modifier(PopupKeyboardNavigation(showsFocus: $showsDetailsKeyboardFocus))
         }
     }
 
@@ -441,27 +440,22 @@ struct MeetingView: View {
                     .actionButton(size: buttonSize)
                     .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
 
-                    Menu {
-                        screenButton("Без папки") { state.move(meeting, to: nil) }
+                    PopupMenu {
+                        PopupMenuItem("Без папки") { state.move(meeting, to: nil) }
                         if !state.folders.isEmpty { Divider() }
                         ForEach(state.folders) { folder in
-                            Button { state.move(meeting, to: folder.id) } label: {
-                                screenLabel(folder.name, systemImage: folder.iconName)
-                            }
+                            PopupMenuItem(folder.name, systemImage: folder.iconName) { state.move(meeting, to: folder.id) }
                         }
                         if meeting.deletedAt == nil {
                             Divider()
-                            Button {
+                            PopupMenuItem("Новая папка…", systemImage: "folder.badge.plus") {
                                 showsMeetingDetails = false
                                 state.newFolderMeeting = meeting
-                            } label: {
-                                screenLabel("Новая папка…", systemImage: "folder.badge.plus")
                             }
                         }
                     } label: {
                         detailsActionLabel(folder?.name ?? "Папка", systemImage: folder?.iconName ?? "folder", hasMenu: true)
                     }
-                    .menuIndicator(.hidden)
                     .actionButton(size: buttonSize)
                     .disabled(!state.canModify(meeting))
                     .screenHelp(folder?.name ?? "Переместить в папку")
@@ -475,7 +469,7 @@ struct MeetingView: View {
                     .actionButton(size: buttonSize)
                     .disabled(!state.canExport(meeting))
 
-                    Menu {
+                    PopupMenu {
                         MeetingActions(
                             meeting: meeting,
                             includesVoiceAndFolderActions: false,
@@ -487,7 +481,6 @@ struct MeetingView: View {
                     } label: {
                         detailsActionLabel("Ещё", systemImage: "ellipsis", hasMenu: true)
                     }
-                    .menuIndicator(.hidden)
                     .actionButton(size: buttonSize)
                     .disabled(!state.canModify(meeting))
                 }
@@ -522,32 +515,6 @@ struct MeetingView: View {
                     .accessibilityHidden(true)
             }
         }
-    }
-}
-
-private struct DetailsKeyboardNavigation: ViewModifier {
-    @Binding var showsFocus: Bool
-    @State private var monitor: Any?
-
-    func body(content: Content) -> some View {
-        content
-            .environment(\.showsControlKeyboardFocus, showsFocus)
-            .onAppear {
-                guard monitor == nil else { return }
-                // Observe Tab before AppKit moves focus, then let it perform normal traversal.
-                monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [focus = $showsFocus] event in
-                    if event.type != .keyDown {
-                        focus.wrappedValue = false
-                    } else if event.keyCode == 48 && event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
-                        focus.wrappedValue = true
-                    }
-                    return event
-                }
-            }
-            .onDisappear {
-                if let monitor { NSEvent.removeMonitor(monitor) }
-                monitor = nil
-            }
     }
 }
 

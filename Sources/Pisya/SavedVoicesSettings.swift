@@ -86,10 +86,10 @@ struct SavedVoicesSettings: View {
                     .fixedSize()
                     .screenHelp("Голос доступен для узнавания на будущих встречах")
             }
-            Menu {
-                screenButton("Переименовать…") { renaming = profile }
+            PopupMenu {
+                PopupMenuItem("Переименовать…") { renaming = profile }
                 Divider()
-                screenButton("Забыть голос…", role: .destructive) { forgetting = profile }
+                PopupMenuItem("Забыть голос…", role: .destructive) { forgetting = profile }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(PisyaDesign.Typography.Icon.medium)
@@ -97,7 +97,6 @@ struct SavedVoicesSettings: View {
                     .frame(width: PisyaDesign.Metrics.smallHeight, height: PisyaDesign.Metrics.smallHeight)
                     .contentShape(Rectangle())
             }
-            .menuIndicator(.hidden)
             .shapeAwarePlainButton()
             .fixedSize()
             .focused($focusedControl, equals: .actions(profile.id))

@@ -67,9 +67,6 @@ private struct FocusFillToggle: View {
             }
     }
 }
-func screenMenu<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> Menu<Text, Content> {
-    Menu(content: content) { screenText(title) }
-}
 extension View {
     func screenHelp(_ value: String) -> some View { help(typographicText(value)) }
 }
