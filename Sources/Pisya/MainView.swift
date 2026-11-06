@@ -284,7 +284,7 @@ struct MeetingView: View {
                                 }
                                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                     screenText(segment.speaker, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.detailStrong).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
-                                    screenText(segment.text, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                    screenText(segment.displayText, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 if showsTranscriptTools {
                                     Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.processingID == meeting.id).screenHelp("Исправить реплику…")

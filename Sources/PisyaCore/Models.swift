@@ -22,6 +22,10 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     public var embedding: [Float]?
     public var audioFile: String?
     public var text: String
+    public var displayText: String {
+        guard let index = text.firstIndex(where: { $0.isLetter }) else { return text }
+        return String(text[..<index]) + text[index].uppercased() + text[text.index(after: index)...]
+    }
     public init(start: Double, end: Double, speaker: String, text: String) {
         self.start = start; self.end = end; self.speaker = speaker; self.text = text
     }
