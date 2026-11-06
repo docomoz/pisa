@@ -97,7 +97,7 @@ struct SettingsView: View {
                     .frame(width: 24, height: 24)
                     .accessibilityHidden(true)
                 screenText("Pisya \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
-                    .textStyle(PisyaDesign.Typography.secondary)
+                    .textStyle(PisyaDesign.Typography.footnote)
                     .foregroundStyle(Color.mutedInk)
                 Spacer()
                 screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
