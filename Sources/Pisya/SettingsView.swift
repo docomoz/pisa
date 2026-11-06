@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
+    @State private var analyticsEnabled = Analytics.enabled
     init(initialSection: String = "Запись") {
         _section = State(initialValue: initialSection)
     }
@@ -145,6 +146,11 @@ struct SettingsView: View {
                 block("Фоновая расшифровка", "Черновик во время звонка") {
                     screenToggle("Расшифровывать во время записи", isOn: Binding(get: { state.preferences.usesBackgroundTranscription }, set: { state.setBackgroundTranscription($0) }))
                     SupportingText("После остановки обрабатывается оставшийся хвост. Пауза распознавания не останавливает запись.")
+                }
+                block("Статистика использования", "Помогает понять, как пользуются Pisya") {
+                    screenToggle("Отправлять статистику", isOn: $analyticsEnabled)
+                        .onChange(of: analyticsEnabled) { Analytics.setEnabled($0) }
+                    SupportingText("TelemetryDeck получает события использования, длительность записей, случайный идентификатор установки и версии Pisya и macOS. Аудио, тексты, названия, имена и пути не передаются.")
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.fixedSize(horizontal: false, vertical: true)

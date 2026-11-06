@@ -70,6 +70,7 @@ final class AppState: ObservableObject {
     var recordingMeetingID: UUID? { recording ? activeMeeting?.id : nil }
     var savingMeetingID: UUID? { recording ? nil : activeMeeting?.id }
     private var automaticallyStarted = false
+    private var recordingStartedAutomatically = false
     @Published private var pending: [UUID] = []
     private var pendingReprocessing: Set<UUID> = []
     var selected: Meeting? { meetings.first { $0.id == selection } }
@@ -317,6 +318,8 @@ final class AppState: ObservableObject {
             try library.save(m)
             try await capture.start(folder: library.audioDirectory, id: m.id)
             activeMeeting = m; recording = true; recordingStarted = Date(); automaticallyStarted = automatic
+            recordingStartedAutomatically = automatic
+            Analytics.recordingStarted(automatic: automatic)
             recordingMonitor.reset()
             meterTask = Task { [weak self] in
                 while !Task.isCancelled {
@@ -349,7 +352,7 @@ final class AppState: ObservableObject {
             if runLive, let model = modelURL() {
                 livePaused = false; liveStopped = false; liveStatus = "Готовлю черновик"
                 processingID = m.id
-                liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: m.id, model: model) }
+                liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: m.id, model: model, mode: "live", reprocess: false) }
             }
         } catch {
             if runLive { processingID = nil; runNext() }
@@ -376,6 +379,7 @@ final class AppState: ObservableObject {
             m.audioFiles = result.files; m.audioOffsets = result.offsets; m.duration = result.duration
             guard !result.files.isEmpty else { throw PisyaError.message("Звук не получен. Проверьте разрешения и выбранное приложение") }
             try library.save(m); upsert(m)
+            Analytics.recordingSaved(duration: m.duration, automatic: recordingStartedAutomatically)
             if let warning = result.warning { message = warning }
             if liveTask != nil && processingID == m.id {
                 liveStopped = true
@@ -407,11 +411,13 @@ final class AppState: ObservableObject {
                 let name = "\(m.id.uuidString)-import.\(url.pathExtension)"
                 try FileManager.default.copyItem(at: url, to: library.audioURL(name))
                 m.audioFiles = [name]; try library.save(m); upsert(m); selection = m.id
+                Analytics.audioImported(duration: m.duration)
                 if modelReady { enqueue(m.id) }
             } catch { message = error.localizedDescription }
         }
     }
-    private func runLiveTranscription(id: UUID, model: URL) async {
+    private func runLiveTranscription(id: UUID, model: URL, mode: String, reprocess: Bool) async {
+        Analytics.transcriptionStarted(mode: mode, reprocess: reprocess)
         let granted = model.startAccessingSecurityScopedResource()
         var schedule = LiveTranscriptionSchedule(committed: (try? library.read(id).liveCommittedUntil) ?? 0)
         var failedDuringCapture = false
@@ -470,6 +476,7 @@ final class AppState: ObservableObject {
                         latest.duration = max(latest.duration, available)
                         latest.status = .ready; latest.error = nil; latest.liveCommittedUntil = nil
                         try library.save(latest); upsert(latest)
+                        Analytics.transcriptionCompleted(mode: mode, reprocess: reprocess, duration: latest.duration)
                         await nameCompletedMeeting(id, exportOnCompletion: true)
                         break
                     }
@@ -515,6 +522,7 @@ final class AppState: ObservableObject {
                 }
             }
         } catch {
+            Analytics.transcriptionFailed(mode: mode, cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
             var latest = (try? library.read(id))
             latest?.status = .failed
             latest?.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено" : error.localizedDescription
@@ -569,7 +577,7 @@ final class AppState: ObservableObject {
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }
             upsert(m); processingID = id; progress = 0
             liveStopped = true; livePaused = false; liveStatus = "Подготавливаю аудио"
-            liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model) }
+            liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model, mode: "resume", reprocess: reprocess) }
             return
         }
         let granted = model.startAccessingSecurityScopedResource()
@@ -577,6 +585,7 @@ final class AppState: ObservableObject {
         do { try library.save(m) } catch { message = error.localizedDescription; if granted { model.stopAccessingSecurityScopedResource() }; return }
         isReprocessing = reprocess
         upsert(m); processingID = id; progress = 0
+        Analytics.transcriptionStarted(mode: "batch", reprocess: reprocess)
         let vocabulary = preferences.vocabulary
         processingTask = Task(priority: .utility) {
             defer {
@@ -610,12 +619,14 @@ final class AppState: ObservableObject {
                     }
                 }
                 try library.save(latest); persisted = true; upsert(latest)
+                Analytics.transcriptionCompleted(mode: "batch", reprocess: reprocess, duration: latest.duration)
                 await nameCompletedMeeting(id, exportOnCompletion: true)
                 let shared = Set(meetings.filter { $0.id != id }.flatMap(\.audioFiles))
                 for name in obsolete where !shared.contains(name) {
                     if let url = try? library.audioURL(name) { try? FileManager.default.removeItem(at: url) }
                 }
             } catch {
+                Analytics.transcriptionFailed(mode: "batch", cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
                 var latest = (try? library.read(id)) ?? m
                 latest.status = .failed; latest.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено" : error.localizedDescription
                 try? library.save(latest); upsert(latest)
