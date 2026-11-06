@@ -659,22 +659,24 @@ private struct RecordingIndicator: View {
 
 private struct RecordingWaveformView: View {
     @ObservedObject var monitor: RecordingMonitor
+    @Environment(\.appTextScale) private var textScale
+
     var body: some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
             SectionHeading("Уровни записи")
             lane("Микрофон", icon: "mic", track: monitor.microphone, color: .moss)
             lane("Системный звук", icon: "speaker.wave.2", track: monitor.system, color: Color(white: 0.48))
-        }.padding(PisyaDesign.Spacing.content).frame(width: 520).popupCanvas()
+        }.padding(PisyaDesign.Spacing.section).frame(width: 500).popupCanvas()
     }
     private func lane(_ title: String, icon: String, track: AudioMeterTrack, color: Color) -> some View {
         let fresh = track.isFresh(now: monitor.now)
         let waiting = monitor.now - monitor.began < 3
         let status = !fresh && !waiting ? "Нет новых данных" : ""
-        return HStack(spacing: PisyaDesign.Spacing.content) {
-            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
+        return HStack(spacing: PisyaDesign.Spacing.related) {
+            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
                 screenLabel(title, systemImage: icon).textStyle(PisyaDesign.Typography.detailMedium)
                 if !status.isEmpty { screenText(status).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.orange) }
-            }.frame(width: 190, alignment: .leading)
+            }.frame(width: 156 * max(1, textScale), alignment: .leading)
             TimelineView(.animation(minimumInterval: 1.0 / 60)) { timeline in
                 Canvas { context, size in
                     // Position by capture time, not by polling index: late samples never reset scrolling.
@@ -687,11 +689,11 @@ private struct RecordingWaveformView: View {
                         context.fill(Path(roundedRect: rect, cornerRadius: 0.75), with: .color(color.opacity(value > 0 ? 0.85 : 0.18)))
                     }
                 }
-            }.frame(height: 64).clipped().accessibilityHidden(true)
-            VStack(alignment: .trailing, spacing: PisyaDesign.Spacing.inline) {
+            }.frame(height: 40).clipped().accessibilityHidden(true)
+            VStack(alignment: .trailing, spacing: PisyaDesign.Spacing.compact) {
                 screenText(timecode(track.seconds)).textStyle(PisyaDesign.Typography.footnote).monospacedDigit()
                 screenText("записано").textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk)
-            }.frame(width: 66, alignment: .trailing)
+            }.frame(width: 66 * max(1, textScale), alignment: .trailing)
         }.accessibilityElement(children: .ignore)
             .accessibilityLabel("\(title). \(status). Записано \(timecode(track.seconds))")
             .screenHelp("Уровень звука после записи в аудиофайл. Нет новых данных — проверьте источник; системный звук может отсутствовать, когда приложения молчат.")
