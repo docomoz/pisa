@@ -19,7 +19,6 @@ a:focus-visible,button:focus-visible{outline:3px solid #55ae70;outline-offset:5p
 .hero{position:relative;isolation:isolate;text-align:center;padding:65px 0 0}
 .eyebrow,.section-label,.status,.product-caption{font-size:11px;font-weight:750;letter-spacing:.13em;text-transform:uppercase}
 .hero-logo{display:flex;justify-content:center}.hero-logo img{display:block;width:168px;height:168px}.eyebrow{color:#5f6d62;margin-top:8px}
-.live-dot{width:8px;height:8px;background:#59bc72;border-radius:50%;display:inline-block;flex:none;box-shadow:0 0 0 4px #e9f7ec}
 h1,h2,h3,p{margin:0}
 h1,.privacy h2,.install h2{font-weight:650;letter-spacing:-.065em;line-height:.99}
 h1{font-size:clamp(64px,7.7vw,112px);margin:29px auto 25px}
@@ -37,6 +36,7 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 .feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:42px}
 .feature-grid article{border-top:1px solid #dce3dd;padding-top:18px}
 .feature-grid h2{font-size:clamp(23px,2.4vw,33px);letter-spacing:-.05em;line-height:1.1;margin:0 0 16px}
+.feature-number{display:block;color:#699379;font-weight:500;font-variant-numeric:tabular-nums;margin-bottom:16px}
 .feature-grid p,.privacy-columns p,.install-guide p,.early p{font-size:16px;line-height:1.6;color:#59645c}
 .privacy{background:#edf6ec;padding:140px 0}
 .privacy-inner,.install-top{display:grid;grid-template-columns:1fr 3fr;gap:40px}
@@ -48,7 +48,7 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 .install{padding:150px 0 60px}
 .install .section-lead{margin-top:28px}
 .install .button{margin:32px 0 14px}
-.install-guide{margin-top:105px;padding:42px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:80px}
+.install-guide{margin-top:105px;padding:42px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:80px;scroll-margin-top:24px}
 .install-guide h3{font-size:26px;letter-spacing:-.04em;margin:20px 0 14px}
 .install-guide .instruction-link{display:inline-block;margin-top:20px}
 .install-guide ol{padding:0;list-style:none;margin:0}
@@ -60,7 +60,7 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 .code code{font-size:12px;overflow-wrap:anywhere}
 .copy{border:0;background:none;color:var(--green);font-weight:700;cursor:pointer;font-size:11px}
 .early{display:grid;grid-template-columns:1fr 3fr;align-items:baseline;gap:40px;padding:40px 0 0}
-.status{display:flex;align-items:baseline;gap:10px;color:#36874c}.status .live-dot{align-self:center}
+.status{display:flex;align-items:baseline;gap:10px;color:#36874c}.development-icon{width:17px;height:17px;flex:none;align-self:center}
 .early p{max-width:760px;font-size:14px}.early p span{display:block;text-wrap:pretty}
 .footer{display:flex;align-items:baseline;justify-content:space-between;gap:32px;padding:45px 0 60px}
 .footer-identity{display:flex;align-items:baseline;gap:32px;flex-wrap:wrap}
@@ -73,13 +73,17 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 @media(max-width:800px){.header{gap:12px}}
 
 .hero-waves{position:absolute;z-index:-1;top:30px;left:50%;width:min(100vw,1600px);height:480px;transform:translateX(-50%);overflow:hidden;pointer-events:none}
-.hero-waves svg{display:block;width:100%;height:100%}
-.wave{fill:none;stroke:#b4dcc0;stroke-width:1.5;opacity:.3;transform-origin:center;animation:wave-drift 24s ease-in-out infinite alternate}
-.wave-two{stroke:#d4e8d5;opacity:.4;animation-duration:29s;animation-delay:-8s}
-.wave-three{stroke:#cee4d2;opacity:.32;animation-duration:33s;animation-delay:-15s}
-@keyframes wave-drift{from{transform:translate3d(-8px,-5px,0)}to{transform:translate3d(8px,5px,0)}}
-@media(max-width:800px){.hero-waves{top:20px;height:360px}.wave{stroke-width:2}}
-@media(prefers-reduced-motion:reduce){.wave{animation:none}}
+.hero-waves::before,.hero-waves::after{content:"";position:absolute;width:360px;height:190px;border:1px solid rgba(167,206,180,.38);border-radius:50%;background:radial-gradient(ellipse at 30% 24%,rgba(255,255,255,.8),rgba(218,240,226,.38) 54%,rgba(189,225,204,.12));box-shadow:inset 0 2px 20px rgba(255,255,255,.85),0 14px 40px rgba(128,179,146,.08);backdrop-filter:blur(5px);animation:glass-drift 17s ease-in-out infinite alternate}
+.hero-waves::before{top:125px;left:4%;transform:rotate(-13deg)}
+.hero-waves::after{right:3%;top:240px;width:290px;height:145px;animation-delay:-9s;animation-direction:alternate-reverse}
+.hero-waves svg{position:relative;display:block;width:100%;height:100%}
+.wave{fill:none;stroke:#95c5a5;stroke-width:1.7;opacity:.56;transform-origin:center;animation:wave-drift 13s ease-in-out infinite alternate}
+.wave-two{stroke:#a6cfb1;opacity:.55;animation-duration:16s;animation-delay:-5s}
+.wave-three{stroke:#b0d6ba;opacity:.6;animation-duration:19s;animation-delay:-10s}
+@keyframes wave-drift{from{transform:translate3d(-22px,-8px,0)}to{transform:translate3d(22px,8px,0)}}
+@keyframes glass-drift{from{translate:0 -8px}to{translate:18px 10px}}
+@media(max-width:800px){.hero-waves{top:20px;height:360px}.wave{stroke-width:2}.hero-waves::before{width:220px;height:115px;left:-12%;top:100px}.hero-waves::after{width:180px;height:90px;right:-12%;top:220px}}
+@media(prefers-reduced-motion:reduce){.wave,.hero-waves::before,.hero-waves::after{animation:none}}
 
 .copy-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 

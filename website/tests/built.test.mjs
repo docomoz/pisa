@@ -13,6 +13,9 @@ test('the built Worker serves the page and its assets', async () => {
   const image = await worker.fetch(request('/assets/meeting.png'), {}, {});
   assert.equal(image.headers.get('content-type'), 'image/png');
   assert.deepEqual([...new Uint8Array(await image.arrayBuffer()).slice(0, 8)], [137,80,78,71,13,10,26,10]);
+  const headerMark = await worker.fetch(request('/assets/mark-header.svg'), {}, {});
+  assert.equal(headerMark.status, 200);
+  assert.match(headerMark.headers.get('content-type'), /image\/svg\+xml/);
   const head = await worker.fetch(request('/', 'HEAD'), {}, {});
   assert.equal(head.status, 200);
   assert.equal((await head.arrayBuffer()).byteLength, 0);
@@ -26,4 +29,11 @@ test('the built Worker redirects to the latest feed DMG', async () => {
     assert.equal(response.status, 302);
     assert.equal(response.headers.get('location'), url);
   } finally { globalThis.fetch = original; }
+});
+test('download buttons lead to the installation steps, where the DMG is available', async () => {
+  const page = await (await worker.fetch(request('/'), {}, {})).text();
+  assert.equal((page.match(/href="#install-guide"/g) || []).length, 3);
+  assert.match(page, /id="install-guide"/);
+  assert.match(page, /href="\/download">Скачайте DMG<\/a>/);
+  assert.match(page, /xattr -dr com\.apple\.quarantine/);
 });
