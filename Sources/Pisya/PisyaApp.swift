@@ -4,6 +4,8 @@ import AppKit
 struct PisyaApp: App {
     @NSApplicationDelegateAdaptor(PisyaDelegate.self) private var delegate
     @StateObject private var state = AppState()
+    @ObservedObject private var updates = AppUpdates.shared
+    @AppStorage("appTextSize") private var textSize = AppTextSize.normal
     var body: some Scene {
         Window("Pisya", id: "main") {
             MainView().environmentObject(state).frame(minWidth: 980, minHeight: 660)
@@ -18,9 +20,18 @@ struct PisyaApp: App {
                         screenButton("Понятно", role: .cancel) { }
                     }
                 } message: { screenText(state.permissionIssue?.localizedDescription ?? state.message ?? "") }
+                .sheet(item: $state.sourceNotice) { notice in
+                    SourceNoticeView(message: notice.message)
+                }
                 .sheet(isPresented: $state.showingSettings) { SettingsView().environmentObject(state) }
+                .sheet(isPresented: Binding(get: { state.modelSetup.presented }, set: { state.modelSetup.presented = $0 })) {
+                    ModelSetupView(setup: state.modelSetup, onReady: { state.modelInstallationCompleted() })
+                }
+                .environment(\.appTextScale, AppTextSize.factor(for: textSize))
+                .focusEffectDisabled()
         }
         .defaultSize(width: 1200, height: 800)
+        .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -31,33 +42,68 @@ struct PisyaApp: App {
                         options[.applicationIcon] = icon
                     }
                     let paragraph = NSMutableParagraphStyle()
-                    paragraph.alignment = .center; paragraph.paragraphSpacing = 4
-                    let credits = typographicText("Автор: Максим Берёзкин") + "\nmaxim@berezkin.ru\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
-                    let gap = NSMutableParagraphStyle()
-                    gap.minimumLineHeight = 6; gap.maximumLineHeight = 6
-                    let formatted = NSMutableAttributedString(string: "\n", attributes: [
-                        .font: NSFont.systemFont(ofSize: 6), .paragraphStyle: gap
-                    ])
-                    formatted.append(NSAttributedString(string: credits, attributes: [
-                        .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                    paragraph.alignment = .center; paragraph.paragraphSpacing = PisyaDesign.Spacing.inline
+                    let credits = "Максим Берёзкин\nmaxim@berezkin.ru\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
+                    let attributedCredits = NSMutableAttributedString(string: credits, attributes: [
+                        .font: AppTypography.credits,
                         .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
-                    ]))
-                    let email = (formatted.string as NSString).range(of: "maxim@berezkin.ru")
-                    formatted.addAttributes([
+                    ])
+                    attributedCredits.addAttributes([
                         .link: URL(string: "mailto:maxim@berezkin.ru")!,
-                        .foregroundColor: NSColor.linkColor,
+                        .foregroundColor: NSColor(Color.moss),
                         .underlineStyle: NSUnderlineStyle.single.rawValue
-                    ], range: email)
-                    options[.credits] = formatted
+                    ], range: (credits as NSString).range(of: "maxim@berezkin.ru"))
+                    options[.credits] = attributedCredits
                     NSApp.orderFrontStandardAboutPanel(options: options)
                 }
+                screenButton("Проверить обновления…") { updates.check() }
+                    .disabled(!updates.canCheck)
             }
             CommandGroup(replacing: .newItem) { screenButton("Импортировать аудио…") { state.importAudio() }.keyboardShortcut("o") }
+            CommandGroup(after: .toolbar) {
+                screenButton("Увеличить текст") { changeTextSize(by: AppTextSize.step) }.keyboardShortcut("+")
+                    .disabled(textSize >= AppTextSize.limits.upperBound)
+                screenButton("Уменьшить текст") { changeTextSize(by: -AppTextSize.step) }.keyboardShortcut("-")
+                    .disabled(textSize <= AppTextSize.limits.lowerBound)
+                screenButton("Обычный размер текста") { textSize = AppTextSize.normal }.keyboardShortcut("0")
+                    .disabled(textSize == AppTextSize.normal)
+            }
             CommandGroup(after: .windowList) {
-                screenButton("Показать мини-панель записи") { delegate.showStatusPanel() }.keyboardShortcut("r", modifiers: [.command, .shift])
+                screenButton("На всю ширину") {
+                    guard let window = NSApp.mainWindow, let screen = window.screen,
+                          !window.styleMask.contains(.fullScreen) else { return }
+                    var frame = window.frame
+                    frame.origin.x = screen.visibleFrame.minX
+                    frame.size.width = screen.visibleFrame.width
+                    window.setFrame(frame, display: true, animate: true)
+                }
+                screenButton("Показать меню записи") { delegate.showStatusMenu() }.keyboardShortcut("r", modifiers: [.command, .shift])
             }
             CommandGroup(replacing: .appSettings) { screenButton("Настройки…") { state.showingSettings = true }.keyboardShortcut(",") }
         }
+    }
+
+    private func changeTextSize(by step: Int) {
+        textSize = AppTextSize.clamp(AppTextSize.clamp(textSize) + step)
+    }
+}
+struct SourceNoticeView: View {
+    let message: String
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var buttonFocused: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
+            SectionHeading("Ссылка на фрагмент", subtitle: message, style: .dialog)
+            HStack(spacing: PisyaDesign.Spacing.related) {
+                Spacer(minLength: PisyaDesign.Spacing.none)
+                screenButton("Понятно") { dismiss() }
+                    .actionButton(.primary).focused($buttonFocused)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .dialogContent().frame(width: 480)
+        .defaultFocus($buttonFocused, true)
+        .onExitCommand { dismiss() }
     }
 }
 private struct MainWindowConnection: View {
@@ -65,76 +111,51 @@ private struct MainWindowConnection: View {
     let delegate: PisyaDelegate
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Color.clear.onAppear { delegate.connect(state, openMain: { openWindow(id: "main") }) }
+        Color.clear.onAppear { delegate.connect(state, openMain: { openWindow(id: "main") }); state.modelSetup.check() }
     }
 }
 
 struct RecordingElapsed: View {
+    @Environment(\.appTextScale) private var textScale
     let started: Date
-    var size: CGFloat = 13
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { clock in
-            screenText(recordingTimecode(clock.date.timeIntervalSince(started))).font(.system(size: size, design: .monospaced))
-        }.frame(width: size <= 11 ? 58 : 72, height: size <= 11 ? 15 : 20, alignment: .leading)
+            screenText(recordingTimecode(clock.date.timeIntervalSince(started))).textStyle(PisyaDesign.Typography.elapsed)
+        }.frame(
+            width: PisyaDesign.Metrics.elapsedWidth * max(1, textScale),
+            height: PisyaDesign.Metrics.elapsedHeight * max(1, textScale),
+            alignment: .leading
+        )
     }
 }
-struct MenuContents: View {
-    @EnvironmentObject var state: AppState
-    let showMain: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if state.recording {
-                HStack {
-                    screenText("Идёт запись").font(.appFont(size: 14, weight: .semibold))
-                    Spacer()
-                    if let started = state.recordingStarted { RecordingElapsed(started: started) }
-                }
-            }
-            screenButton("Открыть Pisya") { showMain() }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Divider()
-            Button {
-                Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: state.recording ? "stop.circle" : "record.circle").frame(width: 16, height: 16)
-                    screenText(state.starting ? "Подготовка…" : state.recording ? "Остановить запись" : "Записать встречу")
-                }
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.disabled(state.starting).foregroundStyle(Color.ink)
-            screenToggle("Автоматический старт и стоп", isOn: Binding(get: { state.preferences.automaticRecording }, set: { state.setAutomatic($0) })).toggleStyle(MenuCheckboxStyle())
-            Divider()
-            screenButton("Завершить Pisya") {
-                if state.recording || state.processingID != nil { state.message = "Сначала остановите запись или обработку"; showMain() }
-                else { NSApp.terminate(nil) }
-            }
-        }.font(.appFont(size: 13)).buttonStyle(.plain).padding(16).frame(width: 300).popupCanvas()
-    }
-}
-
-private struct MenuCheckboxStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Button { configuration.isOn.toggle() } label: {
-            HStack(spacing: 8) {
-                Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(configuration.isOn ? Color.moss : Color.ink)
-                    .frame(width: 16, height: 16)
-                configuration.label
-            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityValue(configuration.isOn ? "Включено" : "Выключено")
-    }
-}
-
 @MainActor
 final class PisyaDelegate: NSObject, NSApplicationDelegate {
     weak var state: AppState?
     private var statusController: StatusBarController?
+    private var openMain: (() -> Void)?
+    private var pendingURLs: [URL] = []
+    func application(_ application: NSApplication, open urls: [URL]) {
+        pendingURLs.append(contentsOf: urls)
+        deliverURLs()
+    }
+    private func deliverURLs() {
+        guard let state, let openMain else { return }
+        guard !pendingURLs.isEmpty else { return }
+        openMain()
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        let urls = pendingURLs; pendingURLs.removeAll()
+        for url in urls { state.openSource(url) }
+    }
     func connect(_ state: AppState, openMain: @escaping () -> Void) {
         self.state = state
+        self.openMain = openMain
+        deliverURLs()
         if statusController == nil { statusController = StatusBarController(state: state, openMain: openMain) }
     }
-    func showStatusPanel() { statusController?.showPopover() }
+    func showStatusMenu() { statusController?.showMenu() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppUpdates.shared.start()
         if let url = Bundle.main.url(forResource: "PisyaPlain", withExtension: "icns") {
             NSApp.applicationIconImage = NSImage(contentsOf: url)
         }
@@ -151,6 +172,13 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
             sender.activate(ignoringOtherApps: true)
             sender.windows.first?.makeKeyAndOrderFront(nil)
             return .terminateCancel
+        }
+        if state.modelSetup.busy {
+            Task { @MainActor in
+                await state.modelSetup.cancelAndWait()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
         }
         return .terminateNow
     }

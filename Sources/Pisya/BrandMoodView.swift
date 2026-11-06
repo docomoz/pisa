@@ -10,9 +10,10 @@ struct BrandMoodView: View {
         "знает своё дело", "сегодня в ударе", "на позитиве", "с огоньком",
         "не унывает", "держит марку", "выглядит отлично", "полна энтузиазма",
         "заряжена на день", "в центре внимания", "с характером", "во всей красе",
-        "рада тебя видеть", "настроена серьёзно", "дышит полной грудью", "просто прелесть"
+        "рада тебя видеть", "настроена серьёзно", "дышит полной грудью", "просто прелесть",
+        "полна сил", "всегда на связи", "излучает оптимизм", "готова к важному"
     ]
-    private static let emojis = ["🙂", "😊", "😄", "😁", "😎", "🥳", "🤩", "😌", "😉", "🙃", "✨", "🌟", "☀️", "💚", "💛", "🎉", "🚀", "🌈"]
+    private static let emojis = ["🙂", "😊", "😄", "😁", "😎", "🥳", "🤩", "😌", "😉", "🙃", "✨", "🌟", "☀️", "💚", "💛", "🎉", "🚀"]
     private static let colors: [Color] = [
         moodColor(light: (0.22, 0.35, 0.63), dark: (0.70, 0.79, 1.00)),
         moodColor(light: (0.40, 0.29, 0.59), dark: (0.83, 0.73, 0.98)),
@@ -27,10 +28,10 @@ struct BrandMoodView: View {
     @State private var colorIndex = Int.random(in: 0..<BrandMoodView.colors.count)
 
     var body: some View {
-        HStack(spacing: 5) {
-            screenText("Pisya").font(.appFont(size: 14, weight: .semibold)).fixedSize()
+        HStack(spacing: PisyaDesign.Spacing.inline) {
+            screenText("Pisya").textStyle(PisyaDesign.Typography.detailStrong).fixedSize()
             screenText("\(Self.phrases[phraseIndex]) \(Self.emojis[emojiIndex])")
-                .font(.appFont(size: 14)).foregroundStyle(Self.colors[colorIndex])
+                .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Self.colors[colorIndex])
                 .lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: 340, alignment: .leading)

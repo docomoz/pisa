@@ -4,6 +4,79 @@ import MLX
 import MLXAudioSTT
 
 enum AudioPipelineTests {
+    /// Real ASR regression: the same uncommon name must use the supplied spelling
+    /// on both tracks, while a populated dictionary must not turn silence into speech.
+    @MainActor static func runVocabulary() async throws {
+        let payload = try JSONDecoder().decode([String: [Float]].self, from: FileHandle.standardInput.readDataToEndOfFile())
+        guard let speech = payload["speech"], !speech.isEmpty else { throw PisyaError.message("Missing vocabulary speech fixture") }
+        let libraryRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisya")
+        let library = try MeetingLibrary(root: libraryRoot)
+        let preferences = try library.preferences()
+        let model: URL
+        if let data = preferences.modelBookmark {
+            var stale = false
+            model = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
+        } else { model = libraryRoot.appendingPathComponent("Models/Qwen3-ASR") }
+        let access = model.startAccessingSecurityScopedResource()
+        defer { if access { model.stopAccessingSecurityScopedResource() } }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-vocabulary-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let transcriber = Transcriber()
+        let vocabulary = "Бронегис, Геопэй"
+        func write(_ samples: [Float], track: String) throws -> URL {
+            let url = root.appendingPathComponent("fixture-\(track).caf")
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))!
+            buffer.frameLength = AVAudioFrameCount(samples.count)
+            samples.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer); file.close()
+            return url
+        }
+        func recognize(_ samples: [Float], track: String, context: String) async throws -> [TranscriptSegment] {
+            let url = try write(samples, track: track)
+            return try await transcriber.transcribe(files: [(url, 0)], modelDirectory: model, context: context, speakerDirectory: root.appendingPathComponent("no-speakers"), profiles: [], quiet: false, live: true) { _, _ in }
+        }
+        do {
+            let baseline = try await recognize(speech, track: "mic", context: "")
+            print("VOCABULARY_BASELINE", baseline.map(\.text).joined(separator: " "))
+            for track in ["mic", "remote"] {
+                let result = try await recognize(speech, track: track, context: vocabulary)
+                let text = result.map(\.text).joined(separator: " ")
+                print("VOCABULARY_\(track.uppercased())", text)
+                let words = text.lowercased().split(whereSeparator: { !$0.isLetter })
+                guard words.filter({ $0 == "бронегис" }).count == 2 else { throw PisyaError.message("Vocabulary name not recognized twice on \(track): \(text)") }
+                guard words.contains("геопэй") else { throw PisyaError.message("Vocabulary spelling missing on \(track): \(text)") }
+                guard result.allSatisfy({ $0.speaker == (track == "mic" ? "Я" : "Собеседники") }) else { throw PisyaError.message("Vocabulary changed track labels") }
+            }
+            for track in ["mic", "remote"] {
+                let result = try await recognize(Array(repeating: 0, count: 16000 * 3), track: track, context: vocabulary)
+                guard result.isEmpty else { throw PisyaError.message("Vocabulary inserted words into silent \(track)") }
+            }
+            var seed: UInt64 = 741
+            let noise: [Float] = (0..<16000 * 3).map { _ in
+                seed = seed &* 6364136223846793005 &+ 1
+                return Float(Int64(bitPattern: seed) >> 40) / Float(1 << 23) * 0.03
+            }
+            let noiseResult = try await recognize(noise, track: "mic", context: vocabulary)
+            guard noiseResult.isEmpty else { throw PisyaError.message("Vocabulary inserted words into microphone noise") }
+            var echo = [Float](repeating: 0, count: speech.count)
+            for i in speech.indices {
+                if i >= 640 { echo[i] += speech[i - 640] * 0.4 }
+                if i >= 860 { echo[i] += speech[i - 860] * 0.12 }
+            }
+            let remote = try write(speech, track: "remote"), mic = try write(echo, track: "mic")
+            let echoResult = try await transcriber.transcribe(files: [(remote, 0), (mic, 0)], modelDirectory: model, context: vocabulary, speakerDirectory: root.appendingPathComponent("no-speakers"), profiles: [], quiet: false, live: true) { _, _ in }
+            guard !echoResult.isEmpty, !echoResult.contains(where: { $0.speaker == "Я" }) else { throw PisyaError.message("Vocabulary turned playback echo into microphone speech") }
+            await transcriber.finishLive()
+        } catch {
+            await transcriber.finishLive()
+            throw error
+        }
+        print("VOCABULARY_TEST_OK microphone system_audio silence noise echo")
+    }
+
     @MainActor static func runSpeech() async throws {
         let payload = try JSONDecoder().decode([String: [Float]].self, from: FileHandle.standardInput.readDataToEndOfFile())
         guard let far = payload["far"], let other = payload["other"] else { throw PisyaError.message("Missing synthetic voices") }

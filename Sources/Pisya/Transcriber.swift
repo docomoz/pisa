@@ -8,11 +8,16 @@ actor Transcriber {
     private var liveModel: Qwen3ASRModel?
     private var liveActivity: SpeechDetector?
     private var liveVoices: SpeakerEngine?
+    private var liveRussian: RussianSpeechRecognizer?
+    private var recentLanguageSegments: [TranscriptSegment] = []
     private var previousLiveCacheLimit: Int?
     private var activeShortDecodes = 0
+    private var vocabularySource: String?
+    private var spokenVocabulary = SpokenVocabulary("")
 
     /// Used by the local synthetic integration fixture to check session reuse.
     func liveModelIdentity() -> ObjectIdentifier? { liveModel.map(ObjectIdentifier.init) }
+    func liveRussianModelIdentity() -> ObjectIdentifier? { liveRussian.map(ObjectIdentifier.init) }
     func shortDecodeIsActive() -> Bool { activeShortDecodes > 0 }
 
     private func decodeShortMicrophone(_ model: Qwen3ASRModel, audio: MLXArray, maxTokens: Int) async throws -> STTOutput {
@@ -36,17 +41,24 @@ actor Transcriber {
     }
 
     func finishLive() {
-        liveModel = nil; liveActivity = nil; liveVoices = nil
+        liveModel = nil; liveActivity = nil; liveVoices = nil; liveRussian = nil
+        recentLanguageSegments = []
         Memory.clearCache()
         if let limit = previousLiveCacheLimit { Memory.cacheLimit = limit; previousLiveCacheLimit = nil }
     }
 
-    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile], quiet: Bool = true, live: Bool = false, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile], quiet: Bool = true, live: Bool = false, russianVerification: Bool = true, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
         guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path), FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("model.safetensors").path) else { throw PisyaError.message("Выберите папку модели Qwen3-ASR с config.json и model.safetensors") }
         let previousCacheLimit = Memory.cacheLimit
         if live && previousLiveCacheLimit == nil { previousLiveCacheLimit = previousCacheLimit }
         Memory.cacheLimit = 256 * 1024 * 1024
         defer { if !live { Memory.clearCache(); Memory.cacheLimit = previousCacheLimit } }
+        if vocabularySource != context {
+            let pronunciations = Bundle.main.url(forResource: "cmudict", withExtension: "dict")
+                .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            spokenVocabulary = SpokenVocabulary(context, pronunciations: pronunciations)
+            vocabularySource = context
+        }
         var generated: URL?
         var keepGenerated = false
         defer { if !keepGenerated, let generated { try? FileManager.default.removeItem(at: generated) } }
@@ -68,7 +80,17 @@ actor Transcriber {
         let voices: SpeakerEngine?
         if live, let existing = liveVoices { voices = existing }
         else { voices = FileManager.default.fileExists(atPath: speakerDirectory.appendingPathComponent("titanet.onnx").path) ? try SpeakerEngine(directory: speakerDirectory) : nil; if live { liveVoices = voices } }
+        let russian: RussianSpeechRecognizer?
+        if !russianVerification { russian = nil }
+        else if live, let existing = liveRussian { russian = existing }
+        else {
+            // Existing/custom installations can still transcribe while the new
+            // optional acoustic verifier is unavailable or cannot be loaded.
+            russian = try? RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent().appendingPathComponent(RussianSpeechRecognizer.directoryName))
+            if live { liveRussian = russian }
+        }
         var segments: [TranscriptSegment] = []
+        var backchannels: [UUID: String] = [:]
         for (fileIndex, item) in preparedFiles.sorted(by: { !$0.0.lastPathComponent.contains("-mic.") && $1.0.lastPathComponent.contains("-mic.") }).enumerated() {
             try Task.checkCancellation()
             let (url, offset) = item
@@ -105,45 +127,51 @@ actor Transcriber {
                     let energy = samples.reduce(0.0) { $0 + Double($1 * $1) } / Double(samples.count)
                     if energy > 0.000001 {
                         var regions = isMic ? [VoiceRegion(start: 0, end: duration, embedding: voices?.vector(samples))] : voices?.regions(samples) ?? []
-                        if !isMic && voices == nil { regions = activity.regions(samples) }
-                        regions = regions.flatMap { region -> [VoiceRegion] in
-                            stride(from: region.start, to: region.end, by: 24).map {
-                                VoiceRegion(start: $0, end: min($0 + 24, region.end), embedding: region.embedding)
+                        if !isMic {
+                            // Diarization deliberately ignores very short turns. VAD
+                            // can still recover an isolated "да" without inventing a
+                            // speaker embedding or recognizing the same turn twice.
+                            let speech = activity.regions(samples)
+                            let missing = speech.filter { utterance in
+                                !regions.contains { $0.start < utterance.end && $0.end > utterance.start }
                             }
+                            regions += missing
+                            regions.sort { $0.start < $1.start }
                         }
-                        for region in regions {
-                            try Task.checkCancellation()
+                        regions = regions.flatMap { region -> [VoiceRegion] in
                             let lower = max(0, Int(region.start * 16000))
                             let upper = min(samples.count, Int(region.end * 16000))
+                            guard upper > lower else { return [] }
+                            return SpeechChunking.ranges(in: samples, range: lower..<upper).map {
+                                VoiceRegion(start: Double($0.lowerBound) / 16000, end: Double($0.upperBound) / 16000, embedding: region.embedding)
+                            }
+                        }
+                        for (index, region) in regions.enumerated() {
+                            try Task.checkCancellation()
+                            // Diarization timestamps can cut through a word. Restore a little
+                            // surrounding sound without borrowing from a neighboring turn.
+                            let previous = index > 0 ? regions[index - 1].end : 0
+                            let next = index + 1 < regions.count ? regions[index + 1].start : duration
+                            let leading = min(0.25, max(0, (region.start - previous) / 2))
+                            let trailing = min(0.25, max(0, (next - region.end) / 2))
+                            let lower = max(0, Int((region.start - leading) * 16000))
+                            let upper = min(samples.count, Int((region.end + trailing) * 16000))
                             guard upper > lower else { continue }
                             let regionSamples = Array(samples[lower..<upper])
                             let inferenceStarted = Date()
-                            let tokenLimit = min(768, max(64, Int((region.end - region.start) * 16)))
-                            let audio = MLXArray(regionSamples)
-                            // Never provide prompt text for the microphone: noise can
-                            // otherwise be transcribed as that text. Let the first pass
-                            // abstain before resolving a short reply's language ambiguity.
-                            let shortMic = isMic && region.end - region.start <= 1.5
-                            var result: STTOutput
-                            if shortMic { result = try await decodeShortMicrophone(model, audio: audio, maxTokens: tokenLimit) }
-                            else { result = model.generate(audio: audio, maxTokens: tokenLimit, context: isMic ? "" : context, language: isMic ? nil : "Russian", chunkDuration: 24, repetitionPenalty: 1.1) }
-                            if isMic && MicrophoneLanguage.shouldRetryRussian(duration: region.end - region.start, language: result.language, languageIsExplicit: shortMic && result.language != nil,
-                                                                            text: result.text, supportedLanguages: model.config.supportLanguages) {
-                                try Task.checkCancellation()
-                                result = model.generate(audio: audio, maxTokens: tokenLimit, context: "", language: "Russian", chunkDuration: 24, repetitionPenalty: 1.1)
-                            }
+                            let recognized = try await recognize(regionSamples, model: model, russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic)
                             // Give the GPU cooling/foreground headroom between utterances.
                             let thermal = ProcessInfo.processInfo.thermalState
                             if quiet || thermal == .serious || thermal == .critical {
                                 let delay = min(3, max(0.1, Date().timeIntervalSince(inferenceStarted) * (quiet ? 0.6 : 0.2)))
                                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                             }
-                            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !text.isEmpty, result.language?.lowercased() != "none" else { continue }
+                            guard let recognized else { continue }
                             let speaker = isMic ? "Я" : "Собеседники"
-                            var segment = TranscriptSegment(start: offset + start + region.start, end: offset + start + region.end, speaker: speaker, text: text)
+                            var segment = TranscriptSegment(start: offset + start + region.start, end: offset + start + region.end, speaker: speaker, text: recognized.text)
                             segment.audioFile = url.lastPathComponent
                             segment.embedding = region.embedding
+                            backchannels[segment.id] = recognized.russianBackchannel
                             segments.append(segment)
 
                         }
@@ -156,6 +184,71 @@ actor Transcriber {
         }
         keepGenerated = generated.map { url in segments.contains { $0.audioFile == url.lastPathComponent } } ?? false
         let sorted = segments.sorted { $0.start < $1.start }
-        return live ? sorted : SpeakerClustering.assign(sorted, profiles: profiles)
+        if let first = sorted.first, let previous = recentLanguageSegments.first, first.start <= previous.start { recentLanguageSegments = [] }
+        let localized = BackchannelLanguage.resolve(sorted, alternatives: backchannels, preceding: live ? recentLanguageSegments : [])
+        if live, let end = localized.map(\.end).max() {
+            recentLanguageSegments = (recentLanguageSegments + localized).filter { $0.end >= end - 60 }
+        }
+        return live ? localized : SpeakerClustering.assign(localized, profiles: profiles)
+    }
+
+    private struct RecognizedSpeech { var text: String; var russianBackchannel: String? }
+
+    private func recognize(_ samples: [Float], model: Qwen3ASRModel, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool) async throws -> RecognizedSpeech? {
+        let audio = MLXArray(samples)
+        let maxTokens = min(768, max(64, Int(duration * 16)))
+        // On brief replies the vocabulary can be longer than the speech itself.
+        let context = duration >= 2 ? vocabulary : ""
+        func generate(language: String?, context: String) -> STTOutput {
+            model.generate(audio: audio, maxTokens: maxTokens, context: context,
+                           language: language, chunkDuration: 30, repetitionPenalty: 1.1)
+        }
+        func words(_ text: String) -> [Substring] {
+            text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        }
+        let shortMic = isMic && duration <= 1.5
+        let detected = if shortMic {
+            try await decodeShortMicrophone(model, audio: audio, maxTokens: maxTokens)
+        } else {
+            generate(language: nil, context: context)
+        }
+        let language = detected.language?.lowercased()
+        guard language != "none", !detected.text.isEmpty else { return nil }
+        let allowed = language == "russian" || language == "english"
+        let echoedVocabulary = !context.isEmpty && words(detected.text) == words(context)
+        let result: STTOutput
+        let retryLanguage = shortMic
+            ? !allowed && MicrophoneLanguage.shouldRetryRussian(duration: duration, language: detected.language,
+                languageIsExplicit: detected.language != nil, text: detected.text, supportedLanguages: model.config.supportLanguages)
+            : !allowed
+        if retryLanguage || MeetingSpeechText.containsForeignLetters(detected.text) || echoedVocabulary {
+            result = generate(language: allowed ? detected.language : "Russian", context: "")
+        } else {
+            result = detected
+        }
+        var text = spokenVocabulary.apply(to: result.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
+              !MeetingSpeechText.containsForeignLetters(text) else { return nil }
+        try Task.checkCancellation()
+        if BackchannelLanguage.shouldRecheck(text, duration: duration) {
+            let decoded = generate(language: "Russian", context: "")
+            let alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
+                corroboration: russian?.recognize(samples), vocabulary: vocabulary)
+            return RecognizedSpeech(text: text, russianBackchannel: alternative)
+        }
+        if result.language?.lowercased() == "russian", duration >= 2,
+           let rawHypothesis = russian?.recognize(samples) {
+            let hypothesis = spokenVocabulary.promptHypothesis(rawHypothesis)
+            if RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
+                try Task.checkCancellation()
+                let checked = generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
+                let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                if checked.language?.lowercased() == "russian",
+                   RussianRecognition.accepts(candidate: candidate, original: text, vocabulary: context) {
+                    text = candidate
+                }
+            }
+        }
+        return RecognizedSpeech(text: text)
     }
 }

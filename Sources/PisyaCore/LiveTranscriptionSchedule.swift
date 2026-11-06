@@ -7,6 +7,11 @@ public struct LiveTranscriptionSchedule: Sendable {
         if !reprocess, let committed { return .resume(committed) }
         return .fromStart
     }
+    public static func audioProgress(committed: Double?, duration: Double?) -> Double? {
+        guard let committed, let duration, duration.isFinite, duration > 0,
+              committed >= 0, committed <= duration else { return nil }
+        return committed / duration
+    }
     public struct Window: Equatable, Sendable {
         public let start: Double
         public let end: Double

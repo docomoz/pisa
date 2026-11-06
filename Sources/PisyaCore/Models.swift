@@ -1,5 +1,19 @@
 import Foundation
 
+enum MeetingSpeechText {
+    // Match any letter outside the Latin and Cyrillic scripts.
+    private static let foreignLetters = try! NSRegularExpression(pattern: #"[^\P{L}\p{Latin}\p{Cyrillic}]"#)
+
+    static func accepts(_ text: String) -> Bool {
+        text.unicodeScalars.contains(where: CharacterSet.letters.contains)
+            && !containsForeignLetters(text)
+    }
+
+    static func containsForeignLetters(_ text: String) -> Bool {
+        foreignLetters.firstMatch(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)) != nil
+    }
+}
+
 public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID = UUID()
     public var start: Double
@@ -13,6 +27,7 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     }
 }
 public enum MeetingStatus: String, Codable, Sendable { case recorded, processing, ready, failed }
+public enum MeetingTitleOrigin: String, Codable, Sendable { case generated, custom }
 public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID = UUID()
     public var title: String
@@ -31,7 +46,9 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public var folderID: UUID?
     public var deletedAt: Date?
     public var automaticTitle: String?
+    public var titleOrigin: MeetingTitleOrigin?
     public var hasAutomaticTitle: Bool {
+        guard titleOrigin == nil else { return false }
         if let automaticTitle { return title == automaticTitle }
         func normalized(_ text: String) -> String { text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
         let stamps = [meetingDateLabel(date), date.formatted(date: .abbreviated, time: .shortened), date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "ru_RU")))]
@@ -39,15 +56,34 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
             stamps.contains { normalized(prefix + " · " + $0) == normalized(title) }
         }
     }
-    public var defaultTitle: String {
-        let prefix = source == "Аудиофайл" ? "Запись" : "Созвон"
-        return prefix + " · " + meetingDateLabel(date)
-    }
+    private var defaultTitlePrefix: String { source == "Аудиофайл" ? "Запись" : "Созвон" }
+    public var defaultTitle: String { defaultTitlePrefix + " · " + meetingDateLabel(date) }
+    public var headingTitle: String { hasAutomaticTitle ? defaultTitlePrefix : title }
     @discardableResult public mutating func refreshAutomaticTitle() -> Bool {
         guard hasAutomaticTitle else { return false }
         let changed = title != defaultTitle || automaticTitle != defaultTitle
         title = defaultTitle; automaticTitle = title
         return changed
+    }
+    public var needsGeneratedTitle: Bool {
+        status == .ready && liveCommittedUntil == nil &&
+        (hasAutomaticTitle || titleOrigin == .generated) &&
+        segments.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    @discardableResult public mutating func applyGeneratedTitle(_ value: String) -> Bool {
+        guard needsGeneratedTitle, let clean = MeetingTitleComposer.cleanTitle(value) else { return false }
+        title = clean; titleOrigin = .generated; automaticTitle = nil
+        return true
+    }
+    @discardableResult public mutating func rename(to value: String, resetIfEmpty: Bool = false) -> Bool {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.isEmpty {
+            guard resetIfEmpty, !hasAutomaticTitle else { return false }
+            title = defaultTitle; titleOrigin = nil; automaticTitle = title
+        } else {
+            title = clean; titleOrigin = .custom; automaticTitle = nil
+        }
+        return true
     }
     public init(title: String, source: String) { self.title = title; self.source = source }
     public var speakers: [String] { Array(Set(segments.map(\.speaker))).sorted() }
@@ -55,12 +91,12 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
 }
 public struct Preferences: Codable, Sendable {
     public var automaticRecording = false
-    public var mcpEnabled = false
+    public var mcpEnabled = true
     public var exportBookmark: Data?
     public var exportDisplayPath: String?
     public var modelBookmark: Data?
     public var modelDisplayPath: String?
-    public var vocabulary = "2ГИС, Контур Толк"
+    public var vocabulary = "2ГИС, Яндекс, YClients"
     public var keepAudio = true
     public var quietProcessing: Bool?
     public var usesQuietProcessing: Bool { quietProcessing ?? true }
@@ -172,6 +208,23 @@ public func typographicText(_ value: String) -> String {
         if let regex { text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: template) }
     }
     return text
+}
+
+/// UTF-16 ranges can be applied to both plain and typographically spaced text.
+public func transcriptSearchRanges(in text: String, query: String) -> [NSRange] {
+    guard !query.isEmpty else { return [] }
+    let searchable = text.replacingOccurrences(of: "\u{00a0}", with: " ") as NSString
+    let needle = query.replacingOccurrences(of: "\u{00a0}", with: " ")
+    var remaining = NSRange(location: 0, length: searchable.length)
+    var matches: [NSRange] = []
+    while remaining.length > 0 {
+        let match = searchable.range(of: needle, options: .caseInsensitive, range: remaining, locale: .current)
+        guard match.location != NSNotFound, match.length > 0 else { break }
+        matches.append(match)
+        let next = NSMaxRange(match)
+        remaining = NSRange(location: next, length: searchable.length - next)
+    }
+    return matches
 }
 
 /// UI meters advance only from successfully written audio buffers, never synthetic activity.

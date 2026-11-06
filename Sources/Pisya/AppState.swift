@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
+import Combine
 
 @MainActor
 final class AppState: ObservableObject {
@@ -12,6 +13,7 @@ final class AppState: ObservableObject {
     @Published var showingTrash = false
     @Published var unfiledOnly = false
     @Published var renameTarget: Meeting?
+    @Published var newFolderMeeting: Meeting?
     @Published var voiceMeeting: Meeting?
     @Published var reprocessTarget: Meeting?
     private var searchIndex: [UUID: String] = [:]
@@ -29,10 +31,24 @@ final class AppState: ObservableObject {
     @Published var callActive = false
     @Published var livePaused = false
     @Published var liveStatus = ""
+    @Published private(set) var liveAudioDuration: Double?
+    @Published private(set) var isReprocessing = false
     let source = "Системный звук"
     @Published var demo = false
     @Published var voiceProfiles: [VoiceProfile] = []
     let library: MeetingLibrary
+    struct SourceReveal: Equatable {
+        let meetingID: UUID
+        let segmentID: UUID
+        let requestID = UUID()
+    }
+    struct SourceNotice: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+    @Published var sourceNotice: SourceNotice?
+    private var sourceRequestID = UUID()
+    @Published var sourceReveal: SourceReveal?
     @Published var playingSegmentID: UUID?
     private var player: AVAudioPlayer?
     private var playbackEnd: Double = 0
@@ -42,15 +58,18 @@ final class AppState: ObservableObject {
     private var meterTask: Task<Void, Never>?
     private var offsetTask: Task<Void, Never>?
     private let transcriber = Transcriber()
+    private let titleModel = MeetingTitleModel()
     private var processingTask: Task<Void, Never>?
     private var liveTask: Task<Void, Never>?
     private var liveStopped = false
     private var timer: Timer?
     private var detector = CallDetector()
     private var activeMeeting: Meeting?
+    private var recordingTitleDraft: String?
     var recordingMeetingID: UUID? { recording ? activeMeeting?.id : nil }
+    var savingMeetingID: UUID? { recording ? nil : activeMeeting?.id }
     private var automaticallyStarted = false
-    private var pending: [UUID] = []
+    @Published private var pending: [UUID] = []
     private var pendingReprocessing: Set<UUID> = []
     var selected: Meeting? { meetings.first { $0.id == selection } }
     var filtered: [Meeting] {
@@ -60,16 +79,72 @@ final class AppState: ObservableObject {
             (search.isEmpty || (searchIndex[m.id] ?? m.title).localizedCaseInsensitiveContains(search))
         }
     }
+    func openSource(_ url: URL) {
+        sourceRequestID = UUID()
+        let requestID = sourceRequestID
+        let wasShowingSettings = showingSettings
+        showingSettings = false; sourceNotice = nil
+        func notice(_ text: String) {
+            let value = SourceNotice(message: text)
+            if wasShowingSettings {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    guard let self, self.sourceRequestID == requestID else { return }
+                    self.sourceNotice = value
+                }
+            } else { sourceNotice = value }
+        }
+        guard let link = TranscriptLink(url: url) else { stopPlayback(); notice("Некорректная ссылка на фрагмент"); return }
+        guard let meeting = try? library.read(link.meetingID), meeting.id == link.meetingID, meeting.deletedAt == nil else {
+            stopPlayback(); notice("Встреча недоступна или находится в корзине"); return
+        }
+        guard let result = link.resolve(in: meeting) else { stopPlayback(); notice("Фрагмент больше недоступен"); return }
+        if demo {
+            guard let actualMeetings = try? library.all(includeDeleted: true) else {
+                notice("Не удалось открыть библиотеку встреч"); return
+            }
+            demo = false; meetings = actualMeetings
+            searchIndex = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0.searchableText) })
+        }
+        upsert(meeting)
+        showingTrash = false; folderFilter = nil; unfiledOnly = false; search = ""
+        if selection != meeting.id { select(meeting.id) }
+        sourceReveal = SourceReveal(meetingID: meeting.id, segmentID: result.segment.id)
+        var notices: [String] = []
+        if result.isApproximate {
+            stopPlayback()
+            notices.append("Исходная реплика изменилась или удалена. Показан ближайший фрагмент по времени.")
+        }
+        if recording || savingMeetingID == meeting.id {
+            stopPlayback()
+            notices.append("Аудио сейчас недоступно во время записи или сохранения.")
+        } else if !result.isApproximate && !startPlayback(result.segment, in: meeting, toggle: false) {
+            notices.append("Аудио этого фрагмента недоступно, но текст сохранён.")
+        }
+        if !notices.isEmpty { notice(notices.joined(separator: "\n\n")) }
+    }
     func select(_ id: UUID?) { stopPlayback(); selection = id }
     func openFolder(_ id: UUID? = nil, trash: Bool = false, unfiled: Bool = false) {
         folderFilter = id; showingTrash = trash; unfiledOnly = unfiled
         select(filtered.first?.id)
     }
     func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !pending.contains(m.id) }
-    func rename(_ m: Meeting, to title: String) {
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
-        latest.title = title; update(latest)
+    func canRename(_ m: Meeting) -> Bool { !demo && (recordingMeetingID == m.id || canModify(m)) }
+    func isQueued(_ id: UUID) -> Bool { pending.contains(id) }
+    func stageRecordingTitle(_ title: String, for meeting: Meeting) {
+        guard recordingMeetingID == meeting.id else { return }
+        recordingTitleDraft = title == meeting.headingTitle ? nil : title
+    }
+    func rename(_ m: Meeting, to title: String, resetIfEmpty: Bool = false) {
+        guard canRename(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
+        let isRecording = recordingMeetingID == m.id
+        if isRecording { recordingTitleDraft = nil }
+        guard latest.rename(to: title, resetIfEmpty: isRecording && resetIfEmpty) else { return }
+        if isRecording {
+            do { try library.save(latest); upsert(latest) }
+            catch { message = error.localizedDescription }
+        } else {
+            update(latest)
+        }
     }
     func move(_ m: Meeting, to folder: UUID?) {
         guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
@@ -79,7 +154,23 @@ final class AppState: ObservableObject {
     func trash(_ m: Meeting, restore: Bool = false) {
         guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
         stopPlayback(); latest.deletedAt = restore ? nil : Date()
-        do { try library.save(latest); upsert(latest); select(filtered.first?.id) } catch { message = error.localizedDescription }
+        do {
+            try library.save(latest)
+            upsert(latest)
+            select(filtered.first?.id)
+        } catch {
+            message = error.localizedDescription
+            return
+        }
+        if !restore {
+            do {
+                try withConfiguredExportFolder { folder in
+                    _ = try MarkdownExporter.trashExport(for: latest, in: folder)
+                }
+            } catch {
+                message = "Запись в корзине Pisya. Не удалось переместить Markdown в корзину: \(error.localizedDescription)"
+            }
+        }
     }
     var canEmptyTrash: Bool {
         !demo && meetings.contains { $0.deletedAt != nil } && meetings.filter { $0.deletedAt != nil }.allSatisfy { canModify($0) }
@@ -102,12 +193,37 @@ final class AppState: ObservableObject {
             select(filtered.first?.id)
         } catch { message = error.localizedDescription }
     }
-    func saveFolder(_ name: String, id: UUID? = nil, symbol: String? = nil) {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines); guard !name.isEmpty, !demo else { return }
+    @discardableResult
+    func saveFolder(_ name: String, id: UUID? = nil, symbol: String? = nil) -> UUID? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !demo else { return nil }
         var updated = folders
-        if let index = updated.firstIndex(where: { $0.id == id }) { updated[index].name = name; if let symbol { updated[index].symbol = symbol } }
-        else { updated.append(MeetingFolder(name: name, symbol: symbol)) }
-        do { try library.saveFolders(updated); folders = updated } catch { message = error.localizedDescription }
+        let savedID: UUID
+        if let index = updated.firstIndex(where: { $0.id == id }) {
+            updated[index].name = name
+            if let symbol { updated[index].symbol = symbol }
+            savedID = updated[index].id
+        } else {
+            let folder = MeetingFolder(name: name, symbol: symbol)
+            updated.append(folder)
+            savedID = folder.id
+        }
+        do {
+            try library.saveFolders(updated)
+            folders = updated
+            return savedID
+        } catch {
+            message = error.localizedDescription
+            return nil
+        }
+    }
+    func moveToNewFolder(_ meeting: Meeting, name: String, symbol: String) {
+        guard canModify(meeting),
+              let latest = meetings.first(where: { $0.id == meeting.id }),
+              latest.deletedAt == nil else { return }
+        if let folderID = saveFolder(name, symbol: symbol) {
+            move(latest, to: folderID)
+        }
     }
     func removeFolder(_ folder: MeetingFolder) {
         guard !demo else { return }
@@ -117,7 +233,12 @@ final class AppState: ObservableObject {
             if folderFilter == folder.id { openFolder() }
         } catch { message = error.localizedDescription }
     }
-    var modelReady: Bool { modelURL().map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("model.safetensors").path) } ?? false }
+    lazy var modelSetup = ModelSetup(root: library.root.appendingPathComponent("Models"), customModel: { [weak self] in self?.modelURL() }, usesCustomModel: { [weak self] in self?.preferences.modelBookmark != nil })
+    private var modelSetupObservation: AnyCancellable?
+    var modelReady: Bool { modelSetup.ready }
+    func modelInstallationCompleted() {
+        if !modelSetup.installedUsingCustom { preferences.modelBookmark = nil; preferences.modelDisplayPath = nil; savePreferences() }
+    }
     var mcpPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/pisya-mcp").path }
     init(rootURL: URL? = nil) {
         let root = rootURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisya", isDirectory: true)
@@ -141,6 +262,7 @@ final class AppState: ObservableObject {
             }
             selection = filtered.first?.id
         } catch { message = error.localizedDescription }
+        modelSetupObservation = modelSetup.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         capture.onFailure = { [weak self] error in Task { @MainActor in self?.message = error; if self?.recording == true { await self?.stopRecording() } } }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.pollCall() } }
     }
@@ -157,7 +279,7 @@ final class AppState: ObservableObject {
     private func pollCall() {
         if let player, player.isPlaying, player.currentTime >= playbackEnd { player.stop(); playingSegmentID = nil }
         if let player, !player.isPlaying { playingSegmentID = nil }
-        guard preferences.automaticRecording, !demo else { return }
+        guard preferences.automaticRecording, !demo, !modelSetup.presented, !modelSetup.busy else { return }
         Task {
             let active = await Task.detached(priority: .utility) { CallAudioProbe.isActive() }.value
             guard preferences.automaticRecording else { return }
@@ -176,6 +298,7 @@ final class AppState: ObservableObject {
     }
     func startRecording(automatic: Bool = false) async {
         guard !recording, !starting, !demo else { return }
+        guard !modelSetup.busy, !modelSetup.presented else { modelSetup.presented = true; return }
         player?.stop(); playingSegmentID = nil
         starting = true; defer { starting = false }
         let selectedSource = source
@@ -186,9 +309,9 @@ final class AppState: ObservableObject {
         // Journal expected paths before capture, so interrupted sessions remain discoverable.
         m.audioFiles = ["\(m.id.uuidString)-mic.caf", "\(m.id.uuidString)-remote.caf"]
         do {
-            let filter = try await capture.prepare()
+            try await capture.prepare()
             try library.save(m)
-            try await capture.start(folder: library.audioDirectory, id: m.id, filter: filter)
+            try await capture.start(folder: library.audioDirectory, id: m.id)
             activeMeeting = m; recording = true; recordingStarted = Date(); automaticallyStarted = automatic
             recordingMonitor.reset()
             meterTask = Task { [weak self] in
@@ -236,6 +359,8 @@ final class AppState: ObservableObject {
     }
     func stopRecording(manual: Bool = false) async {
         guard recording, var m = activeMeeting else { return }
+        // Stopping from the menu bar or call detector can leave the title field focused.
+        if let title = recordingTitleDraft { rename(m, to: title) }
         meterTask?.cancel(); meterTask = nil
         offsetTask?.cancel(); offsetTask = nil
         recording = false; starting = true; defer { starting = false }
@@ -248,9 +373,13 @@ final class AppState: ObservableObject {
             guard !result.files.isEmpty else { throw PisyaError.message("Звук не получен. Проверьте разрешения и выбранное приложение") }
             try library.save(m); upsert(m)
             if let warning = result.warning { message = warning }
-            if liveTask != nil && processingID == m.id { liveStopped = true }
+            if liveTask != nil && processingID == m.id {
+                liveStopped = true
+                livePaused = false
+                liveStatus = "Завершаю расшифровку"
+            }
             else if result.warning == nil && modelReady { enqueue(m.id) }
-            else if !modelReady { message = "Запись сохранена. Добавьте локальную модель в настройках, чтобы расшифровать её" }
+            else if !modelReady { message = "Запись сохранена. Загрузите модели в настройках, чтобы расшифровать её" }
         } catch {
             if processingID == m.id { liveStopped = true; liveTask?.cancel() }
             m = (try? library.read(m.id)) ?? m
@@ -320,19 +449,24 @@ final class AppState: ObservableObject {
                 let available = stopped ? (ends.max() ?? 0) : (ends.min() ?? 0)
                 guard available.isFinite else { throw PisyaError.message("Некорректная длительность аудиодорожки") }
                 if stopped && available + 0.05 < schedule.committed { throw PisyaError.message("Сохранённый черновик выходит за доступную длину аудио") }
+                if stopped && liveAudioDuration != available { liveAudioDuration = available }
                 // The two seconds after the proposed cut are uncommitted
                 // lookahead, so a turn crossing the cut can move wholly to the
                 // next window without ever rereading the committed prefix.
                 let schedulable = stopped ? available : max(0, available - 2)
                 guard let window = schedule.next(available: schedulable, stopped: stopped) else {
                     if stopped {
+                        liveStatus = "Собираю расшифровку"
+                        await transcriber.finishLive()
+                        try Task.checkCancellation()
                         var latest = try library.read(id)
                         let availableNames = Set(tracks.map { $0.url.lastPathComponent })
                         guard latest.segments.allSatisfy({ $0.audioFile.map(availableNames.contains) ?? true }) else { throw PisyaError.message("Аудио черновика недоступно") }
                         latest.segments = SpeakerClustering.assign(latest.segments.sorted { $0.start < $1.start }, profiles: voiceProfiles)
                         latest.duration = max(latest.duration, available)
                         latest.status = .ready; latest.error = nil; latest.liveCommittedUntil = nil
-                        try library.save(latest); upsert(latest); exportIfConfigured(latest)
+                        try library.save(latest); upsert(latest)
+                        await nameCompletedMeeting(id, exportOnCompletion: true)
                         break
                     }
                     liveStatus = "Готовлю черновик"
@@ -383,7 +517,7 @@ final class AppState: ObservableObject {
         }
         await transcriber.finishLive()
         if granted { model.stopAccessingSecurityScopedResource() }
-        liveTask = nil; liveStatus = ""; processingID = nil; phase = ""; runNext()
+        liveTask = nil; liveStatus = ""; liveAudioDuration = nil; processingID = nil; phase = ""; runNext()
     }
 
     private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, quiet: Bool) async throws -> [TranscriptSegment] {
@@ -407,32 +541,42 @@ final class AppState: ObservableObject {
     }
     func enqueue(_ id: UUID, reprocess: Bool = false) {
         guard !demo, id != processingID, !pending.contains(id) else { return }
-        guard modelReady else { showingSettings = true; return }
+        guard modelReady else { modelSetup.presented = true; return }
         if reprocess { pendingReprocessing.insert(id) }
         pending.append(id); runNext()
+    }
+    func cancelQueued(_ id: UUID) {
+        guard pending.contains(id) else { return }
+        pendingReprocessing.remove(id)
+        pending.removeAll { $0 == id }
     }
     private func runNext() {
         guard processingID == nil, !pending.isEmpty else { return }
         let id = pending.removeFirst()
         let reprocess = pendingReprocessing.remove(id) != nil
         guard var m = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
-        if case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess) {
+        // A manual retry of an interrupted draft must honor its saved checkpoint.
+        let needsCleanDraft = m.status != .failed && m.liveCommittedUntil != nil
+            && m.segments.contains { MeetingSpeechText.containsForeignLetters($0.text) }
+        if case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess || needsCleanDraft) {
             guard committed.isFinite, committed >= 0 else { m.status = .failed; m.error = "Некорректный курсор черновика"; try? library.save(m); upsert(m); runNext(); return }
             m.status = .processing; m.error = nil
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }
             upsert(m); processingID = id; progress = 0
-            liveStopped = true; livePaused = false; liveStatus = "Завершаю расшифровку"
+            liveStopped = true; livePaused = false; liveStatus = "Подготавливаю аудио"
             liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model) }
             return
         }
         let granted = model.startAccessingSecurityScopedResource()
-        m.status = .processing; m.error = nil; m.liveCommittedUntil = nil
+        m.status = .processing; m.error = nil
         do { try library.save(m) } catch { message = error.localizedDescription; if granted { model.stopAccessingSecurityScopedResource() }; return }
+        isReprocessing = reprocess
         upsert(m); processingID = id; progress = 0
         let vocabulary = preferences.vocabulary
         processingTask = Task(priority: .utility) {
             defer {
                 if granted { model.stopAccessingSecurityScopedResource() }
+                isReprocessing = false
                 processingID = nil; processingTask = nil; phase = ""; runNext()
             }
             do {
@@ -447,6 +591,7 @@ final class AppState: ObservableObject {
                 try Task.checkCancellation()
                 var latest = try library.read(id)
                 latest.segments = result; latest.status = .ready; latest.error = nil
+                latest.liveCommittedUntil = nil
                 let referenced = Set(result.compactMap(\.audioFile))
                 let obsolete = latest.audioFiles.filter { $0.contains(".clean.") && !referenced.contains($0) }
                 latest.audioFiles.removeAll { obsolete.contains($0) }
@@ -459,7 +604,8 @@ final class AppState: ObservableObject {
                         }
                     }
                 }
-                try library.save(latest); persisted = true; upsert(latest); exportIfConfigured(latest)
+                try library.save(latest); persisted = true; upsert(latest)
+                await nameCompletedMeeting(id, exportOnCompletion: true)
                 let shared = Set(meetings.filter { $0.id != id }.flatMap(\.audioFiles))
                 for name in obsolete where !shared.contains(name) {
                     if let url = try? library.audioURL(name) { try? FileManager.default.removeItem(at: url) }
@@ -474,20 +620,58 @@ final class AppState: ObservableObject {
     private func updateProcessingProgress(_ fraction: Double, _ description: String) {
         progress = fraction; phase = description
     }
+    /// Failure here never changes the successful transcription's status or text.
+    func nameCompletedMeeting(_ id: UUID, exportOnCompletion: Bool = false) async {
+        var needsExport = exportOnCompletion
+        defer {
+            if needsExport, let meeting = try? library.read(id), meeting.status == .ready, meeting.deletedAt == nil {
+                exportIfConfigured(meeting)
+            }
+        }
+        do {
+            let snapshot = try library.read(id)
+            guard snapshot.deletedAt == nil, snapshot.needsGeneratedTitle else { return }
+            liveStatus = ""
+            let title = try await titleModel.title(for: snapshot.segments, root: library.root.appendingPathComponent("Models")) { [weak self] description in
+                await self?.updateProcessingProgress(1, description)
+            }
+            try Task.checkCancellation()
+            guard let title, var latest = try? library.read(id), latest.deletedAt == nil,
+                  latest.segments == snapshot.segments, latest.applyGeneratedTitle(title) else { return }
+            try library.save(latest); upsert(latest); needsExport = true
+        } catch {
+            if !(error is CancellationError) {
+                message = "Расшифровка сохранена. Не удалось придумать название: " + error.localizedDescription
+            }
+        }
+    }
     func stopPlayback() { player?.stop(); playingSegmentID = nil; playbackTimer?.invalidate(); playbackTimer = nil }
     func play(_ segment: TranscriptSegment, in meeting: Meeting) {
-        guard !demo, !recording else { return }
-        if playingSegmentID == segment.id { stopPlayback(); return }
+        if !startPlayback(segment, in: meeting, toggle: true) { message = "Аудио этого фрагмента недоступно" }
+    }
+    @discardableResult
+    private func startPlayback(_ segment: TranscriptSegment, in meeting: Meeting, toggle: Bool) -> Bool {
+        guard !demo, !recording else { stopPlayback(); return false }
+        if toggle && playingSegmentID == segment.id { stopPlayback(); return true }
         let name = segment.audioFile ?? meeting.audioFiles.first { segment.speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") } ?? meeting.audioFiles.first
-        guard let name else { return }
-        do {
-            player = try AVAudioPlayer(contentsOf: library.audioURL(name))
-            let offset = meeting.audioOffsets[name] ?? 0
-            player?.currentTime = max(0, segment.start - offset)
-            playbackEnd = segment.end - offset
-            player?.play(); playingSegmentID = segment.id
-            schedulePlaybackStop()
-        } catch { message = "Аудио недоступно: \(error.localizedDescription)" }
+        guard let name, meeting.audioFiles.contains(name), let url = try? library.audioURL(name),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              url.resolvingSymlinksInPath().deletingLastPathComponent() == library.audioDirectory.resolvingSymlinksInPath(),
+              let candidate = try? AVAudioPlayer(contentsOf: url) else { stopPlayback(); return false }
+        let offset = meeting.audioOffsets[name] ?? 0
+        let start = segment.start - offset, end = segment.end - offset
+        guard offset.isFinite, start.isFinite, end.isFinite, end > start, end > 0,
+              start < candidate.duration, candidate.duration > 0 else { stopPlayback(); return false }
+        if !toggle && playingSegmentID == segment.id && player?.isPlaying == true { return true }
+        stopPlayback()
+        candidate.currentTime = max(0, start)
+        guard candidate.play() else { return false }
+        player = candidate
+        playbackEnd = min(end, candidate.duration)
+        playingSegmentID = segment.id
+        schedulePlaybackStop()
+        return true
     }
     private func schedulePlaybackStop() {
         playbackTimer?.invalidate()
@@ -510,12 +694,25 @@ final class AppState: ObservableObject {
             playbackEnd = player?.duration ?? 0; player?.play(); playingSegmentID = example.id; schedulePlaybackStop()
         } catch { message = "Образец голоса недоступен" }
     }
+    func voiceSample(for segmentID: UUID, in meeting: Meeting, allMatching: Bool) -> TranscriptSegment? {
+        var durations: [String: Double] = [:]
+        for filename in meeting.audioFiles {
+            guard let url = try? library.audioURL(filename), let file = try? AVAudioFile(forReading: url) else { continue }
+            durations[filename] = Double(file.length) / file.processingFormat.sampleRate
+        }
+        return automaticVoiceSample(for: segmentID, in: meeting, allMatching: allMatching, audioDurations: durations)
+    }
     func assignVoice(meetingID: UUID, segmentID: UUID, name: String, allMatching: Bool, remember: Bool) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, var m = meetings.first(where: { $0.id == meetingID }), canModify(m),
               let sample = m.segments.first(where: { $0.id == segmentID }) else { return }
         if remember {
-            do { try storeVoiceSample(sample, name: clean, meeting: m) }
+            do {
+                guard let automatic = voiceSample(for: sample.id, in: m, allMatching: allMatching) else {
+                    throw PisyaError.message("Не найден подходящий образец голоса от 2 секунд без отмеченных наложений. Можно применить имя без запоминания голоса")
+                }
+                try storeVoiceSample(automatic, name: clean, meeting: m)
+            }
             catch { message = "Имя не сохранено: \(error.localizedDescription)"; return }
         }
         for index in m.segments.indices where m.segments[index].id == segmentID || (allMatching && m.segments[index].speaker == sample.speaker) {
@@ -597,11 +794,27 @@ final class AppState: ObservableObject {
         else { voiceProfiles.append(.init(name: clean, samples: samples)) }
         do { try library.saveVoices(voiceProfiles) } catch { message = error.localizedDescription }
     }
-    func forgetVoice(_ id: UUID) {
+    func renameVoice(_ id: UUID, to name: String) throws {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { throw PisyaError.message("Введите имя") }
+        guard let index = voiceProfiles.firstIndex(where: { $0.id == id }) else { throw PisyaError.message("Голос уже удалён") }
+        guard !voiceProfiles.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(clean) == .orderedSame }) else {
+            throw PisyaError.message("Голос с таким именем уже сохранён. Укажите другое имя")
+        }
+        var updated = voiceProfiles
+        updated[index].name = clean
+        try library.saveVoices(updated)
+        voiceProfiles = updated
+    }
+    func forgetVoice(_ id: UUID) throws {
         let previous = voiceProfiles
         let updated = voiceProfiles.filter { $0.id != id }
-        do { try library.saveVoices(updated); voiceProfiles = updated; cleanupVoiceExamples(previous: previous, current: updated) }
-        catch { message = error.localizedDescription }
+        try library.saveVoices(updated)
+        if let playingSegmentID, previous.first(where: { $0.id == id })?.examples?.contains(where: { $0.id == playingSegmentID }) == true {
+            stopPlayback()
+        }
+        voiceProfiles = updated
+        cleanupVoiceExamples(previous: previous, current: updated)
     }
     private func cleanupVoiceExamples(previous: [VoiceProfile], current: [VoiceProfile]) {
         let retained = Set(current.flatMap { $0.examples ?? [] }.map(\.file))
@@ -623,7 +836,7 @@ final class AppState: ObservableObject {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
         panel.message = "Папка Qwen3-ASR в формате MLX. Все вычисления останутся на Mac"
         if panel.runModal() == .OK, let url = panel.url {
-            do { preferences.modelBookmark = try url.bookmarkData(options: .withSecurityScope); preferences.modelDisplayPath = url.path; savePreferences(); objectWillChange.send() } catch { message = error.localizedDescription }
+            do { preferences.modelBookmark = try url.bookmarkData(options: .withSecurityScope); preferences.modelDisplayPath = url.path; savePreferences(); modelSetup.check(presentWhenNeeded: false); objectWillChange.send() } catch { message = error.localizedDescription }
         }
     }
     func chooseExportFolder() {
@@ -634,13 +847,21 @@ final class AppState: ObservableObject {
         }
     }
     func exportIfConfigured(_ meeting: Meeting) {
-        guard !demo, let data = preferences.exportBookmark else { return }
+        guard meeting.deletedAt == nil else { return }
         do {
-            var stale = false; let folder = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-            let granted = folder.startAccessingSecurityScopedResource(); defer { if granted { folder.stopAccessingSecurityScopedResource() } }
-            if stale { preferences.exportBookmark = try folder.bookmarkData(options: .withSecurityScope); savePreferences() }
-            _ = try MarkdownExporter.export(meeting, to: folder)
+            try withConfiguredExportFolder { folder in
+                _ = try MarkdownExporter.export(meeting, to: folder)
+            }
         } catch { message = "Экспорт не выполнен: \(error.localizedDescription). Расшифровка сохранена на Mac" }
+    }
+    private func withConfiguredExportFolder(_ action: (URL) throws -> Void) throws {
+        guard !demo, let data = preferences.exportBookmark else { return }
+        var stale = false
+        let folder = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
+        let granted = folder.startAccessingSecurityScopedResource()
+        defer { if granted { folder.stopAccessingSecurityScopedResource() } }
+        if stale { preferences.exportBookmark = try folder.bookmarkData(options: .withSecurityScope); savePreferences() }
+        try action(folder)
     }
     func deleteAudio(_ meeting: Meeting) {
         guard !demo, meeting.status == .ready, processingID != meeting.id, activeMeeting?.id != meeting.id else { return }
@@ -653,8 +874,11 @@ final class AppState: ObservableObject {
             var m = meeting; m.audioFiles = []; m.audioOffsets = [:]; update(m)
         } catch { message = "Не всё аудио удалось удалить: \(error.localizedDescription)" }
     }
+    func canExport(_ meeting: Meeting) -> Bool {
+        canModify(meeting) && !meeting.segments.isEmpty
+    }
     func exportSelected() {
-        guard let meeting = selected, !demo else { return }
+        guard let meeting = selected, canExport(meeting) else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = "\(meeting.title.replacingOccurrences(of: "/", with: "-" )).md"
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.isExtensionHidden = false; panel.canCreateDirectories = true
