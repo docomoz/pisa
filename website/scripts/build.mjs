@@ -21,5 +21,9 @@ const source = await readFile(path.join(root, 'worker/index.js'), 'utf8');
 await mkdir(path.join(root, 'dist/server'), { recursive: true });
 await mkdir(path.join(root, 'dist/.openai'), { recursive: true });
 await writeFile(path.join(root, 'dist/server/index.js'), `const ASSETS = ${JSON.stringify(assets)};\n${source}`);
-await copyFile(path.join(root, '.openai/hosting.json'), path.join(root, 'dist/.openai/hosting.json'));
+try {
+  await copyFile(path.join(root, '.openai/hosting.json'), path.join(root, 'dist/.openai/hosting.json'));
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
 console.log('Built Pisya website Worker');
