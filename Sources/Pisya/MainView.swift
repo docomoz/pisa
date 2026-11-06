@@ -37,21 +37,24 @@ struct MainView: View {
     private var sidebar: some View { LibrarySidebar() }
     private var topbar: some View {
         HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
-            Group {
-                if state.recording, let started = state.recordingStarted {
-                    RecordingIndicator(monitor: state.recordingMonitor, started: started)
-                } else {
-                    HStack(spacing: PisyaDesign.Spacing.inline) {
-                        Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
-                        BrandMoodView()
-                    }.accessibilityElement(children: .combine)
+            if state.recording, let started = state.recordingStarted {
+                RecordingIndicator(monitor: state.recordingMonitor, started: started)
+                    .frame(minHeight: PisyaDesign.Metrics.regularHeight)
+                    .padding(.top, PisyaDesign.Spacing.content)
+                Spacer(minLength: PisyaDesign.Spacing.none)
+                    .frame(maxHeight: .infinity)
+                    .background(TitleBarZoom().allowsHitTesting(false))
+            } else {
+                HStack(spacing: PisyaDesign.Spacing.inline) {
+                    Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
+                    BrandMoodView()
                 }
-            }
-            .frame(minHeight: PisyaDesign.Metrics.regularHeight)
-            .padding(.top, PisyaDesign.Spacing.content)
-            Spacer(minLength: PisyaDesign.Spacing.none)
-                .frame(maxHeight: .infinity)
+                .accessibilityElement(children: .combine)
+                .frame(minHeight: PisyaDesign.Metrics.regularHeight)
+                .padding(.top, PisyaDesign.Spacing.content)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TitleBarZoom().allowsHitTesting(false))
+            }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)

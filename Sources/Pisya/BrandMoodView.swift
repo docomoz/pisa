@@ -34,8 +34,6 @@ struct BrandMoodView: View {
                 .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Self.colors[colorIndex])
                 .lineLimit(1).truncationMode(.tail)
         }
-        .frame(maxWidth: 340, alignment: .leading)
-        .layoutPriority(-1)
         .screenHelp("Pisya \(Self.phrases[phraseIndex]) \(Self.emojis[emojiIndex])")
         .task {
             while !Task.isCancelled {
