@@ -3,6 +3,7 @@ const copyStatus = document.querySelector('.copy-status');
 copy?.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText('xattr -dr com.apple.quarantine "/Applications/Pisya.app"');
+    window.pisyaTrack?.('copy_install_command');
     copy.textContent = 'Скопировано';
     if (copyStatus) copyStatus.textContent = 'Команда скопирована';
     window.setTimeout(() => { copy.textContent = 'Копировать'; }, 2200);

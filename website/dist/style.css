@@ -49,6 +49,7 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 .privacy-columns .section-lead,.section-lead{font-size:20px;line-height:1.5;color:#37443a}
 .privacy-source{display:flex;flex-direction:column;align-items:flex-start;gap:16px}.outline-link{display:inline-block;border-bottom:1px solid #8da395;padding:0 0 4px;font-size:14px;font-weight:700}
 .privacy-columns .privacy-note{font-size:12px;line-height:1.55;color:#5f6d62;margin-top:8px}
+.privacy-columns .privacy-note + .privacy-note{margin-top:0}
 .install{padding:150px 0 60px}
 .install .section-lead{margin-top:28px}
 .install .button{margin:32px 0 14px}
