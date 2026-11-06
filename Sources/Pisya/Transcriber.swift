@@ -34,12 +34,7 @@ actor Transcriber {
         if live && previousLiveCacheLimit == nil { previousLiveCacheLimit = previousCacheLimit }
         Memory.cacheLimit = 256 * 1024 * 1024
         defer { if !live { Memory.clearCache(); Memory.cacheLimit = previousCacheLimit } }
-        if vocabularySource != context {
-            let pronunciations = Bundle.main.url(forResource: "cmudict", withExtension: "dict")
-                .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
-            spokenVocabulary = SpokenVocabulary(context, pronunciations: pronunciations)
-            vocabularySource = context
-        }
+        prepareVocabulary(context)
         var generated: URL?
         var keepGenerated = false
         defer { if !keepGenerated, let generated { try? FileManager.default.removeItem(at: generated) } }
@@ -251,6 +246,58 @@ actor Transcriber {
         return live ? localized : SpeakerClustering.assign(localized, profiles: profiles)
     }
 
+    private func prepareVocabulary(_ vocabulary: String) {
+        guard vocabularySource != vocabulary else { return }
+        let pronunciations = Bundle.main.url(forResource: "cmudict", withExtension: "dict")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        spokenVocabulary = SpokenVocabulary(vocabulary, pronunciations: pronunciations)
+        vocabularySource = vocabulary
+    }
+
+    /// Replay selected turns against a frozen meeting transcript and existing
+    /// audio. Caller can supply the exact padded file-local decode intervals.
+    func replayRecognitionContext(_ frozen: [TranscriptSegment], files: [(URL, Double)],
+        modelDirectory: URL, speakerDirectory: URL, vocabulary: String, selected: Set<UUID>,
+        suppliedBounds: [UUID: Range<Double>], repeatFirstPass: Bool) async throws -> [TranscriptSegment] {
+        contextDiagnostics = []
+        prepareVocabulary(vocabulary)
+        let priorLimit = Memory.cacheLimit
+        Memory.cacheLimit = 256 * 1024 * 1024
+        defer { Memory.clearCache(); Memory.cacheLimit = priorLimit }
+        let model = try await Qwen3ASRModel.fromModelDirectory(modelDirectory)
+        let russian = try RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent()
+            .appendingPathComponent(RussianSpeechRecognizer.directoryName))
+        var segments = frozen.sorted { $0.start < $1.start }
+        var bounds = suppliedBounds
+        var hypotheses: [UUID: RecognitionAcousticResult] = [:]
+        for (url, offset) in files {
+            let name = url.lastPathComponent
+            let track = segments.indices.filter { segments[$0].audioFile == name }
+            for (position, index) in track.enumerated() {
+                let segment = segments[index]
+                let priorEnd = position > 0 ? segments[track[position - 1]].end : segment.start - 0.5
+                let nextStart = position + 1 < track.count ? segments[track[position + 1]].start : segment.end + 0.5
+                let start = max(0, segment.start - offset - min(0.25, max(0, (segment.start - priorEnd) / 2)))
+                let end = max(start, segment.end - offset + min(0.25, max(0, (nextStart - segment.end) / 2)))
+                let interval = suppliedBounds[segment.id] ?? start..<end
+                bounds[segment.id] = interval
+                guard selected.contains(segment.id) else { continue }
+                let samples = try Self.contextSamples(url, start: interval.lowerBound, end: interval.upperBound)
+                if repeatFirstPass,
+                   let recognized = try recognize(samples, expandedSamples: nil, model: model, russian: russian,
+                                                  vocabulary: vocabulary, duration: segment.end - segment.start) {
+                    segments[index].text = recognized.text
+                    hypotheses[segment.id] = recognized.acoustic
+                } else {
+                    hypotheses[segment.id] = russian.recognizeDetailed(samples)
+                }
+            }
+        }
+        return try await contextualRevision(segments, preceding: [], files: files, bounds: bounds,
+            hypotheses: hypotheses, model: model, russian: russian, vocabulary: vocabulary,
+            quiet: false, collectDiagnostics: true, selected: selected) { _, _ in }
+    }
+
     private struct RecognizedSpeech { var text: String; var russianBackchannel: String?; var acoustic: RecognitionAcousticResult? }
 
     /// Use a frozen, chronological first pass from both tracks. A proposed
@@ -258,8 +305,8 @@ actor Transcriber {
     private func contextualRevision(_ segments: [TranscriptSegment], preceding: [TranscriptSegment],
         files: [(URL, Double)], bounds: [UUID: Range<Double>], hypotheses: [UUID: RecognitionAcousticResult], model: Qwen3ASRModel,
         russian: RussianSpeechRecognizer?, vocabulary: String, quiet: Bool, collectDiagnostics: Bool,
-        progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
-        guard russian != nil, !vocabulary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        selected: Set<UUID>? = nil, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+        guard let russian, !vocabulary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             try Task.checkCancellation()
             await progress(1, "Расшифровка готова")
             return segments
@@ -268,22 +315,65 @@ actor Transcriber {
         var revised = segments
         for (index, segment) in segments.enumerated() {
             try Task.checkCancellation()
+            if let selected, !selected.contains(segment.id) { continue }
             if collectDiagnostics {
                 contextDiagnostics.append(["start": String(segment.start), "track": segment.audioFile ?? "",
                     "source": segment.text, "independent": hypotheses[segment.id]?.text ?? "", "kind": "first-pass"])
             }
-            guard let name = segment.audioFile, let (url, _) = files.first(where: { $0.0.lastPathComponent == name }),
-                  let audioRange = bounds[segment.id],
-                  segment.end - segment.start >= 2, segment.end - segment.start <= 30,
-                  let retry = snapshot.plan(for: segment, independent: hypotheses[segment.id]?.text,
-                      vocabulary: vocabulary, spokenVocabulary: spokenVocabulary) else { continue }
-            // Reuse exactly the first pass's padded interval, already bounded
-            // by adjacent turns. A failed optional reread preserves that pass.
-            guard let samples = try? Self.contextSamples(url, start: audioRange.lowerBound, end: audioRange.upperBound) else { continue }
-            guard !samples.isEmpty else { continue }
-            let acoustic = hypotheses[segment.id] ?? russian?.recognizeDetailed(samples)
+            guard let name = segment.audioFile, let (url, offset) = files.first(where: { $0.0.lastPathComponent == name }),
+                  let audioRange = bounds[segment.id] else { continue }
+            let duration = segment.end - segment.start
+            if duration < 2 {
+                guard RecognitionContext.isWordRichShortTurn(segment.text, duration: duration),
+                      let samples = try? Self.contextSamples(url, start: audioRange.lowerBound, end: audioRange.upperBound),
+                      let heard = hypotheses[segment.id]?.text ?? russian.recognize(samples),
+                      (4...6).contains(RussianRecognition.words(heard).count),
+                      RussianRecognition.words(heard) != RussianRecognition.words(segment.text) else { continue }
+                let hints = spokenVocabulary.relevantTerms(in: [segment.text, heard])
+                let audio = MLXArray(samples)
+                for prompt in (hints.isEmpty ? [""] : [hints, ""]) {
+                    try Task.checkCancellation()
+                    let output = RecognitionPromptEcho.decode(context: prompt, vocabulary: prompt, text: { $0.text }) {
+                        model.generate(audio: audio, maxTokens: 96, context: $0, language: "Russian",
+                                       chunkDuration: 30, repetitionPenalty: 1.1)
+                    }
+                    let candidate = spokenVocabulary.apply(to: output.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["start": String(segment.start), "kind": "short-turn",
+                            "source": segment.text, "independent": heard, "candidate": candidate])
+                    }
+                    if let accepted = RecognitionContext.wordRichShortTurn(original: segment.text, candidate: candidate,
+                            corroboration: heard, duration: duration, vocabulary: vocabulary) {
+                        revised[index].text = accepted
+                        if collectDiagnostics {
+                            contextDiagnostics.append(["start": String(segment.start), "kind": "accepted",
+                                "source": segment.text, "candidate": accepted])
+                        }
+                        break
+                    }
+                }
+                continue
+            }
+            guard duration <= 30 else { continue }
+            let independent = hypotheses[segment.id]?.text
+            let retry = snapshot.plan(for: segment, independent: independent,
+                                      vocabulary: vocabulary, spokenVocabulary: spokenVocabulary)
+            let tailDiffers = independent.map {
+                RussianRecognition.words($0).suffix(3) != RussianRecognition.words(segment.text).suffix(3)
+            } ?? false
+            let continuation = (retry != nil || (segment.end - segment.start >= 12 && tailDiffers))
+                ? snapshot.continuation(after: segment) : nil
+            guard retry != nil || continuation != nil else {
+                if collectDiagnostics { contextDiagnostics.append(["start": String(segment.start), "kind": "no-plan"]) }
+                continue
+            }
+            // Reuse the first pass's padded interval. A failed optional reread preserves that pass.
+            guard let samples = try? Self.contextSamples(url, start: audioRange.lowerBound, end: audioRange.upperBound),
+                  !samples.isEmpty else { continue }
+            let acoustic = hypotheses[segment.id] ?? russian.recognizeDetailed(samples)
             let began = Date()
-            func decode(_ prompt: String, samples: [Float], applyVocabulary: Bool = true) throws -> String {
+            func decode(_ prompt: String, samples: [Float], retry: RecognitionContext.Retry,
+                        applyVocabulary: Bool = true) throws -> String {
                 let audio = MLXArray(samples)
                 func generate(_ context: String) throws -> STTOutput {
                     try Task.checkCancellation()
@@ -294,24 +384,32 @@ actor Transcriber {
                     text: { $0.text }, generate: generate)
                 // Neighboring speech is also a prompt, never a substitute for
                 // this region's audio. Recover by decoding without it once.
-                let text = retry.isNeighborEcho(result.text) ? try generate("").text : result.text
+                let text = !prompt.isEmpty && retry.isNeighborEcho(result.text) ? try generate("").text : result.text
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return applyVocabulary ? spokenVocabulary.apply(to: trimmed) : trimmed
             }
             var lastCandidate = ""
-            func consider(_ samples: [Float], evidence: RecognitionAcousticResult?, prompt: String, kind: String) throws -> String? {
-                let candidate = try decode(prompt, samples: samples)
+            func consider(_ samples: [Float], evidence: RecognitionAcousticResult?, source: String,
+                          retry: RecognitionContext.Retry, prompt: String, kind: String) throws -> String? {
+                let candidate = try decode(prompt, samples: samples, retry: retry)
                 lastCandidate = candidate
                 if collectDiagnostics {
-                    contextDiagnostics.append(["start": String(segment.start), "track": name, "source": segment.text,
+                    contextDiagnostics.append(["start": String(segment.start), "track": name, "source": source,
                         "independent": evidence?.text ?? "", "hints": retry.hints, "kind": kind, "candidate": candidate])
                 }
-                return RecognitionContext.revisedText(original: segment.text, candidate: candidate,
-                    corroboration: evidence?.text, retry: retry, vocabulary: vocabulary)
+                let raw = evidence?.text
+                let revised = RecognitionContext.revisedText(original: source, candidate: candidate,
+                    corroboration: raw, retry: retry, vocabulary: vocabulary)
+                if let revised { return revised }
+                guard let raw else { return nil }
+                let canonical = spokenVocabulary.apply(to: raw)
+                return canonical == raw ? nil : RecognitionContext.revisedText(original: source, candidate: candidate,
+                    corroboration: canonical, retry: retry, vocabulary: vocabulary)
             }
-            func focused(_ samples: [Float], evidence: RecognitionAcousticResult?, kind: String) throws -> String? {
-                guard let evidence, let russian else { return nil }
-                let targets = retry.targetSpans(in: segment.text, corroboration: evidence.text)
+            func focused(_ samples: [Float], evidence: RecognitionAcousticResult?, retry: RecognitionContext.Retry,
+                         kind: String) throws -> String? {
+                guard let evidence else { return nil }
+                let targets = retry.targetSpans(in: segment.text, corroboration: spokenVocabulary.apply(to: evidence.text))
                 let ranges = RecognitionAudioFocus.ranges(original: segment.text,
                     targets: targets,
                     words: evidence.words, duration: Double(samples.count) / 16000)
@@ -335,44 +433,102 @@ actor Transcriber {
                         }
                         return joined
                     }
-                    if let revised = try consider(clip, evidence: heard, prompt: retry.hints, kind: kind) { return revised }
-                    if retry.canDisambiguateInitialismEnding(in: segment.text) {
+                    if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: retry.hints, kind: kind) { return revised }
+                    let checkEnding = retry.canDisambiguateInitialismEnding(in: segment.text)
+                    let checkBoundary = retry.canProbePhoneticBoundary(in: segment.text, corroboration: evidence.text)
+                    if checkEnding {
                         let candidate = lastCandidate
                         var unprompted: [String] = []
+                        var expandedProbe: [Float]?
                         for margin in [0.0, 1.25] {
                             let a = max(0, Int((range.lowerBound - margin) * 16000))
                             let b = min(samples.count, Int((range.upperBound + margin) * 16000))
                             if margin > 0, a == lower, b == upper { continue }
                             let probeSamples = Array(samples[a..<b])
-                            let probe = try decode("", samples: probeSamples, applyVocabulary: false)
+                            if margin > 0 { expandedProbe = probeSamples }
+                            let probe = try decode("", samples: probeSamples, retry: retry, applyVocabulary: false)
                             unprompted.append(probe)
                             if collectDiagnostics {
                                 contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-unprompted",
                                     "margin": String(margin), "candidate": probe, "source": segment.text])
                             }
                         }
-                        if let disambiguated = RecognitionContext.disambiguateInitialismEnding(
-                            original: segment.text, candidate: candidate, unprompted: unprompted,
-                            retry: retry, vocabulary: vocabulary) {
-                            if collectDiagnostics {
-                                contextDiagnostics.append(["start": String(segment.start), "kind": "contextual-spelling",
-                                    "source": segment.text, "candidate": disambiguated])
+                        if checkEnding, unprompted.count == 2 {
+                            var disambiguated = RecognitionContext.disambiguateInitialismEnding(
+                                original: segment.text, candidate: candidate, unprompted: unprompted,
+                                retry: retry, vocabulary: vocabulary)
+                            if disambiguated == nil, let expandedProbe {
+                                let expandedCandidate = try decode(retry.hints, samples: expandedProbe, retry: retry)
+                                if collectDiagnostics {
+                                    contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-expanded",
+                                        "source": segment.text, "candidate": expandedCandidate])
+                                }
+                                disambiguated = RecognitionContext.disambiguateInitialismEnding(
+                                    original: segment.text, candidate: expandedCandidate, unprompted: unprompted,
+                                    retry: retry, vocabulary: vocabulary)
                             }
-                            return disambiguated
+                            if let disambiguated {
+                                if collectDiagnostics {
+                                    contextDiagnostics.append(["start": String(segment.start), "kind": "contextual-spelling",
+                                        "source": segment.text, "candidate": disambiguated])
+                                }
+                                return disambiguated
+                            }
+                        }
+                    }
+                    if checkBoundary, let heard {
+                        let a = max(0, lower - 4_800), b = min(samples.count, upper + 4_800)
+                        if a > 0 || b < samples.count {
+                            let wide = try decode("", samples: samples, retry: retry, applyVocabulary: false)
+                            let narrow = try decode("", samples: Array(samples[a..<b]), retry: retry, applyVocabulary: false)
+                            if collectDiagnostics {
+                                contextDiagnostics.append(["start": String(segment.start), "kind": "phonetic-boundary-unprompted",
+                                    "source": segment.text, "independent": heard.text, "candidate": wide, "narrow": narrow])
+                            }
+                            let observed = RecognitionContext.reconcileObservedInitialismBoundary(original: wide,
+                                independent: heard.text, retry: retry, vocabulary: vocabulary) ?? wide
+                            if let boundary = RecognitionContext.revisedText(original: segment.text, candidate: observed,
+                                corroboration: heard.text, retry: retry, vocabulary: vocabulary, boundaryEvidence: [observed, narrow])
+                                ?? RecognitionContext.reconcilePhoneticBoundary(original: segment.text, corroboration: heard.text,
+                                    unprompted: [wide, narrow], retry: retry, vocabulary: vocabulary) {
+                                return boundary
+                            }
                         }
                     }
                     if let heard, !heard.text.isEmpty {
                         let prompt = RussianRecognition.context(vocabulary: retry.hints,
                             hypothesis: spokenVocabulary.promptHypothesis(heard.text))
-                        if let revised = try consider(clip, evidence: heard, prompt: prompt, kind: kind + "-acoustic") { return revised }
+                        if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: prompt, kind: kind + "-acoustic") { return revised }
                     }
                 }
                 return nil
             }
-            var accepted = try consider(samples, evidence: acoustic, prompt: retry.hints, kind: "hints")
-            if accepted == nil { accepted = try focused(samples, evidence: acoustic, kind: "focus") }
-            if accepted == nil, retry.context != retry.hints {
-                accepted = try consider(samples, evidence: acoustic, prompt: retry.context, kind: "neighbors")
+            var accepted: String?
+            if let retry {
+                accepted = try consider(samples, evidence: acoustic, source: segment.text, retry: retry,
+                                        prompt: retry.hints, kind: "hints")
+                if accepted == nil { accepted = try focused(samples, evidence: acoustic, retry: retry, kind: "focus") }
+                if accepted == nil, retry.context != retry.hints {
+                    accepted = try consider(samples, evidence: acoustic, source: segment.text, retry: retry,
+                                            prompt: retry.context, kind: "neighbors")
+                }
+            }
+            if accepted == nil, let continuation {
+                let end = min(continuation.segment.end - offset, continuation.segment.start - offset + 3.5)
+                if end > audioRange.upperBound + 0.2,
+                   let expanded = try? Self.contextSamples(url, start: audioRange.lowerBound, end: end),
+                   let heard = russian.recognizeDetailed(expanded) {
+                    var joined = segment
+                    joined.text += continuation.suffix
+                    if let boundaryRetry = snapshot.plan(for: joined, independent: heard.text,
+                                                         vocabulary: vocabulary, spokenVocabulary: spokenVocabulary) {
+                        let replacement = try consider(expanded, evidence: heard, source: joined.text, retry: boundaryRetry,
+                                                       prompt: boundaryRetry.hints, kind: "right-anchor")
+                        accepted = replacement.flatMap(continuation.splice)
+                            ?? RecognitionContext.revisedAcrossBoundary(original: segment.text, candidate: lastCandidate,
+                                corroboration: heard.text, continuation: continuation, retry: boundaryRetry, vocabulary: vocabulary)
+                    }
+                }
             }
             if let accepted {
                 revised[index].text = accepted

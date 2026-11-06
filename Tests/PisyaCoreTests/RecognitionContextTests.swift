@@ -395,4 +395,211 @@ final class RecognitionContextTests: XCTestCase {
         XCTAssertNil(RecognitionContext(segments: [target, other]).plan(for: target,
             independent: raw, vocabulary: vocabulary, spokenVocabulary: spoken))
     }
+
+    func testCyrillicInitialismEndingNeedsEstablishedTermAndAudio() throws {
+        let target = segment(150, 158, "Как меняются рабочие процессы вот АИМ? Насколько ты доволен результатом?")
+        let prior = segment(10, 15, "На встрече обсуждали рабочие сценарии AI.")
+        let vocabulary = "AI"
+        let spoken = SpokenVocabulary(vocabulary)
+        let context = RecognitionContext(segments: [prior, target])
+        let retry = try XCTUnwrap(context.plan(for: target, independent: nil, vocabulary: vocabulary, spokenVocabulary: spoken))
+        let candidate = "Рабочие процессы вот AI'ем насколько ты доволен результатом"
+        let evidence = ["Рабочие процессы вот A I M насколько ты доволен", "Процессы вот A I м насколько ты доволен результатом"]
+        XCTAssertEqual(RecognitionContext.disambiguateInitialismEnding(original: target.text, candidate: candidate,
+            unprompted: evidence, retry: retry, vocabulary: vocabulary),
+            "Как меняются рабочие процессы вот AI'ем? Насколько ты доволен результатом?")
+        XCTAssertNil(RecognitionContext.disambiguateInitialismEnding(original: target.text, candidate: candidate,
+            unprompted: [evidence[0], "Рабочие процессы вот АИМ насколько ты доволен"], retry: retry, vocabulary: vocabulary))
+        XCTAssertEqual(RecognitionContext.disambiguateInitialismEnding(original: target.text,
+            candidate: candidate.replacingOccurrences(of: "AI'ем", with: "A I'ем"), unprompted: evidence,
+            retry: retry, vocabulary: vocabulary),
+            "Как меняются рабочие процессы вот AI'ем? Насколько ты доволен результатом?")
+        for spelling in ["A I ем", "A И'ем", "A, I'ем", "A I'ом"] {
+            XCTAssertNil(RecognitionContext.disambiguateInitialismEnding(original: target.text,
+                candidate: candidate.replacingOccurrences(of: "AI'ем", with: spelling), unprompted: evidence,
+                retry: retry, vocabulary: vocabulary), spelling)
+        }
+        let unestablished = RecognitionContext(segments: [target]).plan(for: target, independent: nil,
+            vocabulary: vocabulary, spokenVocabulary: spoken)
+        XCTAssertNotEqual(unestablished?.canDisambiguateInitialismEnding(in: target.text), true)
+    }
+
+    func testNumericEndingDisagreementSchedulesProbeWithoutOverridingAudio() throws {
+        let target = segment(100, 108, "Ты когда-нибудь говорил с Двуге до нашего разговора?")
+        let prior = segment(85, 90, "На встрече обсуждали рабочие сценарии 2ГИС.")
+        let vocabulary = "2ГИС"
+        let spoken = SpokenVocabulary(vocabulary)
+        let retry = try XCTUnwrap(RecognitionContext(segments: [prior, target]).plan(
+            for: target, independent: target.text, vocabulary: vocabulary, spokenVocabulary: spoken))
+        XCTAssertTrue(retry.hints.contains("2ГИС'ом"))
+        XCTAssertTrue(retry.targetSpans(in: target.text, corroboration: target.text).contains {
+            target.text[$0] == "Двуге"
+        })
+        let candidate = "Ты когда-нибудь говорил с 2ГИС'ом до нашего разговора?"
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: candidate,
+            corroboration: target.text, retry: retry, vocabulary: vocabulary))
+        XCTAssertEqual(RecognitionContext.revisedText(original: target.text, candidate: candidate,
+            corroboration: candidate, retry: retry, vocabulary: vocabulary), candidate)
+    }
+
+    func testTerminalProbeBorrowsOnlyAnAdjacentSameTrackAnchor() throws {
+        let target = segment(100, 108, "Там обсудили важный клиентский профиль.")
+        let next = segment(108, 115, "Это поможет дальнейшей разработке продукта.")
+        let context = RecognitionContext(segments: [target, next])
+        let continuation = try XCTUnwrap(context.continuation(after: target))
+        XCTAssertEqual(continuation.segment.id, next.id)
+        let suffix = continuation.suffix
+        var joined = target
+        joined.text += suffix
+        let vocabulary = "бизнес-профиль"
+        let candidate = "Там обсудили важный бизнес-профиль." + suffix
+        let retry = try XCTUnwrap(context.plan(for: joined, independent: candidate, vocabulary: vocabulary,
+                                               spokenVocabulary: SpokenVocabulary(vocabulary)))
+        let revised = try XCTUnwrap(RecognitionContext.revisedText(original: joined.text, candidate: candidate,
+            corroboration: candidate, retry: retry, vocabulary: vocabulary))
+        XCTAssertEqual(continuation.splice(revised), "Там обсудили важный бизнес-профиль.")
+        XCTAssertNil(RecognitionContext.revisedText(original: joined.text, candidate: candidate,
+            corroboration: "Там обсудили важный бизнес-профиль.", retry: retry, vocabulary: vocabulary))
+        XCTAssertEqual(continuation.splice("Там обсудили важный бизнес-профиль." + suffix),
+                       "Там обсудили важный бизнес-профиль.")
+        XCTAssertNil(continuation.splice("Там обсудили важный бизнес-профиль. Это поможет проекту."))
+        XCTAssertNil(continuation.splice("Обсудили важный бизнес-профиль." + suffix))
+        XCTAssertNil(RecognitionContext(segments: [target, segment(108, 115, next.text, track: "mic")])
+            .continuation(after: target))
+        XCTAssertNil(RecognitionContext(segments: [target, segment(109, 115, next.text)])
+            .continuation(after: target))
+    }
+
+
+    func testPhoneticBoundaryNeedsTheAcronymInAnIndependentDecode() throws {
+        let target = segment(250, 258, "У тебя есть примеры где ты встроил и айфсовые процессы насколько тебе понравилось?")
+        let prior = segment(10, 15, "На встрече обсуждали рабочие сценарии AI.")
+        let context = RecognitionContext(segments: [prior, target])
+        let vocabulary = "AI"
+        let spoken = SpokenVocabulary(vocabulary)
+        let independent = "Например где ты встроил в свои процессы насколько тебе понравилось"
+        let retry = try XCTUnwrap(context.plan(for: target, independent: independent, vocabulary: vocabulary, spokenVocabulary: spoken))
+        let candidate = "Например где ты встроил AI в свои процессы насколько тебе понравилось"
+        XCTAssertTrue(retry.targetSpans(in: target.text, corroboration: independent).contains { target.text[$0] == "и айфсовые" })
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: independent,
+            retry: retry, vocabulary: vocabulary))
+        XCTAssertEqual(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: candidate,
+            retry: retry, vocabulary: vocabulary),
+            "У тебя есть примеры где ты встроил AI в свои процессы насколько тебе понравилось?")
+        let secondWindow = "Где ты встроил AI в свои процессы насколько тебе понравилось"
+        XCTAssertEqual(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: independent,
+            retry: retry, vocabulary: vocabulary, boundaryEvidence: [candidate, secondWindow]),
+            "У тебя есть примеры где ты встроил AI в свои процессы насколько тебе понравилось?")
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: independent,
+            retry: retry, vocabulary: vocabulary, boundaryEvidence: [candidate, independent]))
+        let phoneticWindow = "Где ты встроил айфсовые процессы насколько тебе понравилось"
+        XCTAssertEqual(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: independent,
+            retry: retry, vocabulary: vocabulary, boundaryEvidence: [candidate, phoneticWindow]),
+            "У тебя есть примеры где ты встроил AI в свои процессы насколько тебе понравилось?")
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: independent,
+            retry: retry, vocabulary: vocabulary, boundaryEvidence: [target.text, phoneticWindow]))
+        XCTAssertEqual(RecognitionContext.reconcilePhoneticBoundary(original: target.text, corroboration: independent,
+            unprompted: [target.text, phoneticWindow], retry: retry, vocabulary: vocabulary),
+            "У тебя есть примеры где ты встроил AI в свои процессы насколько тебе понравилось?")
+        XCTAssertNil(RecognitionContext.reconcilePhoneticBoundary(original: target.text, corroboration: independent,
+            unprompted: [phoneticWindow, "Я видел где ты встроил айфсовые процессы насколько тебе понравилось"],
+            retry: retry, vocabulary: vocabulary))
+        XCTAssertNil(RecognitionContext.reconcilePhoneticBoundary(original: target.text, corroboration: independent,
+            unprompted: [target.text, phoneticWindow], retry: retry, vocabulary: "AI, Айфсовые"))
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: nil,
+            retry: retry, vocabulary: vocabulary, boundaryEvidence: [candidate, secondWindow]))
+    }
+
+
+    func testTerminalRepairCanUseOneLeftAnchorAndAnAgreedConjunction() throws {
+        let target = segment(100, 108, "Мы собрали отзывы, это биснес профиль.")
+        let next = segment(108, 115, "Это поможет дальнейшей разработке продукта.")
+        let context = RecognitionContext(segments: [target, next])
+        let continuation = try XCTUnwrap(context.continuation(after: target))
+        var joined = target
+        joined.text += continuation.suffix
+        let vocabulary = "бизнес-профиль"
+        let candidate = "Мы собрали опросы это и бизнес-профиль это поможет дальнейшей разработке"
+        let heard = "Мы собрали отзывы, это и бизнеспрофиль, это поможет дальнейшей разработке."
+        let retry = try XCTUnwrap(context.plan(for: joined, independent: heard, vocabulary: vocabulary,
+                                               spokenVocabulary: SpokenVocabulary(vocabulary)))
+        XCTAssertEqual(RecognitionContext.revisedAcrossBoundary(original: target.text, candidate: candidate,
+            corroboration: heard, continuation: continuation, retry: retry, vocabulary: vocabulary),
+            "Мы собрали отзывы, это и бизнес-профиль.")
+        XCTAssertNil(RecognitionContext.revisedAcrossBoundary(original: target.text, candidate: candidate,
+            corroboration: heard.replacingOccurrences(of: "и бизнеспрофиль", with: "бизнеспрофиль"),
+            continuation: continuation, retry: retry, vocabulary: vocabulary))
+        XCTAssertNil(RecognitionContext.revisedAcrossBoundary(original: target.text, candidate: candidate,
+            corroboration: heard.replacingOccurrences(of: "это поможет дальнейшей", with: "это помогает дальнейшей"),
+            continuation: continuation, retry: retry, vocabulary: vocabulary))
+        for existing in ["рабочий профиль", "крайне дорогой профиль", "важный профиль"] {
+            XCTAssertNil(RecognitionContext.revisedAcrossBoundary(original: "Мы собрали отзывы, это " + existing + ".",
+                candidate: candidate, corroboration: heard, continuation: continuation, retry: retry,
+                vocabulary: vocabulary), existing)
+        }
+    }
+
+    func testAcousticStutterDoesNotHideTheRightAnchor() throws {
+        let target = segment(100, 108, "Ты раньше разговаривал с Двуге до этого дня?")
+        let prior = segment(85, 90, "На встрече обсуждали рабочие сценарии 2ГИС.")
+        let vocabulary = "2ГИС"
+        let retry = try XCTUnwrap(RecognitionContext(segments: [prior, target]).plan(for: target,
+            independent: target.text, vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary(vocabulary)))
+        let candidate = "Ты раньше разговаривал с 2ГИС'ом до этого дня?"
+        XCTAssertEqual(RecognitionContext.revisedText(original: target.text, candidate: candidate,
+            corroboration: "Ты раньше разговаривал с Давгисом, э-э, до этого дня.", retry: retry, vocabulary: vocabulary), candidate)
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: candidate,
+            corroboration: "Ты раньше разговаривал с Давгисом, или до этого дня.", retry: retry, vocabulary: vocabulary))
+    }
+
+
+    func testMissingEarlierOccurrenceIsNotHiddenByLaterCorrectSpelling() throws {
+        let target = segment(100, 108, "Мы запросили деньги. Вопрос джару? GR может здесь помочь.")
+        let heard = "Мы запросили деньги. Вопрос к GR. GR может здесь помочь."
+        let vocabulary = "GR"
+        let retry = try XCTUnwrap(RecognitionContext(segments: [target]).plan(for: target, independent: heard,
+            vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary(vocabulary)))
+        XCTAssertEqual(RecognitionContext.revisedText(original: target.text, candidate: heard, corroboration: heard,
+            retry: retry, vocabulary: vocabulary), "Мы запросили деньги. Вопрос к GR? GR может здесь помочь.")
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: heard, corroboration: target.text,
+            retry: retry, vocabulary: vocabulary))
+        for source in ["бюджета", "PR", "обсуждали бюджет"] {
+            XCTAssertNil(RecognitionContext.revisedText(
+                original: "Мы запросили деньги. Вопрос " + source + "? GR может здесь помочь.",
+                candidate: heard, corroboration: heard, retry: retry, vocabulary: vocabulary), source)
+        }
+        XCTAssertNil(RecognitionContext.revisedText(original: "Мы запросили деньги. Вопрос к PR? GR может здесь помочь.",
+            candidate: heard, corroboration: heard, retry: retry, vocabulary: "GR, PR"))
+    }
+
+    func testStartOfSegmentNameRequiresFullAgreementAndUniqueRightAnchor() throws {
+        let target = segment(100, 108, "Нас идёт всё знает, что будет за за")
+        let heard = "Настя Дегтева знает, что будет за"
+        let candidate = "Настя Дёгтева знает, что будет за"
+        let vocabulary = "Дёгтева"
+        let retry = try XCTUnwrap(RecognitionContext(segments: [target]).plan(for: target, independent: heard,
+            vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary(vocabulary)))
+        XCTAssertEqual(RecognitionContext.revisedText(original: target.text, candidate: candidate, corroboration: heard,
+            retry: retry, vocabulary: vocabulary), "Настя Дёгтева знает, что будет за за")
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text, candidate: candidate,
+            corroboration: "Даша Дёгтева знает, что будет за", retry: retry, vocabulary: vocabulary))
+        XCTAssertNil(RecognitionContext.revisedText(original: target.text + " знает что будет",
+            candidate: candidate, corroboration: heard, retry: retry, vocabulary: vocabulary))
+        for source in ["Петя Петров всё", "Настя Петрова", "Настя петрова", "Настя Дёмина"] {
+            XCTAssertNil(RecognitionContext.revisedText(original: source + " знает, что будет за за",
+                candidate: candidate, corroboration: heard, retry: retry, vocabulary: vocabulary), source)
+        }
+    }
+
+    func testWordRichShortTurnRequiresTwoAudioDecodersToAgree() {
+        let source = "Наташке взнулся, сказал да."
+        let heard = "Наташа кивнула, сказала: «Да»."
+        XCTAssertNotNil(RecognitionContext.wordRichShortTurn(original: source, candidate: "Наташа кивнула, сказала да.",
+            corroboration: heard, duration: 1.37, vocabulary: "Наташа"))
+        XCTAssertNil(RecognitionContext.wordRichShortTurn(original: source, candidate: "Наташа отказалась, сказала да.",
+            corroboration: heard, duration: 1.37, vocabulary: "Наташа"))
+        XCTAssertNil(RecognitionContext.wordRichShortTurn(original: source, candidate: "Наташа кивнула, сказала да.",
+            corroboration: heard, duration: 0.6, vocabulary: "Наташа"))
+    }
+
 }

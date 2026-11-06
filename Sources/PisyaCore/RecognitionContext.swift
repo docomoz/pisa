@@ -12,8 +12,9 @@ struct RecognitionContext {
         let context: String
         fileprivate let terms: [String]
         fileprivate let established: Set<String>
+        fileprivate let phoneticTerms: Set<String>
         fileprivate let neighbors: Neighbors
-        fileprivate let establishedEndingTerms: Set<String>
+        fileprivate let endingSites: [String: String]
         fileprivate let competingEndings: Set<String>
 
         /// Small source intervals for an optional acoustic recheck. These
@@ -24,6 +25,13 @@ struct RecognitionContext {
 
         func canDisambiguateInitialismEnding(in original: String) -> Bool {
             RecognitionContext.initialismEndingSite(in: original, retry: self) != nil
+        }
+
+        func canProbePhoneticBoundary(in original: String, corroboration: String) -> Bool {
+            terms.contains { term in
+                phoneticTerms.contains(term) && RecognitionContext.isLatinInitialism(term)
+                    && !RecognitionContext.phoneticBoundarySites(in: original, corroboration: corroboration, term: term).isEmpty
+            }
         }
 
         func isNeighborEcho(_ text: String) -> Bool {
@@ -64,6 +72,35 @@ struct RecognitionContext {
         return Neighbors(preceding: previous.reversed(), following: Array(next))
     }
 
+    struct Continuation {
+        let segment: TranscriptSegment
+        let suffix: String
+        fileprivate let unchangedPrefix: String
+
+        func splice(_ revised: String) -> String? {
+            guard revised.hasSuffix(suffix), revised.hasPrefix(unchangedPrefix) else { return nil }
+            return String(revised.dropLast(suffix.count))
+        }
+    }
+
+    /// A short, same-track continuation can supply the missing right anchor.
+    /// The appended text is used for alignment and must survive any splice unchanged.
+    func continuation(after target: TranscriptSegment) -> Continuation? {
+        guard let track = target.audioFile,
+              let next = byStart.lazy.drop(while: { $0.start < target.end })
+                .prefix(while: { $0.start <= target.end + 0.35 })
+                .first(where: { $0.audioFile == track && $0.id != target.id }) else { return nil }
+        let words = Self.tokens(next.text)
+        guard words.count >= 3, Self.isMostlyRussian(Array(words.prefix(3))) else { return nil }
+        let prefix = next.text[..<words[2].range.upperBound]
+        guard prefix.count <= 90, !prefix.contains(where: \.isNewline),
+              Self.withoutLiterals(String(prefix)) == prefix else { return nil }
+        let source = Self.tokens(target.text)
+        guard source.count >= 5 else { return nil }
+        return Continuation(segment: next, suffix: " " + prefix,
+                            unchangedPrefix: String(target.text[..<source[source.count - 3].range.lowerBound]))
+    }
+
     func plan(for target: TranscriptSegment, independent: String?, vocabulary: String,
               spokenVocabulary: SpokenVocabulary) -> Retry? {
         let source = Self.withoutLiterals(target.text)
@@ -87,28 +124,45 @@ struct RecognitionContext {
         }
         let surrounding = (Array(earlier.prefix(40)) + Array(later.prefix(40))).filter { $0.id != target.id }
         let entityContext = surrounding.filter { distance($0) <= 120 }.map { Self.withoutLiterals($0.text) }
+        let exactMentions = Set(surrounding.flatMap { Self.tokens(Self.withoutLiterals($0.text)) }.map(\.text))
         let lexicon = Self.terms(in: vocabulary)
         var selected: [(term: String, forms: [String], established: Bool, strength: Int)] = []
+        var endingSites: [String: String] = [:]
         for term in lexicon {
             let heard = RecognitionVocabulary.contains(term, in: acoustic)
-            let seen = RecognitionVocabulary.contains(term, in: source)
+            let missing = heard && (!RecognitionVocabulary.contains(term, in: source)
+                || Self.occurrenceCount(of: term, in: acoustic, words: acousticWords)
+                    > Self.occurrenceCount(of: term, in: source, words: words))
             let fused = independent != nil && !heard && source.range(of: NSRegularExpression.escapedPattern(for: term) + "[-‐‑][а-яё]+",
                 options: [.regularExpression, .caseInsensitive]) != nil
             let forms = Self.hintForms(for: term)
-            guard (heard && !seen) || fused || !forms.isEmpty else { continue }
+            guard missing || fused || !forms.isEmpty else { continue }
             let possibleMisses = observed.filter { !Self.isTermForm($0.text, of: term) }.map(\.text)
             let near = forms.compactMap { form -> (String, Int)? in
                 let score = possibleMisses.compactMap { Self.phoneticScore($0, form, term: term) }.min()
                 return score.map { (form, $0) }
             }.sorted { $0.1 < $1.1 }
-            guard (heard && !seen) || fused || !near.isEmpty else { continue }
             let established = entityContext.contains { Self.establishesTerm(term, in: $0) }
+            let endingSite = Self.isLatinInitialism(term) ? words.first {
+                Self.endingStem($0.text) == term && ($0.text == term + "М" || exactMentions.contains(term))
+            } : nil
+            if let endingSite { endingSites[endingSite.text] = term }
+            let numericConflict = established && words.contains { token in
+                forms.contains { Self.numericEndingConflict(token.text, form: $0, term: term) }
+            }
+            let phoneticBoundary = exactMentions.contains(term) && Self.isLatinInitialism(term)
+                && !Self.phoneticBoundarySites(in: source, corroboration: acoustic, term: term).isEmpty
             let compatible = near.filter { form, score in
                 score == 0 || established || (words.contains { Self.isBareNumericStem($0.text, form: form, term: term) }
                     && acousticWords.contains { Self.hearsNumericPrefix($0.text, form: form, term: term) })
             }.prefix(2).map(\.0)
-            guard (heard && !seen) || fused || !compatible.isEmpty else { continue }
-            selected.append((term, compatible, established, (heard && !seen ? 4 : 0) + (established ? 2 : 0) + (fused ? 1 : 0)))
+            guard missing || fused || !compatible.isEmpty || endingSite != nil || numericConflict || phoneticBoundary else { continue }
+            var hints = compatible
+            if numericConflict {
+                hints += forms.filter { form in words.contains { Self.numericEndingConflict($0.text, form: form, term: term) } }
+            }
+            if endingSite != nil { hints.append(term + "'ем") }
+            selected.append((term, hints, established, (missing ? 4 : 0) + (established ? 2 : 0) + (fused ? 1 : 0)))
         }
         let focused = selected.sorted { $0.strength > $1.strength }.prefix(4)
         guard !focused.isEmpty else { return nil }
@@ -116,20 +170,16 @@ struct RecognitionContext {
         let hints = focused.flatMap { [$0.term] + $0.forms }.filter { inserted.insert($0).inserted }.joined(separator: ", ")
         let context = [hints, neighbors.preceding.joined(separator: "\n"), neighbors.following.joined(separator: "\n")]
             .filter { !$0.isEmpty }.joined(separator: "\n")
-        let endingTerms = focused.map(\.term).filter { term in
-            Self.isLatinInitialism(term) && words.contains { $0.text == term + "М" }
-        }
-        var establishedEndingTerms = Set<String>()
+        let endingTerms = Set(endingSites.values).intersection(focused.map(\.term))
         var competingEndings = Set<String>()
         if !endingTerms.isEmpty {
-            let endingContext = surrounding.sorted { distance($0) < distance($1) }.prefix(40).map(\.text)
-            let exactMentions = Set(endingContext.flatMap { Self.tokens(Self.withoutLiterals($0)) }.map(\.text))
-            establishedEndingTerms = Set(endingTerms.filter { exactMentions.contains($0) })
-            competingEndings = Self.initialismSpellings(endingContext + lexicon)
+            endingSites = endingSites.filter { endingTerms.contains($0.value) && exactMentions.contains($0.value) }
+            competingEndings = Self.initialismSpellings(surrounding.map(\.text) + lexicon)
         }
         return Retry(hints: hints, context: context, terms: focused.map(\.term),
-                     established: Set(focused.filter(\.established).map(\.term)), neighbors: neighbors,
-                     establishedEndingTerms: establishedEndingTerms, competingEndings: competingEndings)
+                     established: Set(focused.filter(\.established).map(\.term)),
+                     phoneticTerms: Set(focused.map(\.term)).intersection(exactMentions), neighbors: neighbors,
+                     endingSites: endingSites, competingEndings: competingEndings)
     }
 
     private static func targetSpans(in original: String, corroboration: String?, retry: Retry) -> [Range<String.Index>] {
@@ -138,11 +188,21 @@ struct RecognitionContext {
         var choices: [Range<Int>: Int] = [:]
         for term in retry.terms {
             let forms = hintForms(for: term)
+            if retry.phoneticTerms.contains(term), isLatinInitialism(term), let corroboration {
+                for span in phoneticBoundarySites(in: original, corroboration: corroboration, term: term) {
+                    choices[span] = 1
+                }
+            }
             for index in source.indices {
                 let token = source[index]
                 if isLatinInitialism(term), token.text == term, index + 1 < source.count,
                    isRussian(source[index + 1]), original[token.range.upperBound..<source[index + 1].range.lowerBound].contains(where: { "-‐‑".contains($0) }) {
                     choices[index..<(index + 2)] = 0
+                    continue
+                }
+                if retry.endingSites[token.text] == term || (retry.established.contains(term)
+                    && forms.contains { numericEndingConflict(token.text, form: $0, term: term) }) {
+                    choices[index..<(index + 1)] = 1
                     continue
                 }
                 guard (!shared.contains(token.key) || isWrittenInitialism(token.text)), !isTermForm(token.text, of: term) else { continue }
@@ -170,15 +230,26 @@ struct RecognitionContext {
                 }
             }
         }
-        return choices.filter { safe($0.key, in: source, text: original) }.sorted { a, b in
+        let ranked = choices.filter { safe($0.key, in: source, text: original) }.sorted { a, b in
             a.value == b.value ? a.key.lowerBound < b.key.lowerBound : a.value < b.value
-        }.prefix(3).map { range(in: source, $0.key) }
+        }
+        var selected: [Range<Int>] = []
+        for choice in ranked where !selected.contains(where: { $0.overlaps(choice.key) }) {
+            selected.append(choice.key)
+            if selected.count == 3 { break }
+        }
+        return selected.map { range(in: source, $0) }
     }
 
     static func revisedText(original: String, candidate: String, corroboration: String?,
-                            retry: Retry, vocabulary: String, candidateIsAcoustic: Bool = true) -> String? {
+                            retry: Retry, vocabulary: String, candidateIsAcoustic: Bool = true,
+                            boundaryEvidence: [String] = []) -> String? {
         guard !retry.isNeighborEcho(candidate), MeetingSpeechText.accepts(candidate) else { return nil }
-        let source = tokens(original), decoded = tokens(candidate), evidence = tokens(corroboration ?? "")
+        let acoustic = corroboration.map { text in
+            text.replacingOccurrences(of: #"(?i)(?<![\p{L}\p{N}])э(?:[-‐‑]э)+(?![\p{L}\p{N}])"#,
+                                      with: " ", options: .regularExpression)
+        }
+        let source = tokens(original), decoded = tokens(candidate), evidence = tokens(acoustic ?? "")
         guard isMostlyRussian(source), isMostlyRussian(decoded) else { return nil }
         let lexicon = terms(in: vocabulary)
         var edits: [(Range<String.Index>, String)] = []
@@ -189,7 +260,9 @@ struct RecognitionContext {
                 let candidateForm = String(candidate[candidateRange])
                 guard safe(span, in: decoded, text: candidate) else { continue }
                 let exactTerm = retry.terms.first {
-                    isTermForm(candidateForm, of: $0) || (span.count >= 2 && decoded[start].text == $0 && isLatinInitialism($0))
+                    isTermForm(candidateForm, of: $0)
+                        || termWithLeadingWord(candidateForm, term: $0, atStart: start == 0)
+                        || (span.count >= 2 && decoded[start].text == $0 && isLatinInitialism($0))
                 }
                 let contraction = exactTerm == nil && candidateIsAcoustic && span.count == 1
                     ? contractedNumericForm(candidateForm, lexicon: lexicon) : nil
@@ -198,14 +271,17 @@ struct RecognitionContext {
                 guard let (left, right) = anchors(around: span, in: decoded),
                       matches(in: decoded, left: left, right: right) == [span] else { continue }
                 let matchesInSource = matches(in: source, left: left, right: right)
-                guard matchesInSource.count == 1, let old = matchesInSource.first,
+                guard uniqueBoundaryAnchor(left: left, right: right, in: source),
+                      uniqueBoundaryAnchor(left: left, right: right, in: decoded),
+                      uniqueBoundaryAnchor(left: left, right: right, in: evidence),
+                      matchesInSource.count == 1, let old = matchesInSource.first,
                       safe(old, in: source, text: original),
                       preservesTerms(source, old, text: original, lexicon: lexicon, replacing: term) else { continue }
                 let sourceRange = range(in: source, old)
                 let previous = String(original[sourceRange])
                 guard previous != proposed else { continue }
                 let matchesInEvidence = matches(in: evidence, left: left, right: right)
-                let heard = corroboration.flatMap { text -> String? in
+                let heard = acoustic.flatMap { text -> String? in
                     guard matchesInEvidence.count == 1, let heardSpan = matchesInEvidence.first,
                           safe(heardSpan, in: evidence, text: text) else { return nil }
                     return String(text[range(in: evidence, heardSpan)])
@@ -214,8 +290,25 @@ struct RecognitionContext {
                     guard let heard, (isTermForm(heard, of: term) && equivalentForm(heard, proposed, term: term))
                             || hearsNumericPrefix(heard, form: proposed, term: term) else { continue }
                 }
-                guard let replacement = supportedEdit(previous: previous, proposed: proposed, heard: heard,
-                    term: term, established: retry.established.contains(term), candidateIsAcoustic: candidateIsAcoustic) else { continue }
+                let confirmations = boundaryEvidence.compactMap { text -> String? in
+                    guard !retry.isNeighborEcho(text), MeetingSpeechText.accepts(text) else { return nil }
+                    let words = tokens(text)
+                    let aligned = matches(in: words, left: left, right: right)
+                    guard aligned.count == 1, let match = aligned.first, safe(match, in: words, text: text) else { return nil }
+                    return String(text[range(in: words, match)])
+                }
+                let replacement: String?
+                if termWithLeadingWord(proposed, term: term, atStart: left.isEmpty), let heard,
+                   termWithLeadingWord(heard, term: term, atStart: left.isEmpty),
+                   RussianRecognition.words(heard) == RussianRecognition.words(proposed),
+                   closeLeadingTermEdit(previous: previous, proposed: proposed, term: term) {
+                    replacement = proposed
+                } else {
+                    replacement = supportedEdit(previous: previous, proposed: proposed, heard: heard,
+                        term: term, established: retry.established.contains(term), candidateIsAcoustic: candidateIsAcoustic,
+                        phoneticBoundaryEstablished: retry.phoneticTerms.contains(term), boundaryEvidence: confirmations)
+                }
+                guard let replacement else { continue }
                 if !edits.contains(where: { $0.0 == sourceRange && $0.1 == replacement }) {
                     edits.append((sourceRange, replacement))
                 }
@@ -225,6 +318,121 @@ struct RecognitionContext {
         var revised = original
         revised.replaceSubrange(range, with: replacement)
         return revised
+    }
+
+    static func isWordRichShortTurn(_ text: String, duration: Double) -> Bool {
+        (0.85..<2).contains(duration) && (4...6).contains(RussianRecognition.words(text).count)
+    }
+
+    static func wordRichShortTurn(original: String, candidate: String, corroboration: String,
+                                  duration: Double, vocabulary: String) -> String? {
+        guard isWordRichShortTurn(original, duration: duration) else { return nil }
+        return RecognitionConsensus.revisedText(original: original, candidate: candidate,
+            corroboration: corroboration, vocabulary: vocabulary, allowShortTurn: true)
+    }
+
+    private static func termWithLeadingWord(_ text: String, term: String, atStart: Bool) -> Bool {
+        let words = tokens(text)
+        guard words.count >= 2, let first = words.first else { return false }
+        let isName = atStart && first.text == first.text.capitalized && first.text.count >= 2
+            && isRussianWord(first.text) && term == term.capitalized && isRussianWord(term)
+        let isPreposition = isLatinInitialism(term) && boundaryPrepositions.contains(first.key)
+        guard isName || isPreposition else { return false }
+        let separator = text[first.range.upperBound..<words[1].range.lowerBound]
+        return !separator.isEmpty && separator.allSatisfy { $0.isWhitespace && !$0.isNewline }
+            && isTermForm(String(text[words[1].range.lowerBound...]), of: term)
+    }
+
+    private static func closeLeadingTermEdit(previous: String, proposed: String, term: String) -> Bool {
+        let old = tokens(previous), new = tokens(proposed)
+        guard let first = old.first, let leading = new.first else { return false }
+        if isLatinInitialism(term), boundaryPrepositions.contains(leading.key) {
+            // Preserve a competing written acronym or a different preposition.
+            guard !old.contains(where: { token in
+                token.text.count >= 2 && token.text == token.text.uppercased()
+                    && token.text.allSatisfy(\.isLetter) && token.text != term
+            }), !boundaryPrepositions.contains(first.key) || first.key == leading.key else { return false }
+            let oldCore = first.key == leading.key ? old.dropFirst().map(\.text).joined(separator: " ") : previous
+            return phoneticDistance(oldCore, term, term: term).map { $0 <= 2 } ?? false
+        }
+        // A normal pair of names is meaningful text, even if another
+        // acoustically similar person is in the glossary.
+        guard !old.dropFirst().contains(where: { token in
+            isRussianWord(token.text) && token.text == token.text.capitalized
+                && !new.contains(where: { $0.key == token.key })
+        }) else { return false }
+        if old.count == 2, first.key == leading.key {
+            return phoneticDistance(old[1].text, new[1].text, term: term).map { $0 <= 2 } ?? false
+        }
+        // A split name can cross word boundaries, but must retain its audible
+        // onset and remain close over the whole span.
+        let previousKeys = phoneticKeys(previous, term: term), proposedKeys = phoneticKeys(proposed, term: term)
+        return previousKeys.contains { before in
+            proposedKeys.contains { after in
+                guard before.prefix(3) == after.prefix(3), min(before.count, after.count) >= 6 else { return false }
+                let distance = editDistance(before, after)
+                return distance <= 6 && distance * 2 <= max(before.count, after.count)
+            }
+        }
+    }
+
+    private static func uniqueBoundaryAnchor(left: [String], right: [String], in words: [Token]) -> Bool {
+        guard left.isEmpty || right.isEmpty else { return true }
+        let anchor = left.isEmpty ? right : left
+        let keys = words.map(\.key)
+        return anchor.count == 3 && keys.indices.filter { keys[$0...].starts(with: anchor) }.count == 1
+    }
+
+    /// At a cut, require three independently heard words to the right and
+    /// the closest word to the left. Only a terminal term may be replaced.
+    static func revisedAcrossBoundary(original: String, candidate: String, corroboration: String,
+                                      continuation: Continuation, retry: Retry, vocabulary: String) -> String? {
+        guard !retry.isNeighborEcho(candidate), MeetingSpeechText.accepts(candidate),
+              MeetingSpeechText.accepts(corroboration) else { return nil }
+        let source = tokens(original)
+        let joined = tokens(original + continuation.suffix)
+        let proposed = tokens(candidate), acoustic = tokens(corroboration)
+        let right = tokens(continuation.suffix).map(\.key)
+        let lexicon = terms(in: vocabulary)
+        guard source.count >= 4, right.count == 3 else { return nil }
+        func anchored(_ text: String, words: [Token], left: [String]) -> String? {
+            let ranges = matches(in: words, left: left, right: right)
+            guard ranges.count == 1, let span = ranges.first, safe(span, in: words, text: text) else { return nil }
+            return String(text[range(in: words, span)])
+        }
+        func termForm(_ value: String, term: String) -> String? {
+            let words = tokens(value)
+            let prefix = words.first?.key == "и" && words.count > 1 ? "и " : ""
+            let core = prefix.isEmpty ? value : String(value[words[1].range.lowerBound...])
+            let canonical = RecognitionVocabulary.apply(to: core, vocabulary: term)
+            return isTermForm(canonical, of: term) ? prefix + canonical : nil
+        }
+        var edits: [(Range<String.Index>, String)] = []
+        for width in 1...3 {
+            let old = (source.count - width)..<source.count
+            let left = [source[old.lowerBound - 1].key]
+            guard matches(in: joined, left: left, right: right) == [old],
+                  safe(old, in: source, text: original),
+                  let suggestion = anchored(candidate, words: proposed, left: left),
+                  let heard = anchored(corroboration, words: acoustic, left: left) else { continue }
+            for term in retry.terms {
+                guard let replacement = termForm(suggestion, term: term), let observed = termForm(heard, term: term),
+                      RussianRecognition.words(replacement) == RussianRecognition.words(observed),
+                      preservesTerms(source, old, text: original, lexicon: lexicon, replacing: term) else { continue }
+                let span = range(in: source, old)
+                let previous = String(original[span])
+                let addsConjunction = replacement.hasPrefix("и ")
+                guard addsConjunction || !previous.hasPrefix("и ") else { continue }
+                let previousCore = previous.hasPrefix("и ") ? String(previous.dropFirst(2)) : previous
+                let replacementCore = addsConjunction ? String(replacement.dropFirst(2)) : replacement
+                guard let distance = phoneticDistance(previousCore, replacementCore, term: term), distance <= 3 else { continue }
+                if previous != replacement { edits.append((span, replacement)) }
+            }
+        }
+        guard edits.count == 1, let (span, replacement) = edits.first else { return nil }
+        var result = original
+        result.replaceSubrange(span, with: replacement)
+        return result
     }
 
     /// The first pass can preserve the initialism while the independently
@@ -279,14 +487,26 @@ struct RecognitionContext {
         guard !initialismSpellings(lexicon).contains(combined),
               preservesTerms(source, site.span, text: original, lexicon: lexicon, replacing: site.term),
               MeetingSpeechText.accepts(candidate), isMostlyRussian(proposed) else { return nil }
-        let candidateMatches = matches(in: proposed, left: site.left, right: site.right)
-        guard candidateMatches.count == 1, let matched = candidateMatches.first, matched.count == 1,
-              proposed[matched.lowerBound].text == replacement, safe(matched, in: proposed, text: candidate),
+        let candidateMatches = matches(in: proposed, left: site.left, right: site.right, maximumWidth: max(3, site.term.count))
+        guard candidateMatches.count == 1, let matched = candidateMatches.first,
+              spellsInitialismEnding(candidate, words: proposed[matched], term: site.term, replacement: replacement),
+              safe(matched, in: proposed, text: candidate),
               !hasCompetingInitialism(combined, in: proposed, outside: matched),
               unprompted.allSatisfy({ hearsSeparateInitialismLetters($0, site: site) }) else { return nil }
         var revised = original
         revised.replaceSubrange(range(in: source, site.span), with: replacement)
         return revised
+    }
+
+    private static func spellsInitialismEnding(_ text: String, words: ArraySlice<Token>, term: String, replacement: String) -> Bool {
+        if words.count == 1 { return words.first?.text == replacement }
+        let letters = term.map(String.init)
+        guard words.count == letters.count, words.dropLast().map(\.text) == Array(letters.dropLast()),
+              let last = letters.last, words.last?.text == last + "'ем" else { return false }
+        return zip(words, words.dropFirst()).allSatisfy { left, right in
+            let separator = text[left.range.upperBound..<right.range.lowerBound]
+            return !separator.isEmpty && separator.allSatisfy { $0.isWhitespace && !$0.isNewline }
+        }
     }
 
     private struct InitialismEndingSite {
@@ -297,17 +517,17 @@ struct RecognitionContext {
     }
 
     private static func initialismEndingSite(in original: String, retry: Retry) -> InitialismEndingSite? {
-        guard !retry.establishedEndingTerms.isEmpty, !hasLetterDictation(original),
+        guard !retry.endingSites.isEmpty, !hasLetterDictation(original),
               !(retry.neighbors.preceding + retry.neighbors.following).contains(where: hasLetterDictation) else { return nil }
         let source = tokens(original)
         guard source.count >= 5, isMostlyRussian(source) else { return nil }
         var sites: [InitialismEndingSite] = []
         for index in 2..<(source.count - 2) {
             let text = source[index].text
-            guard text.hasSuffix("М") else { continue }
-            let term = String(text.dropLast()), combined = term + "M"
+            guard let term = retry.endingSites[text] else { continue }
+            let combined = term + "M"
             let span = index..<(index + 1)
-            guard retry.establishedEndingTerms.contains(term), !retry.competingEndings.contains(combined),
+            guard !retry.competingEndings.contains(combined),
                   !hasCompetingInitialism(combined, in: source, outside: span),
                   !hasDirectLetterDictation(before: source[index].range.lowerBound, in: original),
                   safe(span, in: source, text: original),
@@ -315,6 +535,13 @@ struct RecognitionContext {
             sites.append(InitialismEndingSite(term: term, span: span, left: left, right: right))
         }
         return sites.count == 1 ? sites.first : nil
+    }
+
+    private static func endingStem(_ text: String) -> String? {
+        guard text.hasSuffix("М"), text == text.uppercased(), text.allSatisfy(\.isLetter),
+              let stem = String(text.dropLast()).applyingTransform(.toLatin, reverse: false),
+              isLatinInitialism(stem) else { return nil }
+        return stem
     }
 
     private static func hearsSeparateInitialismLetters(_ text: String, site: InitialismEndingSite) -> Bool {
@@ -369,8 +596,75 @@ struct RecognitionContext {
         directLetterDictation.firstMatch(in: text, range: NSRange(text.startIndex..<target, in: text)) != nil
     }
 
+    static func reconcilePhoneticBoundary(original: String, corroboration: String, unprompted: [String],
+                                          retry: Retry, vocabulary: String) -> String? {
+        guard unprompted.count == 2, unprompted.allSatisfy({ !retry.isNeighborEcho($0) }) else { return nil }
+        let source = tokens(original), acoustic = tokens(corroboration), lexicon = terms(in: vocabulary)
+        var edits: [(Range<String.Index>, String)] = []
+        for term in retry.terms where retry.phoneticTerms.contains(term) && isLatinInitialism(term) {
+            let leads = phoneticKeys(term, term: term).filter { $0.count >= 2 && isRussianWord($0) }
+            for span in phoneticBoundarySites(in: original, corroboration: corroboration, term: term) {
+                guard preservesTerms(source, span, text: original, lexicon: lexicon, replacing: term),
+                      let (left, right) = anchors(around: span, in: source) else { continue }
+                let aligned = matches(in: acoustic, left: left, right: right)
+                guard aligned.count == 1, let heard = aligned.first, heard.count == 2,
+                      safe(heard, in: acoustic, text: corroboration) else { continue }
+                let prep = acoustic[heard.lowerBound], word = acoustic[heard.lowerBound + 1]
+                let observations = unprompted.compactMap { text -> String? in
+                    let words = tokens(text), aligned = matches(in: words, left: left, right: right)
+                    guard aligned.count == 1, let match = aligned.first, safe(match, in: words, text: text) else { return nil }
+                    return String(text[range(in: words, match)])
+                }
+                guard observations.count == 2, observations.allSatisfy({
+                    phoneticBoundary($0, term: term, preposition: prep.text, word: word.text, sameInitial: false)
+                }), observations.contains(where: { text in
+                    phoneticKeys(text, term: term).contains { observed in
+                        leads.contains { observed.hasPrefix($0) && observed.count >= $0.count + 3 }
+                    }
+                }) else { continue }
+                edits.append((range(in: source, span), term + " " + prep.text + " " + word.text))
+            }
+        }
+        guard edits.count == 1, let (span, replacement) = edits.first else { return nil }
+        var result = original
+        result.replaceSubrange(span, with: replacement)
+        return result
+    }
+
+    /// A contextual phonetic match can schedule a probe. It cannot supply
+    /// the missing acronym when the independent recognizer heard only the preposition.
+    private static func phoneticBoundarySites(in original: String, corroboration: String, term: String) -> [Range<Int>] {
+        let source = tokens(original), acoustic = tokens(corroboration)
+        guard acoustic.count >= 6 else { return [] }
+        return (2..<(acoustic.count - 3)).compactMap { index in
+            let span = index..<(index + 2)
+            let preposition = acoustic[index], word = acoustic[index + 1]
+            guard boundaryPrepositions.contains(preposition.key), isRussianWord(word.text),
+                  safe(span, in: acoustic, text: corroboration),
+                  let (left, right) = anchors(around: span, in: acoustic),
+                  matches(in: acoustic, left: left, right: right) == [span] else { return nil }
+            let aligned = matches(in: source, left: left, right: right)
+            guard aligned.count == 1, let old = aligned.first, old.count <= 2,
+                  safe(old, in: source, text: original),
+                  phoneticBoundary(String(original[range(in: source, old)]), term: term,
+                                   preposition: preposition.text, word: word.text) else { return nil }
+            return old
+        }
+    }
+
+    private static func phoneticBoundary(_ previous: String, term: String, preposition: String, word: String,
+                                         sameInitial: Bool = true) -> Bool {
+        let old = tokens(previous)
+        guard old.count <= 2, let tail = old.last, isRussianWord(tail.text), tail.key != word.lowercased(),
+              let tailDistance = phoneticDistance(tail.text, preposition + " " + word, term: term, sameInitial: false),
+              tailDistance <= 4,
+              let distance = phoneticDistance(previous, term + " " + preposition + " " + word, term: term, sameInitial: sameInitial) else { return false }
+        return distance <= 3
+    }
+
     private static func supportedEdit(previous: String, proposed: String, heard: String?, term: String,
-                                      established: Bool, candidateIsAcoustic: Bool) -> String? {
+                                      established: Bool, candidateIsAcoustic: Bool,
+                                      phoneticBoundaryEstablished: Bool, boundaryEvidence: [String]) -> String? {
         if isTermForm(proposed, of: term) {
             let canonical = RecognitionVocabulary.numericForms(for: term) != nil
                 ? RecognitionVocabulary.apply(to: proposed, vocabulary: term) : proposed
@@ -389,7 +683,29 @@ struct RecognitionContext {
 
         // A fused spelling can preserve the initialism and blur the preposition.
         // Only join it to words from the same anchored interval of the other decode.
-        guard let heard, isLatinInitialism(term), previous.hasPrefix(term),
+        guard let heard, isLatinInitialism(term) else { return nil }
+        if phoneticBoundaryEstablished, !previous.hasPrefix(term) {
+            let proposedWords = tokens(proposed), heardWords = tokens(heard)
+            guard proposedWords.count == 3, proposedWords[0].text == term,
+                  boundaryPrepositions.contains(proposedWords[1].key), isRussianWord(proposedWords[2].text),
+                  phoneticBoundary(previous, term: term, preposition: proposedWords[1].text,
+                                   word: proposedWords[2].text) else { return nil }
+            let phrase = proposedWords.map(\.key)
+            let heardExactly = heardWords.count == 3 && heardWords[0].text == term && heardWords.map(\.key) == phrase
+            let heardTail = heardWords.map(\.key).elementsEqual(phrase.dropFirst())
+            func exact(_ value: String) -> Bool {
+                let observed = tokens(value)
+                return observed.first?.text == term && observed.map(\.key) == phrase
+            }
+            let confirmedTwice = boundaryEvidence.count == 2 && boundaryEvidence.contains(where: exact)
+                && boundaryEvidence.allSatisfy { value in
+                    exact(value) || phoneticBoundary(value, term: term, preposition: proposedWords[1].text,
+                                                     word: proposedWords[2].text, sameInitial: false)
+                }
+            guard heardExactly || (candidateIsAcoustic && heardTail && confirmedTwice) else { return nil }
+            return proposed
+        }
+        guard previous.hasPrefix(term),
               let join = previous.dropFirst(term.count).first, "-‐‑".contains(join) else { return nil }
         let tail = RussianRecognition.words(proposed).dropFirst()
         let heardWords = RussianRecognition.words(heard)
@@ -516,6 +832,14 @@ struct RecognitionContext {
         return true
     }
 
+    private static func occurrenceCount(of term: String, in text: String, words: [Token]) -> Int {
+        let width = tokens(term).count
+        guard width > 0, words.count >= width else { return 0 }
+        return (0...(words.count - width)).filter { start in
+            RecognitionVocabulary.contains(term, in: String(text[range(in: words, start..<(start + width))]))
+        }.count
+    }
+
     private static func isTermForm(_ value: String, of term: String) -> Bool {
         let canonical = RecognitionVocabulary.apply(to: value, vocabulary: term)
         return tokens(canonical).count == tokens(term).count && RecognitionVocabulary.contains(term, in: canonical)
@@ -615,10 +939,10 @@ struct RecognitionContext {
         })
     }
 
-    private static func phoneticDistance(_ first: String, _ second: String, term: String) -> Int? {
+    private static func phoneticDistance(_ first: String, _ second: String, term: String, sameInitial: Bool = true) -> Int? {
         let left = phoneticKeys(first, term: term), right = phoneticKeys(second, term: term)
         return left.flatMap { a in right.compactMap { b in
-            guard min(a.count, b.count) >= 4, a.first == b.first else { return nil }
+            guard min(a.count, b.count) >= 4, !sameInitial || a.first == b.first else { return nil }
             return editDistance(a, b)
         } }.min()
     }
@@ -662,6 +986,14 @@ struct RecognitionContext {
                 heard.contains { $0.first == key.first && editDistance($0, key) <= 1 }
             }
         }
+    }
+
+    private static func numericEndingConflict(_ text: String, form: String, term: String) -> Bool {
+        guard RecognitionVocabulary.numericForms(for: term) != nil,
+              let ending = form.split(separator: "'").dropFirst().first,
+              let heard = numericEndings.first(where: text.lowercased().hasSuffix), heard != ending,
+              let distance = phoneticDistance(String(text.dropLast(heard.count)), term, term: term) else { return false }
+        return distance <= 2
     }
 
     private static func phoneticScore(_ first: String, _ second: String, term: String, allowOmittedNumeral: Bool = true) -> Int? {
