@@ -20,6 +20,19 @@ enum Launcher {
             }
             dispatchMain()
         }
+        if CommandLine.arguments.contains("--source-link-self-test") {
+            MainActor.assumeIsolated {
+                do { try SourceLinkPreview.test(); print("SOURCE_LINK_TEST_OK"); exit(0) }
+                catch { print("SOURCE_LINK_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+        }
+        if CommandLine.arguments.contains("--source-link-preview") || Bundle.main.object(forInfoDictionaryKey: "PisyaSourceLinkPreview") as? Bool == true {
+            MainActor.assumeIsolated {
+                do { try SourceLinkPreview.run() }
+                catch { print("SOURCE_LINK_PREVIEW_FAILED", error.localizedDescription) }
+            }
+            return
+        }
         if CommandLine.arguments.contains("--recognition-meeting-preview") {
             do { try RecognitionMeetingPreview.run(); exit(0) }
             catch { print("RECOGNITION_PREVIEW_FAILED", error.localizedDescription); exit(1) }

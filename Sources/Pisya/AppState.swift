@@ -36,6 +36,18 @@ final class AppState: ObservableObject {
     @Published var demo = false
     @Published var voiceProfiles: [VoiceProfile] = []
     let library: MeetingLibrary
+    struct SourceReveal: Equatable {
+        let meetingID: UUID
+        let segmentID: UUID
+        let requestID = UUID()
+    }
+    struct SourceNotice: Identifiable {
+        let id = UUID()
+        let message: String
+    }
+    @Published var sourceNotice: SourceNotice?
+    private var sourceRequestID = UUID()
+    @Published var sourceReveal: SourceReveal?
     @Published var playingSegmentID: UUID?
     private var player: AVAudioPlayer?
     private var playbackEnd: Double = 0
@@ -65,6 +77,49 @@ final class AppState: ObservableObject {
             (showingTrash || (folderFilter == nil || m.folderID == folderFilter) && (!unfiledOnly || m.folderID == nil)) &&
             (search.isEmpty || (searchIndex[m.id] ?? m.title).localizedCaseInsensitiveContains(search))
         }
+    }
+    func openSource(_ url: URL) {
+        sourceRequestID = UUID()
+        let requestID = sourceRequestID
+        let wasShowingSettings = showingSettings
+        showingSettings = false; sourceNotice = nil
+        func notice(_ text: String) {
+            let value = SourceNotice(message: text)
+            if wasShowingSettings {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    guard let self, self.sourceRequestID == requestID else { return }
+                    self.sourceNotice = value
+                }
+            } else { sourceNotice = value }
+        }
+        guard let link = TranscriptLink(url: url) else { stopPlayback(); notice("Некорректная ссылка на фрагмент"); return }
+        guard let meeting = try? library.read(link.meetingID), meeting.id == link.meetingID, meeting.deletedAt == nil else {
+            stopPlayback(); notice("Встреча недоступна или находится в корзине"); return
+        }
+        guard let result = link.resolve(in: meeting) else { stopPlayback(); notice("Фрагмент больше недоступен"); return }
+        if demo {
+            guard let actualMeetings = try? library.all(includeDeleted: true) else {
+                notice("Не удалось открыть библиотеку встреч"); return
+            }
+            demo = false; meetings = actualMeetings
+            searchIndex = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0.searchableText) })
+        }
+        upsert(meeting)
+        showingTrash = false; folderFilter = nil; unfiledOnly = false; search = ""
+        if selection != meeting.id { select(meeting.id) }
+        sourceReveal = SourceReveal(meetingID: meeting.id, segmentID: result.segment.id)
+        var notices: [String] = []
+        if result.isApproximate {
+            stopPlayback()
+            notices.append("Исходная реплика изменилась или удалена. Показан ближайший фрагмент по времени.")
+        }
+        if recording || savingMeetingID == meeting.id {
+            stopPlayback()
+            notices.append("Аудио сейчас недоступно во время записи или сохранения.")
+        } else if !result.isApproximate && !startPlayback(result.segment, in: meeting, toggle: false) {
+            notices.append("Аудио этого фрагмента недоступно, но текст сохранён.")
+        }
+        if !notices.isEmpty { notice(notices.joined(separator: "\n\n")) }
     }
     func select(_ id: UUID?) { stopPlayback(); selection = id }
     func openFolder(_ id: UUID? = nil, trash: Bool = false, unfiled: Bool = false) {
@@ -572,18 +627,31 @@ final class AppState: ObservableObject {
     }
     func stopPlayback() { player?.stop(); playingSegmentID = nil; playbackTimer?.invalidate(); playbackTimer = nil }
     func play(_ segment: TranscriptSegment, in meeting: Meeting) {
-        guard !demo, !recording else { return }
-        if playingSegmentID == segment.id { stopPlayback(); return }
+        if !startPlayback(segment, in: meeting, toggle: true) { message = "Аудио этого фрагмента недоступно" }
+    }
+    @discardableResult
+    private func startPlayback(_ segment: TranscriptSegment, in meeting: Meeting, toggle: Bool) -> Bool {
+        guard !demo, !recording else { stopPlayback(); return false }
+        if toggle && playingSegmentID == segment.id { stopPlayback(); return true }
         let name = segment.audioFile ?? meeting.audioFiles.first { segment.speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") } ?? meeting.audioFiles.first
-        guard let name else { return }
-        do {
-            player = try AVAudioPlayer(contentsOf: library.audioURL(name))
-            let offset = meeting.audioOffsets[name] ?? 0
-            player?.currentTime = max(0, segment.start - offset)
-            playbackEnd = segment.end - offset
-            player?.play(); playingSegmentID = segment.id
-            schedulePlaybackStop()
-        } catch { message = "Аудио недоступно: \(error.localizedDescription)" }
+        guard let name, meeting.audioFiles.contains(name), let url = try? library.audioURL(name),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              url.resolvingSymlinksInPath().deletingLastPathComponent() == library.audioDirectory.resolvingSymlinksInPath(),
+              let candidate = try? AVAudioPlayer(contentsOf: url) else { stopPlayback(); return false }
+        let offset = meeting.audioOffsets[name] ?? 0
+        let start = segment.start - offset, end = segment.end - offset
+        guard offset.isFinite, start.isFinite, end.isFinite, end > start, end > 0,
+              start < candidate.duration, candidate.duration > 0 else { stopPlayback(); return false }
+        if !toggle && playingSegmentID == segment.id && player?.isPlaying == true { return true }
+        stopPlayback()
+        candidate.currentTime = max(0, start)
+        guard candidate.play() else { return false }
+        player = candidate
+        playbackEnd = min(end, candidate.duration)
+        playingSegmentID = segment.id
+        schedulePlaybackStop()
+        return true
     }
     private func schedulePlaybackStop() {
         playbackTimer?.invalidate()

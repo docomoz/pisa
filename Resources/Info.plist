@@ -8,6 +8,7 @@
 <key>CFBundleIconFile</key><string>PisyaPlain</string>
 <key>CFBundleName</key><string>Pisya</string>
 <key>CFBundleDisplayName</key><string>Pisya</string>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.docomoz.pisya.transcript</string><key>CFBundleURLSchemes</key><array><string>pisya</string></array></dict></array>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.4.1</string>
 <key>CFBundleVersion</key><string>41</string>

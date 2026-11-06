@@ -227,6 +227,7 @@ struct MeetingView: View {
                     Spacer()
                 }.frame(maxWidth: .infinity)
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         ForEach(meeting.segments.filter { transcriptQuery.isEmpty || !transcriptSearchRanges(in: typographicText($0.text), query: transcriptQuery).isEmpty || !transcriptSearchRanges(in: typographicText($0.speaker), query: transcriptQuery).isEmpty }) { segment in
@@ -245,12 +246,28 @@ struct MeetingView: View {
                                     Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisyaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.processingID == meeting.id).screenHelp("Исправить реплику")
                                 }
                             }
+                            .id(segment.id)
+                            .background(state.sourceReveal?.meetingID == meeting.id && state.sourceReveal?.segmentID == segment.id ? Color.moss.opacity(0.12) : Color.clear)
                         }
                     }.padding(.vertical, PisyaDesign.Spacing.section).padding(.trailing, PisyaDesign.Spacing.related)
                         .opacity(isTranscribing && state.isReprocessing ? 0.6 : 1)
                 }
+                .onAppear { revealSource(using: proxy) }
+                .onChange(of: state.sourceReveal) { _, _ in revealSource(using: proxy) }
+                }
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func revealSource(using proxy: ScrollViewProxy) {
+        guard let reveal = state.sourceReveal, reveal.meetingID == meeting.id else { return }
+        transcriptSearch = ""
+        focusedField = nil
+        // Wait for the cleared search and the newly selected meeting to enter the layout.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            guard state.sourceReveal == reveal else { return }
+            withAnimation { proxy.scrollTo(reveal.segmentID, anchor: .center) }
+        }
     }
 
     private func transcriptTools(showsDetailsButton: Bool) -> some View {

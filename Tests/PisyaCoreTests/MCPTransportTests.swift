@@ -40,6 +40,6 @@ final class MCPTransportTests: XCTestCase {
         guard FileManager.default.fileExists(atPath: meetings.path) else { return XCTFail("Server did not use the test library") }
         guard let list = try request("tools/list") else { return }
         let tools = (list["result"] as? [String: Any])?["tools"] as? [[String: Any]]
-        XCTAssertEqual(tools?.compactMap { $0["name"] as? String }, ["list_meetings", "search_meetings", "read_transcript"])
+        XCTAssertEqual(tools?.compactMap { $0["name"] as? String }, ["list_meetings", "search_meetings", "read_transcript", "list_folders", "search_transcripts"])
     }
 }

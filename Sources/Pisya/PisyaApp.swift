@@ -18,6 +18,9 @@ struct PisyaApp: App {
                         screenButton("Понятно", role: .cancel) { }
                     }
                 } message: { screenText(state.permissionIssue?.localizedDescription ?? state.message ?? "") }
+                .sheet(item: $state.sourceNotice) { notice in
+                    SourceNoticeView(message: notice.message)
+                }
                 .sheet(isPresented: $state.showingSettings) { SettingsView().environmentObject(state) }
                 .sheet(isPresented: Binding(get: { state.modelSetup.presented }, set: { state.modelSetup.presented = $0 })) {
                     ModelSetupView(setup: state.modelSetup, onReady: { state.modelInstallationCompleted() })
@@ -67,6 +70,25 @@ struct PisyaApp: App {
         }
     }
 }
+struct SourceNoticeView: View {
+    let message: String
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var buttonFocused: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
+            SectionHeading("Ссылка на фрагмент", subtitle: message, style: .dialog)
+            HStack(spacing: PisyaDesign.Spacing.related) {
+                Spacer(minLength: PisyaDesign.Spacing.none)
+                screenButton("Понятно") { dismiss() }
+                    .actionButton(.primary).focused($buttonFocused)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .dialogContent().frame(width: 480)
+        .defaultFocus($buttonFocused, true)
+        .onExitCommand { dismiss() }
+    }
+}
 private struct MainWindowConnection: View {
     let state: AppState
     let delegate: PisyaDelegate
@@ -88,8 +110,25 @@ struct RecordingElapsed: View {
 final class PisyaDelegate: NSObject, NSApplicationDelegate {
     weak var state: AppState?
     private var statusController: StatusBarController?
+    private var openMain: (() -> Void)?
+    private var pendingURLs: [URL] = []
+    func application(_ application: NSApplication, open urls: [URL]) {
+        pendingURLs.append(contentsOf: urls)
+        deliverURLs()
+    }
+    private func deliverURLs() {
+        guard let state, let openMain else { return }
+        guard !pendingURLs.isEmpty else { return }
+        openMain()
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+        let urls = pendingURLs; pendingURLs.removeAll()
+        for url in urls { state.openSource(url) }
+    }
     func connect(_ state: AppState, openMain: @escaping () -> Void) {
         self.state = state
+        self.openMain = openMain
+        deliverURLs()
         if statusController == nil { statusController = StatusBarController(state: state, openMain: openMain) }
     }
     func showStatusMenu() { statusController?.showMenu() }

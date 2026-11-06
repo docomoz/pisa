@@ -65,7 +65,7 @@ struct SettingsView: View {
                         columns {
                         block("Доступ к встречам через MCP", "Локальный сервер даёт доступ только для чтения и работает без сетевого порта") {
                             screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled).onChange(of: state.preferences.mcpEnabled) { state.savePreferences() }
-                            SupportingText("Подключённый клиент сможет искать встречи и читать расшифровки. Если клиент использует облачную модель, прочитанный текст может уйти к ней. Доступ к аудио и изменениям библиотеки не предоставляется.")
+                            SupportingText("Подключённый клиент сможет находить реплики с контекстом и читать расшифровки. Ссылки на источники открывают нужный фрагмент в Pisya. Если клиент использует облачную модель, прочитанный текст может уйти к ней. Аудиофайлы и изменение библиотеки через MCP недоступны.")
                         }
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
@@ -79,7 +79,7 @@ struct SettingsView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(PisyaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                             screenButton("Скопировать конфигурацию") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString("[mcp_servers.pisya]\ncommand = \"\(state.mcpPath)\"", forType: .string) }.actionButton()
-                            SupportingText("Инструменты: list_meetings, search_meetings, read_transcript. Выключатель отзывает доступ и у уже запущенного клиента.")
+                            SupportingText("Доступны встречи, папки, поиск реплик и сведения о полноте расшифровки. Выключатель отзывает доступ и у уже запущенного клиента.")
                         }
                             }
                             .disabled(!state.preferences.mcpEnabled)
