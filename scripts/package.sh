@@ -6,8 +6,30 @@ mkdir -p "$app_bundle/Contents/Helpers" "$app_bundle/Contents/Resources/Licenses
 cp build/Build/Products/Release/pisya-mcp "$app_bundle/Contents/Helpers/"
 python3 - <<'PY'
 from pathlib import Path
+import plistlib
 import shutil
-out = Path('build/Build/Products/Release/Pisya.app/Contents/Resources/Licenses')
+
+contents = Path('build/Build/Products/Release/Pisya.app/Contents')
+
+# Sparkle loads its own localization table. Adapt the Russian update prompts
+# to Pisya before signing the embedded framework.
+strings = contents / 'Frameworks/Sparkle.framework/Resources/ru.lproj/Sparkle.strings'
+with strings.open('rb') as source:
+    translations = plistlib.load(source)
+overrides = {
+    '%@ %@ is now available—you have %@. Would you like to download it now?':
+        '%1$@ %2$@ теперь доступна. У вас версия %3$@. Хотите загрузить её сейчас?',
+    '%1$@ %2$@ has been downloaded and is ready to use! Would you like to install it and relaunch %1$@ now?':
+        '%1$@ %2$@ загружена. Хотите установить её и перезапустить %1$@?',
+}
+for key, translation in overrides.items():
+    if key not in translations:
+        raise SystemExit(f'Missing Sparkle localization key: {key}')
+    translations[key] = translation
+with strings.open('wb') as target:
+    plistlib.dump(translations, target, fmt=plistlib.FMT_BINARY)
+
+out = contents / 'Resources/Licenses'
 roots = [Path('Vendor/mlx-audio-swift'), Path('Vendor/Sherpa'), Path('Vendor/WebRTCAEC'), Path('Vendor/SpeexDSP')]
 checkouts = Path('build/SourcePackages/checkouts')
 if checkouts.exists(): roots += list(checkouts.iterdir())
