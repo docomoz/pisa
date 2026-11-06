@@ -468,15 +468,8 @@ struct MeetingView: View {
                     .actionButton(size: buttonSize)
                     .disabled(!state.canExport(meeting))
 
-                    PopupMenu {
-                        MeetingActions(
-                            meeting: meeting,
-                            includesVoiceAndFolderActions: false,
-                            onDeleteAudio: meeting.audioFiles.isEmpty ? nil : {
-                                showsMeetingDetails = false
-                                confirmDeleteAudio = true
-                            }
-                        )
+                    NativeActionMenu {
+                        meetingMenuItems
                     } label: {
                         detailsActionLabel("Ещё", systemImage: "ellipsis", hasMenu: true)
                     }
@@ -498,6 +491,21 @@ struct MeetingView: View {
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
             .controlSize(.large)
+    }
+
+    private var meetingMenuItems: [NSMenuItem] {
+        let actions = MeetingActionSet(state: state, meeting: meeting)
+        var items = meeting.deletedAt == nil
+            ? [actions.rename.nativeItem, .separator(), actions.reprocess.nativeItem, .separator(), actions.trash.nativeItem]
+            : [actions.restore.nativeItem]
+        if !meeting.audioFiles.isEmpty {
+            if meeting.deletedAt != nil { items.append(.separator()) }
+            items.append(NativeActionMenuItem("Удалить аудио") {
+                showsMeetingDetails = false
+                confirmDeleteAudio = true
+            })
+        }
+        return items
     }
 
     private func detailsActionLabel(_ title: String, systemImage: String, hasMenu: Bool = false) -> some View {

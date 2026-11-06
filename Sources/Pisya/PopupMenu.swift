@@ -1,6 +1,55 @@
 import AppKit
 import SwiftUI
 
+struct NativeActionMenu<Label: View>: View {
+    var items: () -> [NSMenuItem]
+    @ViewBuilder var label: () -> Label
+    @State private var anchor = NSView()
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        Button(action: open, label: label)
+            .background(Anchor(view: anchor).allowsHitTesting(false).accessibilityHidden(true))
+            .onKeyPress(keys: [.return, .downArrow]) { _ in
+                guard enabled else { return .ignored }
+                open()
+                return .handled
+            }
+    }
+
+    private func open() {
+        guard anchor.window != nil else { return }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.showsStateColumn = false
+        menu.minimumWidth = anchor.bounds.width
+        menu.items = items()
+        let location = NSPoint(x: anchor.bounds.minX, y: anchor.bounds.minY - PisyaDesign.Spacing.compact)
+        menu.popUp(positioning: nil, at: location, in: anchor)
+    }
+
+    private struct Anchor: NSViewRepresentable {
+        let view: NSView
+        func makeNSView(context: Context) -> NSView { view }
+        func updateNSView(_ nsView: NSView, context: Context) {}
+    }
+}
+
+final class NativeActionMenuItem: NSMenuItem {
+    private let perform: () -> Void
+
+    init(_ title: String, enabled: Bool = true, perform: @escaping () -> Void) {
+        self.perform = perform
+        super.init(title: typographicText(title), action: nil, keyEquivalent: "")
+        target = self
+        action = #selector(activate)
+        isEnabled = enabled
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func activate() { perform() }
+}
+
 struct PopupKeyboardNavigation: ViewModifier {
     @Binding var showsFocus: Bool
     var supportsArrowKeys = false
