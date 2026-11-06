@@ -13,13 +13,12 @@ if (measurementId && /^G-[A-Z0-9]+$/.test(measurementId)) {
   let pageReferrer = '';
   try { if (document.referrer) pageReferrer = new URL(document.referrer).origin; } catch {}
   gtag('config', measurementId, {
-    send_page_view: false,
     page_location: pageLocation,
     page_referrer: pageReferrer,
+    page_title: 'Pisya',
     allow_google_signals: false,
     allow_ad_personalization_signals: false,
   });
-  gtag('event', 'page_view', { page_location: pageLocation, page_referrer: pageReferrer, page_title: 'Pisya' });
 
   // Only fixed event names are sent: no link text, search terms or user input.
   window.pisyaTrack = (name, params = {}) => gtag('event', name, params);

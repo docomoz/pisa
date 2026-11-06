@@ -44,19 +44,28 @@ test('analytics is disabled without a valid measurement ID', () => {
   }
 });
 
-test('analytics sends fixed events and strips URL query and referrer paths', () => {
+test('analytics config requests one automatic page view with sanitized URLs', () => {
   const state = page('G-TEST123');
   assert.equal(state.scripts[0].src, 'https://www.googletagmanager.com/gtag/js?id=G-TEST123');
+  const configs = state.window.dataLayer.filter(args => args[0] === 'config');
+  assert.equal(configs.length, 1);
+  assert.equal(configs[0][1], 'G-TEST123');
+  assert.notEqual(configs[0][2].send_page_view, false);
+  assert.equal(configs[0][2].page_title, 'Pisya');
+  assert.equal(configs[0][2].page_location, 'https://pisya.app/');
+  assert.equal(configs[0][2].page_referrer, 'https://search.example');
   const views = state.window.dataLayer.filter(args => args[0] === 'event' && args[1] === 'page_view');
-  assert.equal(views.length, 1);
-  assert.equal(views[0][2].page_location, 'https://pisya.app/');
-  assert.equal(views[0][2].page_referrer, 'https://search.example');
+  assert.equal(views.length, 0);
+});
+
+test('analytics sends only fixed action event names', () => {
+  const state = page('G-TEST123');
   const click = href => state.listeners.click({ target: { closest: () => ({ getAttribute: () => href }) } });
   click('#install-guide');
   click('https://github.com/docomoz/pisya');
   state.window.pisyaTrack('copy_install_command');
   assert.deepEqual(Array.from(state.window.dataLayer.filter(args => args[0] === 'event'), args => args[1]),
-    ['page_view', 'install_guide_click', 'github_click', 'copy_install_command']);
+    ['install_guide_click', 'github_click', 'copy_install_command']);
 });
 
 test('download proceeds even when the analytics callback never arrives', () => {
