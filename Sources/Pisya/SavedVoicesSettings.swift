@@ -86,10 +86,9 @@ struct SavedVoicesSettings: View {
                     .fixedSize()
                     .screenHelp("Голос доступен для узнавания на будущих встречах")
             }
-            PopupMenu {
-                PopupMenuItem("Переименовать…") { renaming = profile }
-                Divider()
-                PopupMenuItem("Забыть голос", role: .destructive) { forgetting = profile }
+            NativeActionMenu {
+                [NativeActionMenuItem("Переименовать…") { renaming = profile }, .separator(),
+                 NativeActionMenuItem("Забыть голос") { forgetting = profile }]
             } label: {
                 Image(systemName: "ellipsis")
                     .font(PisyaDesign.Typography.Icon.medium)

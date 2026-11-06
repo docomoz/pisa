@@ -436,19 +436,8 @@ struct MeetingView: View {
                     .actionButton(size: buttonSize)
                     .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
 
-                    PopupMenu {
-                        PopupMenuItem("Без папки") { state.move(meeting, to: nil) }
-                        if !state.folders.isEmpty { Divider() }
-                        ForEach(state.folders) { folder in
-                            PopupMenuItem(folder.name, systemImage: folder.iconName) { state.move(meeting, to: folder.id) }
-                        }
-                        if meeting.deletedAt == nil {
-                            Divider()
-                            PopupMenuItem("Новая папка…", systemImage: "folder.badge.plus") {
-                                showsMeetingDetails = false
-                                state.newFolderMeeting = meeting
-                            }
-                        }
+                    NativeActionMenu {
+                        MeetingActionSet(state: state, meeting: meeting).folderMenuItems { showsMeetingDetails = false }
                     } label: {
                         detailsActionLabel(folder?.name ?? "Папка", systemImage: folder?.iconName ?? "folder", hasMenu: true)
                     }
