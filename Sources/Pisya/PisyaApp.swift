@@ -4,6 +4,7 @@ import AppKit
 struct PisyaApp: App {
     @NSApplicationDelegateAdaptor(PisyaDelegate.self) private var delegate
     @StateObject private var state = AppState()
+    @AppStorage("appTextSize") private var textSize = AppTextSize.normal
     var body: some Scene {
         Window("Pisya", id: "main") {
             MainView().environmentObject(state).frame(minWidth: 980, minHeight: 660)
@@ -25,6 +26,7 @@ struct PisyaApp: App {
                 .sheet(isPresented: Binding(get: { state.modelSetup.presented }, set: { state.modelSetup.presented = $0 })) {
                     ModelSetupView(setup: state.modelSetup, onReady: { state.modelInstallationCompleted() })
                 }
+                .environment(\.appTextScale, AppTextSize.factor(for: textSize))
                 .focusEffectDisabled()
         }
         .defaultSize(width: 1200, height: 800)
@@ -55,6 +57,14 @@ struct PisyaApp: App {
                 }
             }
             CommandGroup(replacing: .newItem) { screenButton("Импортировать аудио…") { state.importAudio() }.keyboardShortcut("o") }
+            CommandGroup(after: .toolbar) {
+                screenButton("Увеличить текст") { changeTextSize(by: AppTextSize.step) }.keyboardShortcut("+")
+                    .disabled(textSize >= AppTextSize.limits.upperBound)
+                screenButton("Уменьшить текст") { changeTextSize(by: -AppTextSize.step) }.keyboardShortcut("-")
+                    .disabled(textSize <= AppTextSize.limits.lowerBound)
+                screenButton("Обычный размер текста") { textSize = AppTextSize.normal }.keyboardShortcut("0")
+                    .disabled(textSize == AppTextSize.normal)
+            }
             CommandGroup(after: .windowList) {
                 screenButton("На всю ширину") {
                     guard let window = NSApp.mainWindow, let screen = window.screen,
@@ -68,6 +78,10 @@ struct PisyaApp: App {
             }
             CommandGroup(replacing: .appSettings) { screenButton("Настройки…") { state.showingSettings = true }.keyboardShortcut(",") }
         }
+    }
+
+    private func changeTextSize(by step: Int) {
+        textSize = AppTextSize.clamp(AppTextSize.clamp(textSize) + step)
     }
 }
 struct SourceNoticeView: View {
@@ -99,11 +113,16 @@ private struct MainWindowConnection: View {
 }
 
 struct RecordingElapsed: View {
+    @Environment(\.appTextScale) private var textScale
     let started: Date
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { clock in
             screenText(recordingTimecode(clock.date.timeIntervalSince(started))).textStyle(PisyaDesign.Typography.elapsed)
-        }.frame(width: PisyaDesign.Metrics.elapsedWidth, height: PisyaDesign.Metrics.elapsedHeight, alignment: .leading)
+        }.frame(
+            width: PisyaDesign.Metrics.elapsedWidth * max(1, textScale),
+            height: PisyaDesign.Metrics.elapsedHeight * max(1, textScale),
+            alignment: .leading
+        )
     }
 }
 @MainActor

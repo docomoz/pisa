@@ -3,6 +3,7 @@ import SwiftUI
 struct VoiceManager: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTextScale) private var textScale
     let meetingID: UUID
     @State private var selected: UUID?
     @State private var name = ""
@@ -65,7 +66,7 @@ struct VoiceManager: View {
                             }
                         } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                }.id(selected).textStyle(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350)
+                }.id(selected).textStyle(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350 * max(1, textScale))
             }
         }.dialogContent().frame(width: 940, height: 660).background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
     }

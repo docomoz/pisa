@@ -134,6 +134,7 @@ private struct TitleBarZoom: NSViewRepresentable {
 
 struct MeetingView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.appTextScale) private var textScale
     let meeting: Meeting
     @State private var editing: TranscriptSegment?
     @State private var speakerName = ""
@@ -188,7 +189,8 @@ struct MeetingView: View {
                 .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { _, value in title = value }
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
             GeometryReader { geometry in
-                let showsColumn = showsTranscriptTools && geometry.size.width >= Self.detailsColumnBreakpoint
+                let extraWidth = Self.detailsColumnWidth * (max(1, textScale) - 1)
+                let showsColumn = showsTranscriptTools && geometry.size.width >= Self.detailsColumnBreakpoint + extraWidth
                 HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
                     transcriptColumn(showsDetailsButton: !showsColumn)
                     if showsColumn {
@@ -196,7 +198,7 @@ struct MeetingView: View {
                             meetingDetails(buttonSize: .regular)
                                 .padding(.leading, PisyaDesign.Spacing.content)
                         }
-                        .frame(width: Self.detailsColumnWidth)
+                        .frame(width: Self.detailsColumnWidth + extraWidth)
                         .background(alignment: .leading) {
                             Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
                         }
@@ -270,12 +272,13 @@ struct MeetingView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         ForEach(meeting.segments.filter { transcriptQuery.isEmpty || !transcriptSearchRanges(in: typographicText($0.text), query: transcriptQuery).isEmpty || !transcriptSearchRanges(in: typographicText($0.speaker), query: transcriptQuery).isEmpty }) { segment in
+                            let timecodeWidth = 56 * max(1, textScale)
                             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
                                 if isRecording {
                                     screenText(timecode(segment.start)).textStyle(PisyaDesign.Typography.caption)
-                                        .frame(width: 56, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact)
+                                        .frame(width: timecodeWidth, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact)
                                 } else {
-                                    Button { state.play(segment, in: meeting) } label: { VStack(spacing: PisyaDesign.Spacing.inline) { screenText(timecode(segment.start)).textStyle(PisyaDesign.Typography.caption); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").textStyle(PisyaDesign.Typography.footnote) }.frame(width: 56, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.demo || state.recording || isSaving || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
+                                    Button { state.play(segment, in: meeting) } label: { VStack(spacing: PisyaDesign.Spacing.inline) { screenText(timecode(segment.start)).textStyle(PisyaDesign.Typography.caption); Image(systemName: state.playingSegmentID == segment.id ? "stop.fill" : "play.fill").textStyle(PisyaDesign.Typography.footnote) }.frame(width: timecodeWidth, alignment: .leading).padding(.top, PisyaDesign.Spacing.compact) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.demo || state.recording || isSaving || meeting.audioFiles.isEmpty).screenHelp("Прослушать фрагмент")
                                 }
                                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                     screenText(segment.speaker, highlighting: transcriptQuery).textStyle(PisyaDesign.Typography.detailStrong).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
