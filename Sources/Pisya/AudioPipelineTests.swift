@@ -1,5 +1,7 @@
 import Foundation
 import AVFoundation
+import MLX
+import MLXAudioSTT
 
 enum AudioPipelineTests {
     /// Real ASR regression: the same uncommon name must use the supplied spelling
@@ -89,6 +91,10 @@ enum AudioPipelineTests {
         let access = model.startAccessingSecurityScopedResource()
         defer { if access { model.stopAccessingSecurityScopedResource() } }
         let speakers = libraryRoot.appendingPathComponent("Models/Speakers")
+        if CommandLine.arguments.contains("--quiet-diagnostic") {
+            try await quietDiagnostic(payload: payload, model: model)
+            return
+        }
         let engine = try SpeakerEngine(directory: speakers)
         func vector(_ samples: [Float], first: Bool) throws -> [Float] {
             let middle = samples.count / 2
@@ -155,7 +161,7 @@ enum AudioPipelineTests {
                 print("CLEAN_RMS",t/16000,sqrt(e/Double(end-t)))
             }
         }
-        guard !result.isEmpty, micSegments.isEmpty else { throw PisyaError.message("Far-only synthetic speech duplicated on microphone") }
+        let farOnlyPassed = !result.isEmpty && micSegments.isEmpty
         guard let near = payload["near"] else { throw PisyaError.message("Missing near speech") }
         func writeMicrophone(_ samples: [Float]) throws {
             let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))!
@@ -214,6 +220,22 @@ enum AudioPipelineTests {
             let begin = Int((testShort ? 24.8 : 24.0) * 16000)
             for i in speech.indices where begin + i < clockMic.count { clockMic[begin + i] += speech[i] * 0.1 }
             try writeMicrophone(clockMic)
+            if testShort {
+                let mapping = try await EchoAlignment.estimate(microphone: AVAudioFile(forReading: mic), reference: AVAudioFile(forReading: remote), offset: 0, referenceOffset: 0) { _, _ in }
+                print("QUIET_ALIGNMENT_POINTS", mapping.points.map { "\($0.time):\($0.delay)" }.joined(separator: ","))
+                let diagnostic = try await AcousticEcho.clean(microphone: mic, offset: 0, reference: remote, referenceOffset: 0) { _, _ in }
+                defer { try? FileManager.default.removeItem(at: diagnostic) }
+                let file = try AVAudioFile(forReading: diagnostic)
+                let window = try AcousticEcho.frame(file, at: Int64(begin), count: short.count)
+                var dot = 0.0, power = 0.0
+                for i in short.indices { dot += Double(window[i] * short[i] * 0.1); power += Double(short[i] * short[i] * 0.01) }
+                print("QUIET_ACTUAL_PCM_RETAINED", dot / max(1e-12, power))
+                print("QUIET_ACTUAL_VAD", try SpeechDetector().regions(in: diagnostic).filter { $0.end > 24 && $0.start < 26 }.map { "\($0.start)-\($0.end)" }.joined(separator: ","))
+                let knownCrop = try AcousticEcho.frame(file, at: Int64(24.6 * 16000), count: Int(1.2 * 16000))
+                let qwen = try await Qwen3ASRModel.fromModelDirectory(model)
+                let answer = qwen.generate(audio: MLXArray(knownCrop), maxTokens: 64, context: "", language: nil, chunkDuration: 24, repetitionPenalty: 1.1)
+                print("QUIET_KNOWN_CROP_ASR", answer.text)
+            }
             let result = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, profiles: [], quiet: true) { _, _ in }
             let text = result.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ").lowercased()
             print("QUIET_CLOCK_JUMP_ASR", "short", testShort, text)
@@ -230,7 +252,42 @@ enum AudioPipelineTests {
         for time in starts {
             guard detected.contains(where: { $0.start < time + Double(short.count)/16000 && $0.end > time }) else { throw PisyaError.message("Short answer lost at boundary \(time)") }
         }
+        guard farOnlyPassed else { throw PisyaError.message("Far-only synthetic speech duplicated on microphone") }
         print("SPEECH_PIPELINE_TEST_OK")
+    }
+    @MainActor private static func quietDiagnostic(payload: [String: [Float]], model: URL) async throws {
+        guard let far = payload["far"], let short = payload["short"] else { throw PisyaError.message("Missing fixture") }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-quiet-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        func write(_ samples: [Float], _ name: String) throws -> URL {
+            let url = root.appendingPathComponent(name)
+            let writer = try AVAudioFile(forWriting: url, settings: format.settings)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count))!
+            buffer.frameLength = AVAudioFrameCount(samples.count)
+            samples.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
+            try writer.write(from: buffer); writer.close(); return url
+        }
+        let count = 32 * 16000, start = Int(24.8 * 16000)
+        let playback = (0..<(count + 32000)).map { far[$0 % far.count] }
+        var mic = [Float](repeating: 0, count: count)
+        for t in mic.indices {
+            let k = t < 400000 ? t - 640 : t + 15360
+            if k >= 0 { mic[t] += playback[k] * 0.4 }
+            if k >= 220 { mic[t] += playback[k - 220] * 0.12 }
+        }
+        for i in short.indices { mic[start + i] += short[i] * 0.1 }
+        let micURL = try write(mic, "fixture-mic.caf"), refURL = try write(playback, "fixture-remote.caf")
+        let clean = try await AcousticEcho.clean(microphone: micURL, offset: 0, reference: refURL, referenceOffset: 0) { _, _ in }
+        print("QUIET_DIAGNOSTIC_VAD", try SpeechDetector().regions(in: clean).filter { $0.end > 24 && $0.start < 26 }.map { "\($0.start)-\($0.end)" })
+        let crop = try AcousticEcho.frame(AVAudioFile(forReading: clean), at: Int64(24.6 * 16000), count: 19200)
+        let qwen = try await Qwen3ASRModel.fromModelDirectory(model)
+        for (label, context, language): (String, String, String?) in [("auto", "", nil), ("hint", "Разговор на русском языке", nil), ("forced", "", "Russian")] {
+            let r = qwen.generate(audio: MLXArray(crop), maxTokens: 64, context: context, language: language, chunkDuration: 24, repetitionPenalty: 1.1)
+            print("QUIET_LANGUAGE_PROBE", label, r.language ?? "nil", r.text)
+        }
+        print("QUIET_DIAGNOSTIC_OK")
     }
     static func run() async throws {
         func check(_ condition: Bool, _ message: String) throws { if !condition { throw PisyaError.message(message) } }

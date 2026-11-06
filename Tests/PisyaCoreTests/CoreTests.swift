@@ -26,6 +26,20 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(voiceNameForSelection(currentID: nil, currentName: "", segment: sample), "Спикер 1")
     }
 
+    func testSidebarDurationRoundsUpAndUsesNonbreakingUnits() {
+        let space = "\u{00A0}"
+        for (seconds, expected) in [
+            (0.0, "0\(space)мин"), (0.1, "1\(space)мин"), (11, "1\(space)мин"),
+            (60, "1\(space)мин"), (61, "2\(space)мин"), (118, "2\(space)мин"),
+            (3599, "1\(space)ч"), (3600, "1\(space)ч"),
+            (3601, "1\(space)ч\(space)1\(space)мин"), (7199, "2\(space)ч")
+        ] { XCTAssertEqual(sidebarDuration(seconds), expected) }
+        XCTAssertEqual(sidebarDuration(-1), "0\(space)мин")
+        XCTAssertEqual(sidebarDuration(.nan), "—")
+        XCTAssertEqual(sidebarDuration(.infinity), "—")
+        XCTAssertEqual(sidebarDuration(.greatestFiniteMagnitude), "—")
+    }
+
     func testRecordingCounterSwitchesToHoursAtOneHour() {
         XCTAssertEqual(recordingTimecode(0), "00:00")
         XCTAssertEqual(recordingTimecode(9), "00:09")

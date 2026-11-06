@@ -49,10 +49,11 @@ enum EchoDiagnostics {
         } else { model = root.appendingPathComponent("Models/Qwen3-ASR") }
         let access = model.startAccessingSecurityScopedResource()
         defer { if access { model.stopAccessingSecurityScopedResource() } }
-        let meetings = try library.all().filter { $0.duration > 900 }.sorted { $0.date < $1.date }
+        let fixture = CommandLine.arguments.contains("--fixture-preview")
+        let meetings = try library.all().filter { fixture ? $0.title == "Проверка фоновой расшифровки" : $0.duration > 900 }.sorted { $0.date < $1.date }
         for (index, meeting) in meetings.prefix(2).enumerated() {
-            let time = index == 0 ? 120.0 : 200.0, duration = 30.0
-            let base = time - 2
+            let time = fixture ? 0 : index == 0 ? 120.0 : 200.0, duration = fixture ? 12.0 : 30.0
+            let base = max(0, time - 2)
             let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-asr-preview-" + UUID().uuidString)
             try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: temporary) }
@@ -73,7 +74,7 @@ enum EchoDiagnostics {
             }
             let began = Date()
             let result = try await Transcriber().transcribe(files: clips, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: root.appendingPathComponent("Models/Speakers"), profiles: [], quiet: true) { _, _ in }
-            let visible = result.filter { $0.end > 2 && $0.start < duration + 2 }
+            let visible = result.filter { $0.end > time - base && $0.start < duration + time - base }
             let mic = visible.filter { $0.speaker == "Я" }
             let original = meeting.segments.filter { $0.end > time && $0.start < time + duration && $0.speaker == "Я" }
             let remoteText = visible.filter { $0.speaker != "Я" }.map(\.text).joined(separator: " ")
