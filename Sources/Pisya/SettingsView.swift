@@ -168,14 +168,23 @@ private struct SettingsSectionPicker: View {
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.compact) {
             ForEach(sections, id: \.self) { item in
+                let isSelected = selection == item
                 Button { selection = item } label: {
-                    screenText(item).textStyle(selection == item ? PisyaDesign.Typography.detailStrong : PisyaDesign.Typography.detailMedium)
-                        .padding(.horizontal, PisyaDesign.Spacing.content).frame(height: 32)
-                        .foregroundStyle(Color.ink)
-                        .background(selection == item ? Color.paper : .clear, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
-                        .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                    // Keep both font weights in layout so selection never resizes a tab.
+                    ZStack {
+                        screenText(item).textStyle(PisyaDesign.Typography.detailMedium)
+                            .opacity(isSelected ? 0 : 1)
+                            .accessibilityHidden(isSelected)
+                        screenText(item).textStyle(PisyaDesign.Typography.detailStrong)
+                            .opacity(isSelected ? 1 : 0)
+                            .accessibilityHidden(!isSelected)
+                    }
+                    .padding(.horizontal, PisyaDesign.Spacing.content).frame(height: 32)
+                    .foregroundStyle(Color.ink)
+                    .background(isSelected ? Color.paper : .clear, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+                    .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                 }.shapeAwarePlainButton().focused($focused, equals: item)
-                    .accessibilityAddTraits(selection == item ? .isSelected : [])
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .onMoveCommand { direction in
                         guard direction == .left || direction == .right,
                               let index = sections.firstIndex(of: item) else { return }
