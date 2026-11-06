@@ -138,6 +138,7 @@ private struct SecondaryClickObserver: NSViewRepresentable {
 struct MeetingActions: View {
     @EnvironmentObject var state: AppState
     let meeting: Meeting
+    var includesVoiceAndFolderActions = true
     var onDeleteAudio: (() -> Void)?
 
     var body: some View {
@@ -145,23 +146,27 @@ struct MeetingActions: View {
             if meeting.deletedAt != nil {
                 screenButton("Восстановить") { state.trash(meeting, restore: true) }.disabled(!state.canModify(meeting))
             } else {
-                screenButton("Разметить голоса…") { state.voiceMeeting = meeting }.disabled(meeting.segments.isEmpty || !state.canModify(meeting))
+                if includesVoiceAndFolderActions {
+                    screenButton("Разметить голоса…") { state.voiceMeeting = meeting }.disabled(meeting.segments.isEmpty || !state.canModify(meeting))
+                }
                 screenButton("Переименовать…") { state.renameTarget = meeting }.disabled(!state.canModify(meeting))
-                screenMenu("Переместить в папку") {
-                    Button { state.move(meeting, to: nil) } label: {
-                        screenLabel("Без папки", systemImage: meeting.folderID == nil ? "checkmark" : "tray")
-                    }
-                    if !state.folders.isEmpty { Divider() }
-                    ForEach(state.folders) { folder in
-                        Button { state.move(meeting, to: folder.id) } label: {
-                            screenLabel(folder.name, systemImage: meeting.folderID == folder.id ? "checkmark" : folder.iconName)
+                if includesVoiceAndFolderActions {
+                    screenMenu("Переместить в папку") {
+                        Button { state.move(meeting, to: nil) } label: {
+                            screenLabel("Без папки", systemImage: meeting.folderID == nil ? "checkmark" : "tray")
                         }
-                    }
-                    Divider()
-                    Button { state.newFolderMeeting = meeting } label: {
-                        screenLabel("Новая папка…", systemImage: "folder.badge.plus")
-                    }
-                }.disabled(!state.canModify(meeting))
+                        if !state.folders.isEmpty { Divider() }
+                        ForEach(state.folders) { folder in
+                            Button { state.move(meeting, to: folder.id) } label: {
+                                screenLabel(folder.name, systemImage: meeting.folderID == folder.id ? "checkmark" : folder.iconName)
+                            }
+                        }
+                        Divider()
+                        Button { state.newFolderMeeting = meeting } label: {
+                            screenLabel("Новая папка…", systemImage: "folder.badge.plus")
+                        }
+                    }.disabled(!state.canModify(meeting))
+                }
                 Divider()
                 screenButton("Расшифровать заново…") { state.reprocessTarget = meeting }.disabled(!state.hasAudio(meeting) || !state.canModify(meeting))
                 Divider()

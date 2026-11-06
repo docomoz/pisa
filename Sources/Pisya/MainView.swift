@@ -470,10 +470,14 @@ struct MeetingView: View {
                     .disabled(!state.canExport(meeting))
 
                     Menu {
-                        MeetingActions(meeting: meeting, onDeleteAudio: meeting.audioFiles.isEmpty ? nil : {
-                            showsMeetingDetails = false
-                            confirmDeleteAudio = true
-                        })
+                        MeetingActions(
+                            meeting: meeting,
+                            includesVoiceAndFolderActions: false,
+                            onDeleteAudio: meeting.audioFiles.isEmpty ? nil : {
+                                showsMeetingDetails = false
+                                confirmDeleteAudio = true
+                            }
+                        )
                     } label: {
                         detailsActionLabel("Ещё", systemImage: "ellipsis", hasMenu: true)
                     }
