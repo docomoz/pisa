@@ -302,6 +302,14 @@ struct MeetingView: View {
                     } else {
                         SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
                     }
+                    if meeting.status == .failed && meeting.deletedAt == nil && !state.recording
+                        && !isSaving && state.canModify(meeting) && state.hasAudio(meeting) {
+                        if meeting.liveCommittedUntil != nil {
+                            screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
+                        } else {
+                            screenButton("Расшифровать заново…") { state.reprocessTarget = meeting }.actionButton(.primary, size: .small)
+                        }
+                    }
                     Spacer(minLength: 0)
                     if isRecording && isTranscribing {
                         screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
@@ -311,8 +319,6 @@ struct MeetingView: View {
                         screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton(size: .small)
                     } else if isTranscribing && !isSaving {
                         screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small)
-                    } else if meeting.status == .failed && meeting.liveCommittedUntil != nil && !state.recording && !isQueued && !isSaving {
-                        screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
                     }
                 }
                 if isSaving || (isTranscribing && !isRecording && !state.livePaused) {

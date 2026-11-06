@@ -480,7 +480,9 @@ final class AppState: ObservableObject {
         let id = pending.removeFirst()
         let reprocess = pendingReprocessing.remove(id) != nil
         guard var m = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
-        let needsCleanDraft = m.liveCommittedUntil != nil && m.segments.contains { MeetingSpeechText.containsForeignLetters($0.text) }
+        // A manual retry of an interrupted draft must honor its saved checkpoint.
+        let needsCleanDraft = m.status != .failed && m.liveCommittedUntil != nil
+            && m.segments.contains { MeetingSpeechText.containsForeignLetters($0.text) }
         if case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess || needsCleanDraft) {
             guard committed.isFinite, committed >= 0 else { m.status = .failed; m.error = "Некорректный курсор черновика"; try? library.save(m); upsert(m); runNext(); return }
             m.status = .processing; m.error = nil
@@ -491,7 +493,7 @@ final class AppState: ObservableObject {
             return
         }
         let granted = model.startAccessingSecurityScopedResource()
-        m.status = .processing; m.error = nil; m.liveCommittedUntil = nil
+        m.status = .processing; m.error = nil
         do { try library.save(m) } catch { message = error.localizedDescription; if granted { model.stopAccessingSecurityScopedResource() }; return }
         isReprocessing = reprocess
         upsert(m); processingID = id; progress = 0
@@ -514,6 +516,7 @@ final class AppState: ObservableObject {
                 try Task.checkCancellation()
                 var latest = try library.read(id)
                 latest.segments = result; latest.status = .ready; latest.error = nil
+                latest.liveCommittedUntil = nil
                 let referenced = Set(result.compactMap(\.audioFile))
                 let obsolete = latest.audioFiles.filter { $0.contains(".clean.") && !referenced.contains($0) }
                 latest.audioFiles.removeAll { obsolete.contains($0) }
