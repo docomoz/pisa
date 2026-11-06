@@ -24,7 +24,7 @@ h1,h2,h3,p{margin:0}
 h1,.privacy h2,.install h2{font-weight:650;letter-spacing:-.065em;line-height:.99}
 h1{font-size:clamp(64px,7.7vw,112px);margin:29px auto 25px}
 em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green);letter-spacing:-.065em}
-.hero-copy{font-size:20px;line-height:1.5;max-width:580px;margin:auto;color:#505a53}
+.hero-copy{font-size:20px;line-height:1.5;max-width:660px;margin:auto;color:#505a53}
 .hero-actions{display:flex;align-items:center;justify-content:center;gap:30px;margin:31px 0 18px}
 .text-link{font-size:14px;font-weight:650}
 .fine-print{color:#5f6d62;font-size:12px;line-height:1.6}
@@ -82,3 +82,5 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 @media(prefers-reduced-motion:reduce){.wave{animation:none}}
 
 .copy-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+@media (min-width:801px) and (max-width:1050px){.feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.feature-grid article:last-child{grid-column:1/-1}}
