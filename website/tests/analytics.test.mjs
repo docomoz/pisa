@@ -1,0 +1,73 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+import { measurementIdFromConfig } from '../scripts/analytics-config.mjs';
+
+const source = await readFile(new URL('../dist/analytics.js', import.meta.url), 'utf8');
+
+test('measurement ID persists in configuration and can be explicitly overridden', () => {
+  const config = { gaMeasurementId: 'G-EXAMPLE123' };
+  assert.equal(measurementIdFromConfig(config, {}), 'G-EXAMPLE123');
+  assert.equal(measurementIdFromConfig(config, { PISYA_GA_MEASUREMENT_ID: 'G-OTHER456' }), 'G-OTHER456');
+  assert.equal(measurementIdFromConfig(config, { PISYA_GA_MEASUREMENT_ID: '' }), '');
+  assert.equal(measurementIdFromConfig({ gaMeasurementId: '' }, {}), '');
+  assert.throws(() => measurementIdFromConfig({ gaMeasurementId: 'invalid' }, {}), /GA4 measurement ID/);
+  assert.throws(() => measurementIdFromConfig(config, { PISYA_GA_MEASUREMENT_ID: 'G-<BAD>' }), /GA4 measurement ID/);
+});
+
+function page(id) {
+  const scripts = [];
+  const listeners = {};
+  const timers = [];
+  const navigations = [];
+  const document = {
+    querySelector: () => id ? { content: id } : null,
+    createElement: () => ({}),
+    head: { appendChild: script => scripts.push(script) },
+    addEventListener: (event, callback) => { listeners[event] = callback; },
+    referrer: 'https://search.example/search?q=private',
+  };
+  const window = {
+    location: { origin: 'https://pisya.app', pathname: '/', search: '?secret=private', assign: url => navigations.push(url) },
+    setTimeout: callback => timers.push(callback),
+  };
+  runInNewContext(source, { document, window, URL, Date, encodeURIComponent });
+  return { window, scripts, listeners, timers, navigations };
+}
+
+test('analytics is disabled without a valid measurement ID', () => {
+  for (const id of ['', 'G-INVALID"']) {
+    const state = page(id);
+    assert.equal(state.scripts.length, 0);
+    assert.equal(state.window.pisyaTrack, undefined);
+  }
+});
+
+test('analytics sends fixed events and strips URL query and referrer paths', () => {
+  const state = page('G-TEST123');
+  assert.equal(state.scripts[0].src, 'https://www.googletagmanager.com/gtag/js?id=G-TEST123');
+  const views = state.window.dataLayer.filter(args => args[0] === 'event' && args[1] === 'page_view');
+  assert.equal(views.length, 1);
+  assert.equal(views[0][2].page_location, 'https://pisya.app/');
+  assert.equal(views[0][2].page_referrer, 'https://search.example');
+  const click = href => state.listeners.click({ target: { closest: () => ({ getAttribute: () => href }) } });
+  click('#install-guide');
+  click('https://github.com/docomoz/pisya');
+  state.window.pisyaTrack('copy_install_command');
+  assert.deepEqual(Array.from(state.window.dataLayer.filter(args => args[0] === 'event'), args => args[1]),
+    ['page_view', 'install_guide_click', 'github_click', 'copy_install_command']);
+});
+
+test('download proceeds even when the analytics callback never arrives', () => {
+  const state = page('G-TEST123');
+  let prevented = false;
+  const link = { getAttribute: () => '/download', hasAttribute: () => false, href: 'https://pisya.app/download', target: '' };
+  state.listeners.click({ target: { closest: () => link }, button: 0, preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  const event = state.window.dataLayer.find(args => args[1] === 'download_click');
+  assert.ok(event);
+  state.timers[0]();
+  event[2].event_callback();
+  assert.deepEqual(state.navigations, ['https://pisya.app/download']);
+});
