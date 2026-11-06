@@ -148,6 +148,7 @@ struct MeetingView: View {
     @State private var confirmDeleteAudio = false
     @State private var transcriptSearch = ""
     @State private var showsMeetingDetails = false
+    @State private var showsDetailsKeyboardFocus = false
     @FocusState private var focusedField: Field?
     private enum Field: Hashable { case title, search }
     // Width available at a 1080-point window after the library, divider, and page insets.
@@ -337,7 +338,11 @@ struct MeetingView: View {
     }
 
     private var detailsButton: some View {
-        Button { showsMeetingDetails.toggle() } label: {
+        Button {
+            let eventType = NSApp.currentEvent?.type
+            showsDetailsKeyboardFocus = eventType == .keyDown || eventType == .keyUp
+            showsMeetingDetails.toggle()
+        } label: {
             screenLabel("Детали", systemImage: "sidebar.right").fixedSize()
         }
         .actionButton()
@@ -351,6 +356,7 @@ struct MeetingView: View {
             .frame(width: 224)
             .frame(maxHeight: 360)
             .popupCanvas()
+            .modifier(DetailsKeyboardNavigation(showsFocus: $showsDetailsKeyboardFocus))
         }
     }
 
@@ -516,6 +522,32 @@ struct MeetingView: View {
                     .accessibilityHidden(true)
             }
         }
+    }
+}
+
+private struct DetailsKeyboardNavigation: ViewModifier {
+    @Binding var showsFocus: Bool
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.showsControlKeyboardFocus, showsFocus)
+            .onAppear {
+                guard monitor == nil else { return }
+                // Observe Tab before AppKit moves focus, then let it perform normal traversal.
+                monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [focus = $showsFocus] event in
+                    if event.type != .keyDown {
+                        focus.wrappedValue = false
+                    } else if event.keyCode == 48 && event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                        focus.wrappedValue = true
+                    }
+                    return event
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
     }
 }
 

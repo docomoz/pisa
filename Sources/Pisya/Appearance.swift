@@ -104,6 +104,8 @@ private struct ControlFocusedKey: EnvironmentKey {
     static let defaultValue = false
 }
 extension EnvironmentValues {
+    @Entry var showsControlKeyboardFocus = true
+
     var controlFocused: Bool {
         get { self[ControlFocusedKey.self] }
         set { self[ControlFocusedKey.self] = newValue }
@@ -112,9 +114,10 @@ extension EnvironmentValues {
 private struct ControlKeyboardFocus: ViewModifier {
     // Bind the control itself: macOS doesn't propagate its focus into a ButtonStyle label.
     @FocusState private var focused: Bool
+    @Environment(\.showsControlKeyboardFocus) private var showsFocus
     func body(content: Content) -> some View {
         content.focused($focused)
-            .environment(\.controlFocused, focused)
+            .environment(\.controlFocused, focused && showsFocus)
             .focusEffectDisabled()
     }
 }
