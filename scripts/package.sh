@@ -11,6 +11,7 @@ out = Path('build/Build/Products/Release/Pisya.app/Contents/Resources/Licenses')
 roots = [Path('Vendor/mlx-audio-swift'), Path('Vendor/Sherpa'), Path('Vendor/WebRTCAEC'), Path('Vendor/SpeexDSP')]
 checkouts = Path('build/SourcePackages/checkouts')
 if checkouts.exists(): roots += list(checkouts.iterdir())
+roots.append(Path('build/SourcePackages/artifacts/sparkle/Sparkle'))
 for root in roots:
     for pattern in ('LICENSE*', 'COPYING*', 'NOTICE*', 'PATENTS', 'AUTHORS', '*-LICENSE', '*-NOTICE', 'ONNX-RUNTIME-LICENSE'):
         for source in root.glob(pattern):
@@ -22,6 +23,18 @@ sign_args=(--sign "${PISYA_SIGNING_IDENTITY:--}")
 if [[ -n "${PISYA_SIGNING_KEYCHAIN:-}" ]]; then
     sign_args+=(--keychain "$PISYA_SIGNING_KEYCHAIN")
 fi
+if [[ "${PISYA_SIGNING_IDENTITY:--}" == "Developer ID Application:"* ]]; then
+    sign_args+=(--options runtime --timestamp)
+fi
+
+# Sparkle's installer leaves the app sandbox to replace the installed bundle.
+sparkle="$app_bundle/Contents/Frameworks/Sparkle.framework/Versions/B"
+codesign --force "${sign_args[@]}" "$sparkle/XPCServices/Installer.xpc"
+codesign --force "${sign_args[@]}" --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
+codesign --force "${sign_args[@]}" "$sparkle/Autoupdate"
+codesign --force "${sign_args[@]}" "$sparkle/Updater.app"
+codesign --force "${sign_args[@]}" "$app_bundle/Contents/Frameworks/Sparkle.framework"
+
 # Sign every bundled native component with the same optional release identity.
 for library in "$app_bundle"/Contents/Frameworks/*.dylib(N); do
     codesign --force "${sign_args[@]}" "$library"
