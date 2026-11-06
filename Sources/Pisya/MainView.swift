@@ -45,7 +45,9 @@ struct MainView: View {
                     BrandMoodView()
                 }.accessibilityElement(children: .combine).layoutPriority(-1)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: PisyaDesign.Spacing.none)
+                .frame(maxHeight: .infinity)
+                .background(TitleBarZoom().allowsHitTesting(false))
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
@@ -90,6 +92,43 @@ struct MainView: View {
             Image(systemName: icon).font(PisyaDesign.Typography.Icon.medium).foregroundStyle(Color.moss)
             SectionHeading(title, subtitle: detail, style: .feature)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct TitleBarZoom: NSViewRepresentable {
+    func makeNSView(context: Context) -> Observer { Observer() }
+    func updateNSView(_ nsView: Observer, context: Context) {}
+
+    final class Observer: NSView {
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+            guard window != nil else { return }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                guard let self, let window, event.window === window,
+                      event.clickCount == 2, window.attachedSheet == nil,
+                      !window.styleMask.contains(.fullScreen) else { return event }
+
+                let location = event.locationInWindow
+                guard location.y >= window.contentLayoutRect.maxY ||
+                        bounds.contains(convert(location, from: nil)) else { return event }
+
+                // Let the traffic lights handle their own clicks inside the title bar.
+                let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+                guard !buttons.contains(where: { type in
+                    guard let button = window.standardWindowButton(type), !button.isHidden else { return false }
+                    return button.bounds.contains(button.convert(location, from: nil))
+                }) else { return event }
+
+                window.zoom(nil)
+                return nil
+            }
+        }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
 
