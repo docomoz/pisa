@@ -10,8 +10,8 @@
 <key>CFBundleDisplayName</key><string>Pisya</string>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.docomoz.pisya.transcript</string><key>CFBundleURLSchemes</key><array><string>pisya</string></array></dict></array>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.23</string>
-<key>CFBundleVersion</key><string>63</string>
+<key>CFBundleShortVersionString</key><string>0.4.25</string>
+<key>CFBundleVersion</key><string>65</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSMicrophoneUsageDescription</key><string>Pisya записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
 <key>NSAudioCaptureUsageDescription</key><string>Pisya записывает звук собеседников из приложения звонка для локальной расшифровки.</string>
