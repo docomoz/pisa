@@ -54,6 +54,7 @@ private struct FocusFillToggle: View {
             }.contentShape(Rectangle())
         }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .focused($focused)
             .background {
                 if focused && enabled {

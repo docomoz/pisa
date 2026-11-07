@@ -57,7 +57,7 @@ struct LibrarySidebar: View {
 
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
                         .plainSelection(state.selection == meeting.id)
-                        .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.id(meeting.id)
+                        .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.pointingHandCursor().id(meeting.id)
                         .accessibilityAddTraits(state.selection == meeting.id ? .isSelected : [])
                         .accessibilityAction { state.select(meeting.id) }
                         .popupContextMenu(onOpen: {
