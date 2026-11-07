@@ -1,0 +1,4 @@
+interface:
+  display_name: "Проверка Pisya"
+  short_description: "Регулярная проверка приложения и всего проекта"
+  default_prompt: "Запусти $pisya-check: проверь Pisya мультиагентно и покажи ошибки, доказательства и непроверенные пункты."
