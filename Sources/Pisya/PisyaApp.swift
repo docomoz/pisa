@@ -153,7 +153,7 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
     }
     func showStatusMenu() { statusController?.showMenu() }
     func applicationDidFinishLaunching(_ notification: Notification) {
-        quitShortcutMonitor = QuitShortcut.install { NSApp.terminate(nil) }
+        quitShortcutMonitor = QuitShortcut.install { QuitShortcut.terminate(NSApp) }
         Analytics.appLaunched()
         if let url = Bundle.main.url(forResource: "PisyaPlain", withExtension: "icns") {
             NSApp.applicationIconImage = NSImage(contentsOf: url)
