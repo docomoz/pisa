@@ -11,6 +11,7 @@ public struct TermOccurrence: Identifiable, Sendable {
     public let segmentID: UUID
     public let range: NSRange
     public let text: String
+    fileprivate let family: AbbreviationFamilies.Form?
     fileprivate let source: String
 }
 
@@ -31,6 +32,7 @@ public enum TranscriptTerms {
 
     public static func candidates(in segments: [TranscriptSegment], vocabulary: String) -> [TermCandidate] {
         let known = Set(vocabulary.components(separatedBy: separators).map(key))
+        let families = AbbreviationFamilies(vocabulary)
         struct Group {
             var text: String
             var score = 0
@@ -46,17 +48,19 @@ public enum TranscriptTerms {
                       !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 })
                 else { continue }
                 let token = String(text[range])
-                let normalized = key(token)
-                guard (2...48).contains(token.count), !known.contains(normalized),
+                let family = families.form(token)
+                let normalized = key(family?.base ?? token)
+                guard (2...48).contains(token.count), !known.contains(key(token)),
+                      families.known(token) == nil,
                       token.contains(where: \.isLetter) else { continue }
 
-                let stem = String(token.prefix { $0 != "'" && $0 != "’" })
+                let stem = family?.base ?? String(token.prefix { $0 != "'" && $0 != "’" })
                 let score = signal(for: stem, normalized: key(stem), preceding: text[..<range.lowerBound])
                 if score > (groups[normalized]?.score ?? 0) {
                     groups[normalized, default: Group(text: token)].score = score
-                    groups[normalized, default: Group(text: token)].text = token
+                    groups[normalized, default: Group(text: token)].text = family?.base ?? token
                 }
-                groups[normalized, default: Group(text: token)].occurrences.append(occurrence(match.range, in: segment, text: token))
+                groups[normalized, default: Group(text: family?.base ?? token)].occurrences.append(occurrence(match.range, in: segment, text: token, family: family))
             }
         }
 
@@ -73,7 +77,31 @@ public enum TranscriptTerms {
             .map { TermCandidate(id: $0.key, text: $0.value.text, occurrences: $0.value.occurrences) }
     }
 
-    public static func matches(_ term: String, in segments: [TranscriptSegment]) -> [TermOccurrence] {
+    public static func matches(_ term: String, in segments: [TranscriptSegment], vocabulary: String = "") -> [TermOccurrence] {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let families = AbbreviationFamilies(vocabulary)
+        let knownQuery = families.known(trimmed)
+        let base = knownQuery.flatMap { $0.ending.isEmpty ? $0.base : nil } ?? trimmed
+        if AbbreviationFamilies.isBase(base) {
+            let queryFamily = AbbreviationFamilies(base)
+            return segments.flatMap { segment -> [TermOccurrence] in
+                let text = segment.text
+                let protected = TranscriptOrthography.literalRanges(in: text)
+                return word.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+                    guard let range = Range(match.range, in: text),
+                          !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return nil }
+                    let token = String(text[range])
+                    let form: AbbreviationFamilies.Form?
+                    if families.isExplicit(token) || families.hasKnownBase(token) {
+                        form = families.known(token)
+                    } else {
+                        form = queryFamily.known(token)
+                    }
+                    guard let form, key(form.base) == key(base) else { return nil }
+                    return occurrence(match.range, in: segment, text: token, family: form)
+                }
+            }
+        }
         let words = term.split(whereSeparator: \.isWhitespace)
         guard !words.isEmpty else { return [] }
         let body = words.map { word in
@@ -111,7 +139,8 @@ public enum TranscriptTerms {
                 guard item.source == segment.text, item.range.length > 0,
                       let range = Range(item.range, in: segment.text), NSMaxRange(item.range) <= end,
                       segment.text[range] == item.text else { return nil }
-                edited.replaceCharacters(in: item.range, with: replacement)
+                guard let rendered = self.replacement(for: item, with: replacement) else { return nil }
+                edited.replaceCharacters(in: item.range, with: rendered)
                 end = item.range.location
             }
             result[index].text = edited as String
@@ -120,10 +149,11 @@ public enum TranscriptTerms {
     }
 
     public static func adding(_ term: String, to vocabulary: String) -> String {
-        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = dictionaryTerm(term)
         guard trimmed.contains(where: \.isLetter), trimmed.rangeOfCharacter(from: separators) == nil,
               trimmed.rangeOfCharacter(from: .newlines) == nil else { return vocabulary }
         let normalized = key(trimmed)
+        if AbbreviationFamilies(vocabulary).known(trimmed) != nil { return vocabulary }
         guard !vocabulary.components(separatedBy: separators).contains(where: { key($0) == normalized }) else {
             return vocabulary
         }
@@ -131,13 +161,29 @@ public enum TranscriptTerms {
         return vocabulary + (vocabulary.hasSuffix("\n") ? "" : "\n") + trimmed
     }
 
+    public static func dictionaryTerm(_ term: String) -> String {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AbbreviationFamilies.inferred(trimmed)?.base ?? trimmed
+    }
+
+    /// The preview and mutation share this renderer. A family edit changes the
+    /// base only; exact full-form search retains literal replacement semantics.
+    public static func replacement(for occurrence: TermOccurrence, with replacement: String) -> String? {
+        let trimmed = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.rangeOfCharacter(from: .newlines) == nil else { return nil }
+        guard let family = occurrence.family, !family.ending.isEmpty else { return trimmed }
+        guard AbbreviationFamilies.isBase(trimmed) else { return nil }
+        return AbbreviationFamilies.Form(base: trimmed, ending: family.ending).text
+    }
+
     private static func key(_ term: String) -> String {
         term.lowercased().replacingOccurrences(of: "’", with: "'")
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
-    private static func occurrence(_ range: NSRange, in segment: TranscriptSegment, text: String) -> TermOccurrence {
-        TermOccurrence(segmentID: segment.id, range: range, text: text, source: segment.text)
+    private static func occurrence(_ range: NSRange, in segment: TranscriptSegment, text: String,
+                                   family: AbbreviationFamilies.Form? = nil) -> TermOccurrence {
+        TermOccurrence(segmentID: segment.id, range: range, text: text, family: family, source: segment.text)
     }
 
     private static func signal(for token: String, normalized: String, preceding: Substring) -> Int {

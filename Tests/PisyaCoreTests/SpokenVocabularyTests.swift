@@ -2,6 +2,11 @@ import XCTest
 @testable import PisyaCore
 
 final class SpokenVocabularyTests: XCTestCase {
+    func testPhoneticAbbreviationFormsKeepObservedEndings() {
+        let vocabulary = SpokenVocabulary("LLM, AI, API, GR")
+        XCTAssertEqual(vocabulary.apply(to: "с элэлэмом, об AIем и к джиару"), "с LLM'ом, об AI'ем и к GR'у")
+        XCTAssertEqual(vocabulary.apply(to: "LLM и AI"), "LLM и AI")
+    }
     func testDecodingVocabularyAddsOnlyBoundedNumericAcronymForms() {
         let base = "Марина, 7АБВ, 7АБВ'а, CRM"
         let text = SpokenVocabulary(base).decodingVocabulary
@@ -142,8 +147,8 @@ final class SpokenVocabularyTests: XCTestCase {
 
     func testExplicitInitialismHandlesContractedAdjacentLetterNames() {
         let vocabulary = SpokenVocabulary("GR")
-        XCTAssertEqual(vocabulary.apply(to: "Вопрос к Джару. Джар может ответить. ДЖИАР ответил."), "Вопрос к GR. GR может ответить. GR ответил.")
-        XCTAssertEqual(SpokenVocabulary("AGR").apply(to: "Вопрос к эйджару."), "Вопрос к AGR.")
+        XCTAssertEqual(vocabulary.apply(to: "Вопрос к Джару. Джар может ответить. ДЖИАР ответил."), "Вопрос к GR'у. GR может ответить. GR ответил.")
+        XCTAssertEqual(SpokenVocabulary("AGR").apply(to: "Вопрос к эйджару."), "Вопрос к AGR'у.")
         XCTAssertEqual(vocabulary.apply(to: "Жар, жару, пар и подарок."), "Жар, жару, пар и подарок.")
         XCTAssertEqual(SpokenVocabulary("").apply(to: "Вопрос к Джару."), "Вопрос к Джару.")
     }

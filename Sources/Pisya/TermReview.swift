@@ -22,7 +22,9 @@ struct TermReview: View {
     private var term: String { replacement.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var canReplace: Bool {
-        !term.isEmpty && occurrences.contains { $0.text != term }
+        !term.isEmpty
+            && occurrences.allSatisfy { TranscriptTerms.replacement(for: $0, with: term) != nil }
+            && occurrences.contains { TranscriptTerms.replacement(for: $0, with: term) != $0.text }
     }
 
     var body: some View {
@@ -48,7 +50,7 @@ struct TermReview: View {
         .background(ClickToUnfocus())
         .onAppear { refresh() }
         .onChange(of: currentMeeting?.segments) { refresh() }
-        .onChange(of: state.preferences.vocabulary) { refreshCandidates() }
+        .onChange(of: state.preferences.vocabulary) { refresh() }
         .onDisappear { state.stopPlayback() }
     }
 
@@ -75,11 +77,19 @@ struct TermReview: View {
                                 Button {
                                     select(candidate.text, occurrences: candidate.occurrences)
                                 } label: {
-                                    HStack(spacing: PisyaDesign.Spacing.related) {
-                                        screenText(candidate.text).lineLimit(2)
-                                        Spacer(minLength: 0)
-                                        screenText(verbatim: String(candidate.occurrences.count))
-                                            .foregroundStyle(Color.mutedInk)
+                                    VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
+                                        HStack(spacing: PisyaDesign.Spacing.related) {
+                                            screenText(candidate.text).lineLimit(2)
+                                            Spacer(minLength: 0)
+                                            screenText(verbatim: String(candidate.occurrences.count))
+                                                .foregroundStyle(Color.mutedInk)
+                                        }
+                                        let forms = Array(Set(candidate.occurrences.map(\.text))).sorted()
+                                        if forms.count > 1 {
+                                            SupportingText(forms.joined(separator: ", "), style: PisyaDesign.Typography.caption)
+                                                .lineLimit(2)
+                                                .help(forms.joined(separator: ", "))
+                                        }
                                     }
                                     .padding(PisyaDesign.Spacing.inline)
                                     .background(source == candidate.text ? Color.selectionTint : .clear,
@@ -102,7 +112,7 @@ struct TermReview: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             if let source {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                    SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)»")
+                    SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)». При замене основы аббревиатуры окончания сохраняются.")
                     TextField("Термин", text: $replacement).textFieldStyle(PisyaTextFieldStyle(isEditing: replacementFocused))
                         .focused($replacementFocused)
                         .accessibilityLabel("Правильное написание")
@@ -154,8 +164,14 @@ struct TermReview: View {
                 .textStyle(PisyaDesign.Typography.body)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            if !term.isEmpty, occurrence.text != term {
-                SupportingText("«\(occurrence.text)» → «\(term)»", style: PisyaDesign.Typography.caption)
+            if !term.isEmpty {
+                if let preview = TranscriptTerms.replacement(for: occurrence, with: term) {
+                    if occurrence.text != preview {
+                        SupportingText("«\(occurrence.text)» → «\(preview)»", style: PisyaDesign.Typography.caption)
+                    }
+                } else {
+                    SupportingText("Для «\(occurrence.text)» нельзя сохранить окончание с этой заменой", style: PisyaDesign.Typography.caption)
+                }
             }
         }
     }
@@ -182,7 +198,7 @@ struct TermReview: View {
 
     private func search() {
         guard let currentMeeting, !searchTerm.isEmpty else { return }
-        select(searchTerm, occurrences: TranscriptTerms.matches(searchTerm, in: currentMeeting.segments))
+        select(searchTerm, occurrences: TranscriptTerms.matches(searchTerm, in: currentMeeting.segments, vocabulary: state.preferences.vocabulary))
     }
 
     private func select(_ text: String, occurrences: [TermOccurrence]) {
@@ -196,7 +212,7 @@ struct TermReview: View {
         let segments = currentMeeting?.segments ?? []
         segmentsByID = Dictionary(segments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         refreshCandidates()
-        if let source { occurrences = TranscriptTerms.matches(source, in: segments) }
+        if let source { occurrences = TranscriptTerms.matches(source, in: segments, vocabulary: state.preferences.vocabulary) }
     }
 
     private func refreshCandidates() {
@@ -204,8 +220,8 @@ struct TermReview: View {
     }
 
     private func replace() {
-        guard !term.isEmpty else { return }
-        let chosen = occurrences.filter { $0.text != term }
+        guard canReplace else { return }
+        let chosen = occurrences.filter { TranscriptTerms.replacement(for: $0, with: term) != $0.text }
         guard !chosen.isEmpty else { return }
         do {
             let corrected = term
@@ -236,7 +252,7 @@ struct TermReview: View {
     private func addTerm() {
         do {
             try state.addRecognitionTerm(term)
-            notice = "«\(term)» добавлен в словарь"
+            notice = "«\(TranscriptTerms.dictionaryTerm(term))» добавлен в словарь"
         } catch { notice = error.localizedDescription }
     }
 }

@@ -2,6 +2,30 @@ import XCTest
 @testable import PisyaCore
 
 final class TranscriptTermsTests: XCTestCase {
+    func testAbbreviationFamiliesGroupFormsAndRecognizeKnownBase() {
+        let segments = [segment("2ГИС'а, 2ГИС’е, 2ГИСом и 2ГИС. Также LLM'ки и LLM'ками.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["2ГИС", "LLM"])
+        XCTAssertEqual(candidates.first { $0.text == "2ГИС" }?.occurrences.count, 4)
+        XCTAssertTrue(TranscriptTerms.candidates(in: segments, vocabulary: "2ГИС, LLM").isEmpty)
+    }
+
+    func testBaseSearchAndReplacementPreserveEachObservedEnding() throws {
+        let segments = [segment("2GIS'a, 2GIS'е, 2GISом, 2GIS и Супер2GIS. `2GIS'у`.")]
+        let found = TranscriptTerms.matches("2GIS", in: segments)
+        XCTAssertEqual(found.map(\.text), ["2GIS'a", "2GIS'е", "2GISом", "2GIS"])
+        let changed = try XCTUnwrap(TranscriptTerms.replacing(found, with: "2ГИС", in: segments))
+        XCTAssertEqual(changed[0].text, "2ГИС'а, 2ГИС'е, 2ГИС'ом, 2ГИС и Супер2GIS. `2GIS'у`.")
+        XCTAssertEqual(TranscriptTerms.matches("2GIS'е", in: segments).map(\.text), ["2GIS'е"])
+    }
+
+    func testAddingInflectedAbbreviationStoresOnlyBase() {
+        XCTAssertEqual(TranscriptTerms.adding("2ГИС'ом", to: "API"), "API\n2ГИС")
+        XCTAssertEqual(TranscriptTerms.adding("2ГИС'е", to: "2ГИС"), "2ГИС")
+        XCTAssertEqual(TranscriptTerms.adding("LLM'ками", to: ""), "LLM")
+        XCTAssertEqual(TranscriptTerms.adding("Марины", to: ""), "Марины")
+    }
+
     func testCandidatesPreferMarkedTermsAndIgnoreKnownWordsAndLiterals() {
         let segments = [
             segment("Сегодня обсудили API, Геопэй и 7АБВ. Потом повторили Геопэй."),
@@ -12,10 +36,10 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(candidates.first { $0.text == "7АБВ" }?.occurrences.count, 2)
     }
 
-    func testApostropheEndingsRequireMatchingTheWholeForm() throws {
+    func testFullFormSearchRemainsLiteralWhileBaseSearchFindsFamily() throws {
         let segments = [segment("LLM, LLM'ки и LLM’ки, а также API.")]
         let base = TranscriptTerms.matches("LLM", in: segments)
-        XCTAssertEqual(base.map(\.text), ["LLM"])
+        XCTAssertEqual(base.map(\.text), ["LLM", "LLM'ки", "LLM’ки"])
         XCTAssertTrue(TranscriptTerms.matches("ки", in: segments).isEmpty)
         let full = TranscriptTerms.matches("LLM'ки", in: segments)
         XCTAssertEqual(full.map(\.text), ["LLM'ки", "LLM’ки"])
@@ -23,8 +47,8 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(edited[0].text, "LLM, ИИ и ИИ, а также API.")
         let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "Внутренний API")
         XCTAssertTrue(candidates.contains { $0.text == "API" })
-        XCTAssertEqual(candidates.first { $0.text == "LLM" }?.occurrences.count, 1)
-        XCTAssertEqual(candidates.first { $0.text == "LLM'ки" }?.occurrences.count, 2)
+        XCTAssertEqual(candidates.first { $0.text == "LLM" }?.occurrences.count, 3)
+        XCTAssertFalse(candidates.contains { $0.text == "LLM'ки" })
     }
 
     func testSelectedWholeTermReplacementPreservesOtherTextAndMetadata() throws {
