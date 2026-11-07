@@ -10,6 +10,7 @@ const publicFiles = {
   '/script.js': 'application/javascript; charset=utf-8',
   '/analytics.js': 'application/javascript; charset=utf-8',
   '/assets/mark.svg': 'image/svg+xml',
+  '/assets/favicon.svg': 'image/svg+xml',
   '/assets/mark-header.svg': 'image/svg+xml',
   '/assets/meeting.png': 'image/png',
   '/assets/welcome.png': 'image/png',

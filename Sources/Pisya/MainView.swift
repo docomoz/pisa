@@ -3,6 +3,7 @@ import AppKit
 
 struct MainView: View {
     @EnvironmentObject var state: AppState
+    @State private var showingMeetingPhrase = false
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.none) {
             sidebar.frame(width: 270)
@@ -19,6 +20,7 @@ struct MainView: View {
         .foregroundStyle(Color.ink)
         .tint(Color.brandAccent)
         .focusEffectDisabled()
+        .sheet(isPresented: $showingMeetingPhrase) { MeetingPhraseView() }
         .sheet(item: $state.reprocessTarget) { meeting in
             ConfirmationSheet(
                 title: "Расшифровать встречу заново?",
@@ -55,6 +57,9 @@ struct MainView: View {
                 .background(TitleBarZoom().allowsHitTesting(false))
             }
             HStack(spacing: PisyaDesign.Spacing.related) {
+                Button { showingMeetingPhrase = true } label: {
+                    Text("🤦").font(PisyaDesign.Typography.Icon.medium)
+                }.actionButton().screenHelp("Фраза для созвона").accessibilityLabel("Фраза для созвона")
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")

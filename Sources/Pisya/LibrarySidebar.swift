@@ -11,7 +11,7 @@ struct LibrarySidebar: View {
     @FocusState private var recordingsFocused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
-            SearchField(title: "Название, текст, участник", text: $state.search, compact: true)
+            SearchField(title: "Название, фраза, участник", text: $state.search, compact: true)
             ScrollView { VStack(spacing: PisyaDesign.Spacing.hairline) {
                 scope("Все записи", icon: "tray", selected: !state.showingTrash && state.folderFilter == nil && !state.unfiledOnly) { state.openFolder() }
                 scope("Без папки", icon: "doc", selected: state.unfiledOnly && !state.showingTrash) { state.openFolder(unfiled: true) }

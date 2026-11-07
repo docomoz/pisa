@@ -15,6 +15,9 @@ test('the built Worker serves the page and its assets', async () => {
   const image = await worker.fetch(request('/assets/meeting.png'), {}, {});
   assert.equal(image.headers.get('content-type'), 'image/png');
   assert.deepEqual([...new Uint8Array(await image.arrayBuffer()).slice(0, 8)], [137,80,78,71,13,10,26,10]);
+  const favicon = await worker.fetch(request('/assets/favicon.svg'), {}, {});
+  assert.equal(favicon.status, 200);
+  assert.match(favicon.headers.get('content-type'), /image\/svg\+xml/);
   const headerMark = await worker.fetch(request('/assets/mark-header.svg'), {}, {});
   assert.equal(headerMark.status, 200);
   assert.match(headerMark.headers.get('content-type'), /image\/svg\+xml/);

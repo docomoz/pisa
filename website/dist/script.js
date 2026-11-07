@@ -1,16 +1,19 @@
-const copy = document.querySelector('.copy');
-const copyStatus = document.querySelector('.copy-status');
-copy?.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText('xattr -dr com.apple.quarantine "/Applications/Pisya.app"');
-    window.pisyaTrack?.('copy_install_command');
-    copy.textContent = 'Скопировано';
-    if (copyStatus) copyStatus.textContent = 'Команда скопирована';
-    window.setTimeout(() => { copy.textContent = 'Копировать'; }, 2200);
-  } catch {
-    copy.textContent = 'Выделите команду';
-    if (copyStatus) copyStatus.textContent = 'Не удалось скопировать. Выделите команду вручную';
-  }
+document.querySelectorAll('.code').forEach(block => {
+  const copy = block.querySelector('.copy');
+  const command = block.querySelector('code');
+  const status = block.querySelector('.copy-status');
+  copy?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(command.textContent);
+      if (command.textContent.startsWith('xattr ')) window.pisyaTrack?.('copy_install_command');
+      copy.textContent = 'Скопировано';
+      if (status) status.textContent = 'Команда скопирована';
+      window.setTimeout(() => { copy.textContent = 'Копировать'; }, 2200);
+    } catch {
+      copy.textContent = 'Выделите команду';
+      if (status) status.textContent = 'Не удалось скопировать. Выделите команду вручную';
+    }
+  });
 });
 
 // The numbers stay visible without JavaScript; motion is added only as they enter view.
