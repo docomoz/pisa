@@ -119,6 +119,7 @@
 		CBAFCE5C4DA223C7EDAA20AD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF61299E592DACDA66C9038 /* SettingsView.swift */; };
 		CF943CBC4A8D67112A04B7F9 /* RecognitionTimedWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA7BEF0A9FA08AB299AA598 /* RecognitionTimedWords.swift */; };
 		D1626134BEE0985B1B54AC2F /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0403C059496E9F8503E765 /* LibrarySidebar.swift */; };
+		D1F84ED6F9517D28997EBB99 /* QuitShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F5B7F1A5E1F5F6D314B207 /* QuitShortcut.swift */; };
 		D2F70CEA6A01FA1EB8A392CF /* AudioCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09969B370892AC83AE29E503 /* AudioCaptureTests.swift */; };
 		DBE6A2C76D4D6B39614B9215 /* SpeechCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F852494DC52996CF94A6511 /* SpeechCoverage.swift */; };
 		DDCEB832A34FFCDC5A040E02 /* ProtectedFileRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8822DEDF9D01BADC5E326E0E /* ProtectedFileRead.swift */; };
@@ -176,6 +177,7 @@
 		1FCB04E139346C9651C66548 /* BrandMoodView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMoodView.swift; sourceTree = "<group>"; };
 		1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoAnalysis.swift; sourceTree = "<group>"; };
 		20B27C934D4F510B3483336C /* PopupMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupMenu.swift; sourceTree = "<group>"; };
+		25F5B7F1A5E1F5F6D314B207 /* QuitShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitShortcut.swift; sourceTree = "<group>"; };
 		28B8C8390CB5ED142F254257 /* AudioDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDiagnostics.swift; sourceTree = "<group>"; };
 		2E3383FB572B040008A8A958 /* AudioTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTimeline.swift; sourceTree = "<group>"; };
 		30E01BFA0522999304AB49C2 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
@@ -365,6 +367,7 @@
 				829890694CC528DAFC4CCB21 /* PCMRead.swift */,
 				A4FF1C5BBACF2D807BA97CDB /* PisyaApp.swift */,
 				20B27C934D4F510B3483336C /* PopupMenu.swift */,
+				25F5B7F1A5E1F5F6D314B207 /* QuitShortcut.swift */,
 				FE6BEA1B4280E0B3BD52B39A /* RecognitionMeetingPreview.swift */,
 				C12586443E3A2083AE98B8CE /* RecognitionQualityTests.swift */,
 				DFC3E3635B3F0244989D1CBF /* RussianSpeechRecognizer.swift */,
@@ -674,6 +677,7 @@
 				31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */,
 				2061334A8B16D54A58F9663D /* PopupMenu.swift in Sources */,
 				DDCEB832A34FFCDC5A040E02 /* ProtectedFileRead.swift in Sources */,
+				D1F84ED6F9517D28997EBB99 /* QuitShortcut.swift in Sources */,
 				B09AE513855EDB5C45707C9C /* RecognitionAudioFocus.swift in Sources */,
 				E219EE33C83F56DC00C52B03 /* RecognitionConsensus.swift in Sources */,
 				E67B7EFB990A41574A881C33 /* RecognitionContext.swift in Sources */,

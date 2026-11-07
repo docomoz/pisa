@@ -129,6 +129,7 @@ struct RecordingElapsed: View {
 final class PisyaDelegate: NSObject, NSApplicationDelegate {
     weak var state: AppState?
     private var statusController: StatusBarController?
+    private var quitShortcutMonitor: Any?
     private var openMain: (() -> Void)?
     private var pendingURLs: [URL] = []
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -152,6 +153,7 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
     }
     func showStatusMenu() { statusController?.showMenu() }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        quitShortcutMonitor = QuitShortcut.install { NSApp.terminate(nil) }
         Analytics.appLaunched()
         if let url = Bundle.main.url(forResource: "PisyaPlain", withExtension: "icns") {
             NSApp.applicationIconImage = NSImage(contentsOf: url)
