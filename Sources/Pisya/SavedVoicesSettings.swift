@@ -142,7 +142,7 @@ private struct SavedVoiceNameEditor: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading("Переименовать голос", subtitle: "Новое имя будет использоваться при узнавании на следующих встречах. Имена в прежних расшифровках сохранятся.", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle())
+                TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused))
                     .accessibilityLabel("Имя сохранённого голоса").focused($nameFocused).onSubmit { save() }
                 if duplicate { SupportingText("Голос с таким именем уже сохранён. Укажите другое имя.") }
                 if let saveError { SupportingText(saveError) }

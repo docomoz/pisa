@@ -584,6 +584,7 @@ private struct TranscriptionProgress: View {
 }
 
 private struct SegmentEditor: View {
+    @FocusState private var speakerFocused: Bool
     @State var segment: TranscriptSegment
     var save: (TranscriptSegment) -> Void
     @Environment(\.dismiss) var dismiss
@@ -591,7 +592,8 @@ private struct SegmentEditor: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading("Исправить реплику", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                TextField("Участник", text: $segment.speaker).textFieldStyle(PisyaTextFieldStyle())
+                TextField("Участник", text: $segment.speaker)
+                    .textFieldStyle(PisyaTextFieldStyle(isEditing: speakerFocused)).focused($speakerFocused)
                 FormTextEditor(text: $segment.text)
             }
             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Отмена") { dismiss() }.actionButton(); Spacer(); screenButton("Сохранить") { save(segment) }.actionButton(.primary) }

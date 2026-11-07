@@ -43,7 +43,8 @@ final class InterfacePreview: NSObject {
         window.title = "Pisya · Проверка интерфейса"
         window.minSize = NSSize(width: 980, height: 660)
         let hosting = NSHostingView(rootView: InterfacePreviewRoot(state: state, setup: state.modelSetup)
-            .preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU")))
+            .preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU"))
+            .environment(\.appTextScale, CommandLine.arguments.contains("--large-text-preview") ? 1.2 : 1))
         // The review window owns its size, as SwiftUI's Window does in the app.
         // Content switches must not resize it to a view's unconstrained ideal size.
         hosting.sizingOptions = []

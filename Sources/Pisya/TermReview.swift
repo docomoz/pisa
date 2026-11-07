@@ -13,6 +13,7 @@ struct TermReview: View {
     @State private var replacement = ""
     @State private var notice: String?
     @FocusState private var replacementFocused: Bool
+    @FocusState private var queryFocused: Bool
     @State private var lastReplacement: (source: String, replacement: String)?
 
     private var currentMeeting: Meeting? {
@@ -57,7 +58,8 @@ struct TermReview: View {
                 SectionHeading("Поиск по тексту")
                 HStack(spacing: PisyaDesign.Spacing.inline) {
                     TextField("Слово или фраза", text: $query)
-                        .textFieldStyle(PisyaTextFieldStyle())
+                        .textFieldStyle(PisyaTextFieldStyle(isEditing: queryFocused))
+                        .focused($queryFocused)
                         .onSubmit(search)
                     screenButton("Найти", action: search).actionButton(size: .small).disabled(searchTerm.isEmpty)
                 }
@@ -101,7 +103,7 @@ struct TermReview: View {
             if let source {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                     SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)»")
-                    TextField("Термин", text: $replacement).textFieldStyle(PisyaTextFieldStyle())
+                    TextField("Термин", text: $replacement).textFieldStyle(PisyaTextFieldStyle(isEditing: replacementFocused))
                         .focused($replacementFocused)
                         .accessibilityLabel("Правильное написание")
                         .onSubmit(replace)

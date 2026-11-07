@@ -97,7 +97,7 @@ struct VoiceManager: View {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 SectionHeading("Кто говорит?", subtitle: "Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»")
                                 TextField("Имя участника", text: $name)
-                                    .textFieldStyle(PisyaTextFieldStyle(editingOffset: nameFocused ? 1 : 0))
+                                    .textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused))
                                     .focused($nameFocused)
                                     .onChange(of: name) { _, newName in
                                         showSuggestions = nameFocused && newName != lastChosenName
