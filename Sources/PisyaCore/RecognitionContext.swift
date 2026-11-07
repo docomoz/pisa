@@ -280,6 +280,11 @@ struct RecognitionContext {
                 let sourceRange = range(in: source, old)
                 let previous = String(original[sourceRange])
                 guard previous != proposed else { continue }
+                // A prompted retry must not erase an ending already heard in
+                // the first pass when the verifier only recognizes the stem.
+                let inflected = #"[\p{L}\p{N}]+['’][\p{L}]+"#
+                if previous.range(of: inflected, options: .regularExpression) != nil,
+                   proposed.range(of: inflected, options: .regularExpression) == nil { continue }
                 let matchesInEvidence = matches(in: evidence, left: left, right: right)
                 let heard = acoustic.flatMap { text -> String? in
                     guard matchesInEvidence.count == 1, let heardSpan = matchesInEvidence.first,
