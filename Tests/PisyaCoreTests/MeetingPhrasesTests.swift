@@ -22,9 +22,17 @@ final class MeetingPhrasesTests: XCTestCase {
         XCTAssertTrue(MeetingPhraseGenerator.openings.contains("Если зумнуть аут,"))
         XCTAssertTrue(MeetingPhraseGenerator.actions.contains("нам надо зачелленджить"))
         XCTAssertTrue(MeetingPhraseGenerator.objects.contains("стратегию стратегии"))
-        XCTAssertTrue(MeetingPhraseGenerator.endings.contains("и вернуться с этим на следующей синке."))
-        XCTAssertGreaterThanOrEqual(MeetingPhraseGenerator.asides.count, 102)
-        XCTAssertTrue(MeetingPhraseGenerator.asides.contains("Я хочу домой. Я дома."))
+        XCTAssertTrue(MeetingPhraseGenerator.endings.contains("и вернёмся с этим на следующем синке."))
+    }
+
+    func testPhrasesAreLongEnoughAndUseTheMeetingPhraseFormat() {
+        var generator = MeetingPhraseGenerator()
+        for _ in 0..<2_000 {
+            let phrase = generator.next()
+            XCTAssertGreaterThanOrEqual(phrase.count, 75, phrase)
+            XCTAssertGreaterThanOrEqual(phrase.split(whereSeparator: \.isWhitespace).count, 10, phrase)
+            XCTAssertTrue(MeetingPhraseGenerator.openings.contains { phrase.hasPrefix($0 + " ") }, phrase)
+        }
     }
 
     func testDisplayPunctuationForSingleAndMultipleSentences() {

@@ -9,14 +9,27 @@ struct MeetingPhraseView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading("Фраза для созвона", style: .dialog)
-            ScrollView {
-                screenText(phrase)
-                    .textStyle(PisyaDesign.Typography.body)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: PisyaDesign.Spacing.content) {
+                Text("🤦")
+                    .font(PisyaDesign.Typography.Icon.emptyState)
+                    .accessibilityHidden(true)
+                ScrollView {
+                    screenText(phrase)
+                        .textStyle(PisyaDesign.Typography.sectionTitle)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(minHeight: 140, maxHeight: 260, alignment: .topLeading)
             }
-            .frame(minHeight: 80, maxHeight: 240, alignment: .topLeading)
+            .padding(PisyaDesign.Spacing.section)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plainSurface()
+            .overlay {
+                RoundedRectangle(cornerRadius: PisyaDesign.Metrics.surfaceRadius)
+                    .strokeBorder(Color.mutedInk.opacity(0.15), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 screenButton("Закрыть") { dismiss() }
                     .actionButton()
@@ -31,7 +44,7 @@ struct MeetingPhraseView: View {
             }
         }
         .dialogContent()
-        .frame(width: 480)
+        .frame(width: 620)
         .defaultFocus($refreshFocused, true)
         .onAppear { refresh() }
     }

@@ -8,7 +8,6 @@ struct LibrarySidebar: View {
     @State private var folderName = ""
     @State private var deletingFolder: MeetingFolder?
     @State private var confirmEmptyTrash = false
-    @State private var showingMeetingPhrase = false
     @FocusState private var recordingsFocused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
@@ -79,12 +78,7 @@ struct LibrarySidebar: View {
                 }
                 .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
             }
-            Button { showingMeetingPhrase = true } label: {
-                screenLabel("Фраза для созвона", systemImage: "quote.bubble")
-                    .frame(maxWidth: .infinity)
-            }.actionButton()
         }.padding(.horizontal, PisyaDesign.Spacing.content).padding(.top, PisyaDesign.Spacing.content).padding(.bottom, PisyaDesign.Spacing.content).background(Color.sidebarTint)
-        .sheet(isPresented: $showingMeetingPhrase) { MeetingPhraseView() }
         .sheet(isPresented: $confirmEmptyTrash) {
             ConfirmationSheet(
                 title: "Очистить корзину?",
