@@ -325,11 +325,6 @@ struct MeetingView: View {
                     if !meeting.segments.isEmpty {
                         SearchField(title: "Поиск внутри записи", text: $transcriptSearch)
                             .focused($focusedField, equals: .search)
-                        if state.canReviewTerms(meeting) {
-                            Button { reviewingTerms = true } label: {
-                                screenLabel("Разметить термины", systemImage: "text.magnifyingglass").fixedSize()
-                            }.actionButton()
-                        }
                     }
                     if showsDetailsButton { detailsButton }
                 }.frame(maxWidth: .infinity, alignment: .trailing)
@@ -357,7 +352,7 @@ struct MeetingView: View {
                 ScrollView { meetingDetails(buttonSize: .small) }
             }
             .padding(PisyaDesign.Spacing.content)
-            .frame(width: 224 * max(1, textScale))
+            .frame(width: 256 * max(1, textScale))
             .frame(maxHeight: 360)
             .popupCanvas()
             .modifier(PopupKeyboardNavigation(showsFocus: $showsDetailsKeyboardFocus))
@@ -444,6 +439,15 @@ struct MeetingView: View {
                     }
                     .actionButton(size: buttonSize)
                     .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
+
+                    Button {
+                        showsMeetingDetails = false
+                        reviewingTerms = true
+                    } label: {
+                        detailsActionLabel("Разметить термины…", systemImage: "text.magnifyingglass")
+                    }
+                    .actionButton(size: buttonSize)
+                    .disabled(!state.canReviewTerms(meeting))
 
                     NativeActionMenu {
                         MeetingActionSet(state: state, meeting: meeting).folderMenuItems { showsMeetingDetails = false }

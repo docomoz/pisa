@@ -32,15 +32,15 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.73</string>
+	<string>0.4.103</string>
 	<key>CFBundleVersion</key>
-	<string>113</string>
+	<string>143</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pisya записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Pisya записывает звук собеседников из приложения звонка для локальной расшифровки.</string>
+	<string>Pisya записывает звук собеседников из приложения звонка для локальной расшифровки</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>SUFeedURL</key>

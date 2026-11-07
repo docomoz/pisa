@@ -118,9 +118,9 @@ final class AppState: ObservableObject {
         }
         if recording || savingMeetingID == meeting.id {
             stopPlayback()
-            notices.append("Аудио сейчас недоступно во время записи или сохранения.")
+            notices.append("Аудио сейчас недоступно во время записи или сохранения")
         } else if !result.isApproximate && !startPlayback(result.segment, in: meeting, toggle: false) {
-            notices.append("Аудио этого фрагмента недоступно, но текст сохранён.")
+            notices.append("Аудио этого фрагмента недоступно, но текст сохранён")
         }
         if !notices.isEmpty { notice(notices.joined(separator: "\n\n")) }
     }
@@ -807,7 +807,7 @@ final class AppState: ObservableObject {
     func replaceTerms(_ occurrences: [TermOccurrence], with replacement: String, meetingID: UUID) throws {
         guard var meeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(meeting),
               let updated = TranscriptTerms.replacing(occurrences, with: replacement, in: meeting.segments) else {
-            throw PisyaError.message("Не удалось применить замену. Проверьте написание и выберите вхождения заново")
+            throw PisyaError.message("Не удалось применить замену. Проверьте написание и найдите термин заново")
         }
         var before: [UUID: String] = [:]
         var after: [UUID: String] = [:]

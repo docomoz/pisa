@@ -17,6 +17,16 @@ strings = contents / 'Frameworks/Sparkle.framework/Resources/ru.lproj/Sparkle.st
 with strings.open('rb') as source:
     translations = plistlib.load(source)
 overrides = {
+    '%@ %@ is currently the newest version available.':
+        'В настоящий момент %1$@ %2$@ является новейшей версией',
+    '%@ %@ is currently the newest version available.\n(You are currently running version %@.)':
+        'В настоящий момент %1$@ %2$@ является новейшей версией\n(У вас установлена %3$@)',
+    '%1$@ can’t be updated because it was opened from a read-only or a temporary location.':
+        'Не удаётся обновить %1$@ с тома, предназначенного только для чтения',
+    'An error occurred while parsing the update feed.':
+        'Произошла ошибка при извлечении канала обновления',
+    'Use Finder to copy %1$@ to the Applications folder, relaunch it from there, and try again.':
+        'Переместите %1$@ в папку «Программы», перезапустите его оттуда и повторите попытку',
     '%@ %@ is now available—you have %@. Would you like to download it now?':
         '%1$@ %2$@ теперь доступна. У вас версия %3$@. Хотите загрузить её сейчас?',
     '%1$@ %2$@ has been downloaded and is ready to use! Would you like to install it and relaunch %1$@ now?':
