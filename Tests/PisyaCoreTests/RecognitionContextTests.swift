@@ -8,6 +8,20 @@ final class RecognitionContextTests: XCTestCase {
         return segment
     }
 
+    func testContextRetryDoesNotDiscardAnAlreadyRecognizedAcronymEnding() throws {
+        let original = "Проверим поиск внутри 2ГИС'а и обсудим результаты."
+        let candidate = "Проверим поиск внутри 2ГИС и обсудим результаты."
+        let heard = "Проверим поиск внутри два ГИС и обсудим результаты."
+        let target = segment(8, 11, original)
+        let previous = segment(0, 3, original)
+        let vocabulary = "2ГИС"
+        let context = RecognitionContext(segments: [previous, target])
+        let retry = try XCTUnwrap(context.plan(for: target, independent: heard, vocabulary: vocabulary,
+                                               spokenVocabulary: SpokenVocabulary(vocabulary)))
+        XCTAssertNil(RecognitionContext.revisedText(original: original, candidate: candidate,
+                       corroboration: heard, retry: retry, vocabulary: vocabulary))
+    }
+
     func testUsesNearestTurnsAcrossTracksInChronologicalOrder() {
         let target = segment(100, 103, "Распознаваемый отрывок", track: "mic")
         let preceding = (1...7).map { segment(100 - Double($0 * 5), 101 - Double($0 * 5), "Предыдущая реплика \($0)", track: $0.isMultiple(of: 2) ? "mic" : "remote") }

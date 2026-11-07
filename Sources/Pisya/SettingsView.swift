@@ -3,6 +3,7 @@ import AppKit
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) var dismiss
+    @ObservedObject private var updates = AppUpdates.shared
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
     @State private var analyticsEnabled = Analytics.enabled
@@ -62,7 +63,7 @@ struct SettingsView: View {
 
                             }
                         }
-                    default:
+                    case "MCP":
                         columns {
                         block("Доступ к встречам через MCP", "Локальный сервер даёт доступ только для чтения и работает без сетевого порта") {
                             screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled).onChange(of: state.preferences.mcpEnabled) { state.savePreferences() }
@@ -86,6 +87,17 @@ struct SettingsView: View {
                             .disabled(!state.preferences.mcpEnabled)
                             .opacity(state.preferences.mcpEnabled ? 1 : 0.45)
                         }
+                    default:
+                        block("Обновления Pisya", "Новые версии загружаются с GitHub") {
+                            screenToggle("Устанавливать обновления автоматически", isOn: Binding(
+                                get: { updates.installsAutomatically },
+                                set: { updates.setAutomaticInstallation($0) }
+                            )).disabled(!updates.isReady)
+                            SupportingText("Если выключить, Pisya сообщит о новой версии и предложит установить её вручную")
+                            screenButton("Проверить обновления…") { updates.check() }
+                                .actionButton().disabled(!updates.canCheck)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     }
                 }.padding(.vertical, PisyaDesign.Spacing.compact)
@@ -119,7 +131,7 @@ struct SettingsView: View {
                         screenLabel("Старт — через 3 секунды", systemImage: "record.circle")
                         screenLabel("Стоп — через 45 секунд без микрофона", systemImage: "stop.circle").fixedSize(horizontal: false, vertical: true)
                     }.textStyle(PisyaDesign.Typography.body).fixedSize(horizontal: false, vertical: true)
-                    SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука.")
+                    SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука")
                     // Keep the disclosure and its text together so the block's row spacing
                     // cannot add a second gap between the heading and its content.
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
@@ -170,7 +182,7 @@ struct SettingsView: View {
 private struct SettingsSectionPicker: View {
     @Binding var selection: String
     @FocusState private var focused: String?
-    private let sections = ["Запись", "Модель", "Голоса", "Экспорт", "MCP"]
+    private let sections = ["Запись", "Модель", "Голоса", "Экспорт", "MCP", "Обновления"]
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.compact) {
             ForEach(sections, id: \.self) { item in

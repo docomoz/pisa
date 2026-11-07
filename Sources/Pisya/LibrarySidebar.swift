@@ -43,7 +43,7 @@ struct LibrarySidebar: View {
                                 Circle().fill(Color.recordingRed).frame(width: 6, height: 6).accessibilityHidden(true)
                                 screenText("Идёт запись").foregroundStyle(Color.recordingRed)
                                 RecordingElapsed(started: started)
-                            } else { screenText(timecode(meeting.duration)).monospacedDigit().fixedSize() }
+                            } else { screenText(sidebarDuration(meeting.duration)).monospacedDigit().fixedSize() }
                             if let folder = state.folders.first(where: { $0.id == meeting.folderID }) {
                                 screenText("·")
                                 Image(systemName: folder.iconName).imageScale(.small)
