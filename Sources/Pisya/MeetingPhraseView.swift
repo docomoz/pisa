@@ -8,19 +8,19 @@ struct MeetingPhraseView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-            SectionHeading("Фраза для созвона", subtitle: "Если созвон заканчивается раньше времени, скажите эту фразу и отключайтесь на 10 минут — коллегам будет что обсудить", style: .dialog)
+            SectionHeading("Фраза для созвона", subtitle: "Если созвон заканчивается раньше времени, скажите эту фразу и займитесь своими делами на 10 минут, не выходя со встречи, пока коллеги её обсуждают", style: .dialog)
             HStack(alignment: .top, spacing: PisyaDesign.Spacing.content) {
                 Text("🤦")
-                    .font(PisyaDesign.Typography.Icon.emptyState)
+                    .font(PisyaDesign.Typography.Icon.featured)
                     .accessibilityHidden(true)
                 ScrollView {
                     screenText(phrase)
-                        .textStyle(PisyaDesign.Typography.sectionTitle)
+                        .textStyle(PisyaDesign.Typography.body)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(minHeight: 140, maxHeight: 260, alignment: .topLeading)
+                .frame(minHeight: 104, maxHeight: 220, alignment: .topLeading)
             }
             .padding(PisyaDesign.Spacing.section)
             .frame(maxWidth: .infinity, alignment: .leading)
