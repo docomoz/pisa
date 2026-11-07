@@ -1,5 +1,13 @@
 import AppKit
 
+private final class RefuseTermination: NSObject, NSApplicationDelegate {
+    var calls = 0
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        calls += 1
+        return .terminateCancel
+    }
+}
+
 @main
 struct QuitShortcutProbe {
     @MainActor static func main() {
@@ -24,6 +32,12 @@ struct QuitShortcutProbe {
         send("w", keyCode: 13, modifiers: .command)
         send("q", keyCode: 12, modifiers: [])
         precondition(quits == 2, "Other shortcuts must not quit")
+        let delegate = RefuseTermination()
+        app.delegate = delegate
+        precondition(sheet.preventsApplicationTerminationWhenModal)
+        QuitShortcut.terminate(app)
+        precondition(delegate.calls == 1, "Modal quit must reach the application termination guard")
+        precondition(sheet.preventsApplicationTerminationWhenModal, "A refused quit must restore the modal window's original setting")
         NSEvent.removeMonitor(monitor)
         window.endSheet(sheet)
         print("QUIT_SHORTCUT_TEST_OK")
