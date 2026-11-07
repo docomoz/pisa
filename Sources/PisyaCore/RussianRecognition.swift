@@ -87,7 +87,7 @@ enum RussianRecognition {
         let source = tokens(in: original), retry = tokens(in: candidate)
         let occurrences = numericBaseOccurrences(in: original, vocabulary: vocabulary)
         let retryLiterals = TranscriptOrthography.literalRanges(in: candidate)
-        let suffixes: Set<String> = ["а", "у", "е", "ом", "ем", "ами"]
+        let suffixes = Set(AbbreviationFamilies.caseEndings)
         var edits: [(Range<String.Index>, String)] = []
         for (index, term) in occurrences {
             let left = source[(index - 2)..<index].map(\.key)

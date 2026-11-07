@@ -2,6 +2,12 @@ import XCTest
 @testable import PisyaCore
 
 final class RecognitionVocabularyTests: XCTestCase {
+    func testSharedAbbreviationEndingsAndExplicitCompetingEntries() {
+        XCTAssertEqual(RecognitionVocabulary.apply(to: "AIем, LLMами, 2GISu и 2GISom", vocabulary: "AI, LLM, 2ГИС"),
+                       "AI'ем, LLM'ами, 2ГИС'у и 2ГИС'ом")
+        XCTAssertEqual(RecognitionVocabulary.apply(to: "AIM и API", vocabulary: "AI, API"), "AIM и API")
+        XCTAssertEqual(RecognitionVocabulary.apply(to: "2GISA", vocabulary: "2GIS, 2GISA"), "2GISA")
+    }
     func testDictionaryControlsSpellingOfNumericAcronymsAndTheirEndings() {
         XCTAssertEqual(RecognitionVocabulary.apply(to: "внутри два ГИСа, в два гисе и через 2гис", vocabulary: "2ГИС, iPhone"), "внутри 2ГИС'а, в 2ГИС'е и через 2ГИС")
         XCTAssertEqual(RecognitionVocabulary.apply(to: "Проект семь АБВ и 7абвом", vocabulary: "7АБВ"), "Проект 7АБВ и 7АБВ'ом")

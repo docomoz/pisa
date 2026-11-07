@@ -36,7 +36,7 @@ struct SettingsView: View {
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         block("Словарь распознавания", "Чтобы Pisya точнее записывала имена и названия в вашей речи и речи собеседников") {
-                            SupportingText("Например, добавьте «2ГИС», если вместо него получается «два гис»")
+                            SupportingText("Например, добавьте «2ГИС», если вместо него получается «два гис». Формы аббревиатур с окончаниями, например «2ГИС'ом», учитываются автоматически.")
                             FormTextEditor(text: $state.preferences.vocabulary, outlined: true)
                                 .accessibilityLabel("Словарь распознавания")
                                 .accessibilityHint("Введите слова через запятую или с новой строки")

@@ -7,25 +7,26 @@ enum RecognitionVocabulary {
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             .sorted { $0.count > $1.count }
-        var result = text
+        let families = AbbreviationFamilies(vocabulary)
+        var result = families.normalize(in: text)
         for term in terms {
+            if AbbreviationFamilies.isBase(term), numericForms(for: term) == nil { continue }
             let digits = String(term.prefix(while: \.isNumber))
-            let acronym = String(term.dropFirst(digits.count))
             var pattern = term.split(whereSeparator: \.isWhitespace)
                 .map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: #"\s+"#)
             var numericAcronym = false
             // A numeric acronym can be spoken with a Russian number and case
             // ending. Derive the forms from the user's entry (e.g. 7АБВ).
             if let forms = numericForms(for: term) {
-                let latin = acronym.applyingTransform(.toLatin, reverse: false) ?? acronym
-                let stems = Array(Set([acronym, latin])).sorted().map(NSRegularExpression.escapedPattern).joined(separator: "|")
+                let stems = AbbreviationFamilies.aliases(for: term).map { String($0.dropFirst(digits.count)) }
+                    .map(NSRegularExpression.escapedPattern).joined(separator: "|")
                 // ASR can merge the numeral with the name and spell an unstressed
                 // а/о differently. Restrict this equivalence to the known numeral
                 // prefix of an explicit dictionary acronym, not arbitrary words.
                 let spoken = forms.map { form in
                     form.map { "ао".contains($0) ? "[ао]" : ($0 == "ё" || $0 == "е" ? "[её]" : NSRegularExpression.escapedPattern(for: String($0))) }.joined()
                 }.joined(separator: "|")
-                pattern = "(?:\(NSRegularExpression.escapedPattern(for: digits))|\(spoken))[\\s-]*(?:\(stems))(?:['’]?(ами|ам|ах|ов|ом|а|у|е|ы|a|u|om|e))?"
+                pattern = "(?:\(NSRegularExpression.escapedPattern(for: digits))|\(spoken))[\\s-]*(\(stems))(?:['’]?(\(AbbreviationFamilies.endingPattern(numeric: true))))?"
                 numericAcronym = true
             }
             guard let expression = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:"# + pattern + #")(?![\p{L}\p{N}])"#, options: [.caseInsensitive]) else { continue }
@@ -34,9 +35,13 @@ enum RecognitionVocabulary {
                 let ns = result as NSString, output = NSMutableString(string: result)
                 for match in expression.matches(in: result, range: NSRange(location: 0, length: ns.length)).reversed()
                 where !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) {
-                    let range = match.range(at: 1)
+                    let source = ns.substring(with: match.range)
+                    guard !families.isExplicit(source) || AbbreviationFamilies.key(source) == AbbreviationFamilies.key(term) else { continue }
+                    let range = match.range(at: 2)
                     let raw = range.location == NSNotFound ? "" : ns.substring(with: range).lowercased()
-                    let ending = ["a": "а", "u": "у", "om": "ом", "e": "е"][raw] ?? raw
+                    let ending = AbbreviationFamilies.ending(raw, numeric: true) ?? ""
+                    let written = digits + ns.substring(with: match.range(at: 1)) + (ending.isEmpty ? "" : "'" + ending)
+                    guard families.known(written)?.base == term else { continue }
                     output.replaceCharacters(in: match.range, with: term + (ending.isEmpty ? "" : "'" + ending))
                 }
                 result = output as String
@@ -114,7 +119,10 @@ enum RecognitionVocabulary {
     /// Exact dictionary spelling and regular endings, never a phonetic guess.
     static func contains(_ term: String, in text: String) -> Bool {
         let body: String
-        if let (stem, endings) = cyrillicForm(term) {
+        if AbbreviationFamilies.isBase(term) {
+            body = "(?:" + AbbreviationFamilies.aliases(for: term).map(NSRegularExpression.escapedPattern).joined(separator: "|")
+                + ")(?:['’]?(?:" + AbbreviationFamilies.endingPattern(numeric: term.first?.isNumber == true) + "))?"
+        } else if let (stem, endings) = cyrillicForm(term) {
             body = spellingPattern(stem) + endings
         } else {
             body = term.split(whereSeparator: \.isWhitespace).map { NSRegularExpression.escapedPattern(for: String($0)) }

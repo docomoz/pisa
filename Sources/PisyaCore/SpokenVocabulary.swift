@@ -36,7 +36,7 @@ struct SpokenVocabulary {
             guard bases.insert(key(term)).inserted else { continue }
             // Keep the hint compact and in the glossary's list format. A
             // separate, exhaustive paradigm can bias short audio decodes.
-            for ending in ["а", "ом", "е", "у"] {
+            for ending in AbbreviationFamilies.promptEndings {
                 let form = term + "'" + ending
                 if seen.insert(key(form)).inserted { forms.append(form) }
             }
@@ -265,7 +265,7 @@ struct SpokenVocabulary {
         for term in terms {
             guard let forms = RecognitionVocabulary.numericForms(for: term) else { continue }
             let acronym = String(term.drop(while: \.isNumber)).lowercased().replacingOccurrences(of: "ё", with: "е")
-            for ending in ["ами", "ам", "ах", "ов", "ом", "а", "у", "е", "ы"] where lower.hasSuffix(ending) {
+            for ending in AbbreviationFamilies.caseEndings where lower.hasSuffix(ending) {
                 let stem = String(lower.dropLast(ending.count))
                 guard stem.count >= acronym.count + 2 else { continue }
                 let prefix = String(stem.dropLast(acronym.count))
@@ -309,7 +309,7 @@ struct SpokenVocabulary {
         if source.lowercased().hasPrefix("с") { forms.append((String(source.dropFirst()), "с ")) }
         let completeForms = forms
         for (form, prefix) in completeForms {
-            for ending in ["ами", "ями", "ого", "ому", "ов", "ом", "ем", "ам", "ах", "ям", "ях", "а", "у", "е", "ы", "и"] where form.lowercased().hasSuffix(ending) {
+            for ending in AbbreviationFamilies.caseEndings where form.lowercased().hasSuffix(ending) {
                 let stem = String(form.dropLast(ending.count))
                 if (stem.split(whereSeparator: \.isWhitespace).last?.count ?? 0) >= 3 { forms.append((stem, prefix)) }
             }
@@ -346,11 +346,11 @@ struct SpokenVocabulary {
         for (variant, prefix) in variants {
             let lower = variant.lowercased()
             var stems: [(text: String, phoneticSuffix: String, literalSuffix: String)] = [(variant, "", "")]
-            for ending in ["ами", "ями", "ого", "ому", "ов", "ом", "ем", "ам", "ах", "ям", "ях", "а", "у", "е", "ы", "и"] where lower.hasSuffix(ending) {
-                stems.append((String(variant.dropLast(ending.count)), "", "'" + ending))
+            for ending in AbbreviationFamilies.caseEndings where lower.hasSuffix(ending) {
+                stems.append((String(variant.dropLast(ending.count)), entry.initialism ? "'" + ending : "", "'" + ending))
             }
             if entry.initialism {
-                for ending in ["ками", "кой", "ках", "кам", "ка", "ку", "ке", "ки", "ок"] where lower.hasSuffix(ending) {
+                for ending in AbbreviationFamilies.derivedEndings where lower.hasSuffix(ending) {
                     stems.append((String(variant.dropLast(ending.count)), "'" + ending, "'" + ending))
                 }
             }
@@ -359,7 +359,7 @@ struct SpokenVocabulary {
                 // A separately supplied Russian name takes precedence over an
                 // acronym pronunciation, including its recognized case ending.
                 let literal = stem.trimmingCharacters(in: CharacterSet(charactersIn: "'’")).lowercased()
-                if Self.isRussianWord(literal), explicitTerms.contains(literal) { return nil }
+                if literal != entry.term.lowercased(), explicitTerms.contains(literal) { return nil }
                 // Exact letters retain repetitions that a phonetic key collapses
                 // (LLM is not LM or LMM). Preserve an ending attached to that
                 // explicit spelling without interpreting a Latin M as Russian ем.

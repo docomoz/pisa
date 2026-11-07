@@ -78,6 +78,20 @@ enum Launcher {
             }
             return
         }
+        if CommandLine.arguments.contains("--term-review-self-test") {
+            Task { @MainActor in
+                do { try TermReviewTests.run(); exit(0) }
+                catch { print("TERM_REVIEW_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
+        if CommandLine.arguments.contains("--term-review-preview") || CommandLine.arguments.contains("--term-dictionary-preview") {
+            MainActor.assumeIsolated {
+                do { try TermReviewTests.preview(dictionary: CommandLine.arguments.contains("--term-dictionary-preview")) }
+                catch { print("TERM_REVIEW_PREVIEW_FAILED", error.localizedDescription) }
+            }
+            return
+        }
         if CommandLine.arguments.contains("--voice-profiles-self-test") {
             Task { @MainActor in
                 do { try VoiceProfileTests.run(); exit(0) }
