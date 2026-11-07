@@ -131,7 +131,7 @@ struct SettingsView: View {
                         screenLabel("Старт — через 3 секунды", systemImage: "record.circle")
                         screenLabel("Стоп — через 45 секунд без микрофона", systemImage: "stop.circle").fixedSize(horizontal: false, vertical: true)
                     }.textStyle(PisyaDesign.Typography.body).fixedSize(horizontal: false, vertical: true)
-                    SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука.")
+                    SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука")
                     // Keep the disclosure and its text together so the block's row spacing
                     // cannot add a second gap between the heading and its content.
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {

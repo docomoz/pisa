@@ -118,9 +118,9 @@ final class AppState: ObservableObject {
         }
         if recording || savingMeetingID == meeting.id {
             stopPlayback()
-            notices.append("Аудио сейчас недоступно во время записи или сохранения.")
+            notices.append("Аудио сейчас недоступно во время записи или сохранения")
         } else if !result.isApproximate && !startPlayback(result.segment, in: meeting, toggle: false) {
-            notices.append("Аудио этого фрагмента недоступно, но текст сохранён.")
+            notices.append("Аудио этого фрагмента недоступно, но текст сохранён")
         }
         if !notices.isEmpty { notice(notices.joined(separator: "\n\n")) }
     }
