@@ -306,8 +306,9 @@ actor Transcriber {
                 guard selected.contains(segment.id) else { continue }
                 let samples = try Self.contextSamples(url, start: interval.lowerBound, end: interval.upperBound)
                 if repeatFirstPass,
-                   let recognized = try recognize(samples, expandedSamples: nil, model: model, russian: russian,
-                                                  vocabulary: vocabulary, duration: segment.end - segment.start) {
+                   let recognized = try await recognize(samples, expandedSamples: nil, model: model, russian: russian,
+                                                  vocabulary: vocabulary, duration: segment.end - segment.start,
+                                                  isMic: name.contains("-mic.")) {
                     segments[index].text = recognized.text
                     hypotheses[segment.id] = recognized.acoustic
                 } else {
