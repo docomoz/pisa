@@ -98,3 +98,4 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 @media(prefers-reduced-motion:reduce){.feature-number.number-animate{animation:none}}
 
 @media(max-width:480px){.mcp-flow strong{white-space:nowrap}.copy{min-height:44px;padding:0 4px;font-size:13px}}
+@media(max-width:360px){.install-top .section-lead{font-size:16px}}
