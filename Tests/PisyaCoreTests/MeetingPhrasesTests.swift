@@ -14,6 +14,21 @@ final class MeetingPhrasesTests: XCTestCase {
         }
     }
 
+    func testCuratedPhrasesAreLongAndDoNotRepeatUntilTheDeckIsExhausted() {
+        var generator = MeetingPhraseGenerator()
+        XCTAssertGreaterThanOrEqual(MeetingPhraseGenerator.curated.count, 60)
+        var seen = Set<String>()
+        var last = ""
+        for _ in MeetingPhraseGenerator.curated {
+            let phrase = generator.nextCurated()
+            XCTAssertTrue(seen.insert(phrase).inserted, phrase)
+            XCTAssertGreaterThanOrEqual(phrase.count, 75, phrase)
+            XCTAssertGreaterThanOrEqual(phrase.split(whereSeparator: \.isWhitespace).count, 10, phrase)
+            last = phrase
+        }
+        XCTAssertNotEqual(generator.nextCurated(), last)
+    }
+
     func testCuratedPartsFormACompleteSentence() {
         XCTAssertEqual(
             MeetingPhraseGenerator.compose(opening: "Если сделать шаг назад,", lead: "нам нужно", action: "обсудить", object: "воронку согласований", ending: "чтобы у всех сложилась единая картинка"),
@@ -27,7 +42,7 @@ final class MeetingPhrasesTests: XCTestCase {
             let phrase = generator.next()
             XCTAssertFalse(phrase.hasPrefix("Я правильно понимаю, что"), phrase)
             XCTAssertFalse(phrase.hasPrefix("Есть ощущение, что"), phrase)
-            XCTAssertTrue(MeetingPhraseGenerator.openings.contains { phrase.hasPrefix($0 + " ") }, phrase)
+            XCTAssertTrue(MeetingPhraseGenerator.curated.contains(phrase) || MeetingPhraseGenerator.openings.contains { phrase.hasPrefix($0 + " ") }, phrase)
         }
     }
 
@@ -35,7 +50,7 @@ final class MeetingPhrasesTests: XCTestCase {
         var generator = MeetingPhraseGenerator()
         for _ in 0..<2_000 {
             let phrase = generator.next()
-            XCTAssertTrue(MeetingPhraseGenerator.groups.contains { group in
+            XCTAssertTrue(MeetingPhraseGenerator.curated.contains(phrase) || MeetingPhraseGenerator.groups.contains { group in
                 group.actions.contains { action in group.objects.contains { phrase.contains(" \(action) \($0), ") } }
             }, phrase)
         }

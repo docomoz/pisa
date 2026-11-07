@@ -8,7 +8,7 @@ struct MeetingPhraseView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-            SectionHeading("Фраза для созвона", subtitle: "Если созвон заканчивается раньше времени, скажите эту фразу и займитесь своими делами на 10 минут, не выходя со встречи, пока коллеги её обсуждают", style: .dialog)
+            SectionHeading("Фраза для созвона", subtitle: "Если созвон заканчивается раньше времени, скажите эту фразу и займитесь своими делами на 10 минут", style: .dialog)
             HStack(alignment: .top, spacing: PisyaDesign.Spacing.content) {
                 Text("🤦")
                     .font(PisyaDesign.Typography.Icon.featured)
