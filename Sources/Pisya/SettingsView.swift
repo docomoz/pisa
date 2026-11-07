@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
+    @State private var dictionaryPresented = false
     @State private var analyticsEnabled = Analytics.enabled
     init(initialSection: String = "Запись") {
         _section = State(initialValue: initialSection)
@@ -36,12 +37,9 @@ struct SettingsView: View {
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         block("Словарь распознавания", "Чтобы Pisya точнее записывала имена и названия в вашей речи и речи собеседников") {
-                            SupportingText("Например, добавьте «2ГИС», если вместо него получается «два гис». Формы аббревиатур с окончаниями, например «2ГИС'ом», учитываются автоматически.")
-                            FormTextEditor(text: $state.preferences.vocabulary, outlined: true)
-                                .accessibilityLabel("Словарь распознавания")
-                                .accessibilityHint("Введите слова через запятую или с новой строки")
-                                .onChange(of: state.preferences.vocabulary) { state.savePreferences() }
-                            SupportingText("Укажите нужное написание слов через запятую или с новой строки. Можно оставить поле пустым.")
+                            SupportingText("Записей: \(VocabularyDictionary.entries(in: state.preferences.vocabulary).count)")
+                            SupportingText("Например, добавьте «2ГИС». Формы аббревиатур с окончаниями, например «2ГИС'ом», учитываются автоматически.")
+                            screenButton("Открыть словарь") { dictionaryPresented = true }.actionButton()
                         }
 
 
@@ -106,6 +104,7 @@ struct SettingsView: View {
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
+            .sheet(isPresented: $dictionaryPresented) { VocabularyDictionaryView().environmentObject(state) }
     }
     private var recordingSettings: some View {
         HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {

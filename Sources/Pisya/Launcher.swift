@@ -20,6 +20,16 @@ enum Launcher {
             }
             dispatchMain()
         }
+        if CommandLine.arguments.contains("--dictionary-self-test") {
+            MainActor.assumeIsolated {
+                do { try VocabularyDictionaryPreview.test(); print("DICTIONARY_SELF_TEST_OK"); exit(0) }
+                catch { print("DICTIONARY_SELF_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+        }
+        if CommandLine.arguments.contains("--dictionary-preview") || Bundle.main.object(forInfoDictionaryKey: "PisyaDictionaryPreview") as? Bool == true {
+            MainActor.assumeIsolated { VocabularyDictionaryPreview.run() }
+            return
+        }
         if CommandLine.arguments.contains("--source-link-self-test") {
             MainActor.assumeIsolated {
                 do { try SourceLinkPreview.test(); print("SOURCE_LINK_TEST_OK"); exit(0) }
