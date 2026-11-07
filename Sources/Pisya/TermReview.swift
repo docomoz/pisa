@@ -10,7 +10,6 @@ struct TermReview: View {
     @State private var query = ""
     @State private var source: String?
     @State private var occurrences: [TermOccurrence] = []
-    @State private var selectedIDs: Set<String> = []
     @State private var replacement = ""
     @State private var notice: String?
 
@@ -20,7 +19,7 @@ struct TermReview: View {
     private var term: String { replacement.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var canReplace: Bool {
-        !term.isEmpty && occurrences.contains { selectedIDs.contains($0.id) && $0.text != term }
+        !term.isEmpty && occurrences.contains { $0.text != term }
     }
 
     var body: some View {
@@ -101,23 +100,19 @@ struct TermReview: View {
                     SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)»")
                     TextField("Термин", text: $replacement).textFieldStyle(PisyaTextFieldStyle())
                         .accessibilityLabel("Правильное написание")
-                    screenButton("Добавить в словарь", action: addTerm).actionButton()
-                        .disabled(TranscriptTerms.adding(term, to: state.preferences.vocabulary) == state.preferences.vocabulary)
+                        .onSubmit(replace)
+                    HStack(spacing: PisyaDesign.Spacing.inline) {
+                        screenButton("Исправить все", action: replace).actionButton(.primary)
+                            .disabled(!canReplace)
+                        screenButton("Добавить в словарь", action: addTerm).actionButton()
+                            .disabled(TranscriptTerms.adding(term, to: state.preferences.vocabulary) == state.preferences.vocabulary)
+                    }
                 }
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                     SectionHeading("Вхождения")
                     if occurrences.isEmpty {
                         SupportingText("В расшифровке нет точных совпадений")
                     } else {
-                        HStack(spacing: PisyaDesign.Spacing.related) {
-                            SupportingText("Выбрано \(selectedIDs.count) из \(occurrences.count)", style: PisyaDesign.Typography.caption)
-                            Spacer()
-                            if selectedIDs.count == occurrences.count {
-                                screenButton("Снять выбор") { selectedIDs.removeAll() }.actionButton(size: .small)
-                            } else {
-                                screenButton("Выбрать все") { selectedIDs = Set(occurrences.map(\.id)) }.actionButton(size: .small)
-                            }
-                        }
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
                                 ForEach(occurrences) { occurrence in
@@ -130,8 +125,6 @@ struct TermReview: View {
                         .id(source)
                     }
                 }
-                screenButton("Исправить выбранные", action: replace).actionButton(.primary)
-                    .disabled(!canReplace)
             } else {
                 SupportingText("Выберите кандидата или найдите слово в расшифровке")
             }
@@ -143,10 +136,7 @@ struct TermReview: View {
     private func occurrenceRow(_ occurrence: TermOccurrence, segment: TranscriptSegment, meeting: Meeting) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
             HStack(spacing: PisyaDesign.Spacing.related) {
-                screenToggle("\(timecode(segment.start)) · \(segment.speaker)", isOn: Binding(
-                    get: { selectedIDs.contains(occurrence.id) },
-                    set: { if $0 { selectedIDs.insert(occurrence.id) } else { selectedIDs.remove(occurrence.id) } }
-                ))
+                screenText("\(timecode(segment.start)) · \(segment.speaker)")
                 Spacer(minLength: 0)
                 if !meeting.audioFiles.isEmpty {
                     screenButton(state.playingSegmentID == segment.id ? "Остановить" : "Послушать") {
@@ -158,7 +148,7 @@ struct TermReview: View {
                 .textStyle(PisyaDesign.Typography.body)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            if selectedIDs.contains(occurrence.id), !term.isEmpty, occurrence.text != term {
+            if !term.isEmpty, occurrence.text != term {
                 SupportingText("«\(occurrence.text)» → «\(term)»", style: PisyaDesign.Typography.caption)
             }
         }
@@ -193,7 +183,6 @@ struct TermReview: View {
         source = text
         replacement = text
         self.occurrences = occurrences
-        selectedIDs.removeAll()
         notice = nil
     }
 
@@ -202,7 +191,6 @@ struct TermReview: View {
         segmentsByID = Dictionary(segments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         refreshCandidates()
         if let source { occurrences = TranscriptTerms.matches(source, in: segments) }
-        selectedIDs.removeAll()
     }
 
     private func refreshCandidates() {
@@ -210,11 +198,11 @@ struct TermReview: View {
     }
 
     private func replace() {
-        let chosen = occurrences.filter { selectedIDs.contains($0.id) && $0.text != term }
+        guard !term.isEmpty else { return }
+        let chosen = occurrences.filter { $0.text != term }
         guard !chosen.isEmpty else { return }
         do {
             try state.replaceTerms(chosen, with: term, meetingID: meeting.id)
-            selectedIDs.removeAll()
             notice = "Исправлено: \(chosen.count)"
         } catch { notice = error.localizedDescription }
     }

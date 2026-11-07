@@ -807,7 +807,7 @@ final class AppState: ObservableObject {
     func replaceTerms(_ occurrences: [TermOccurrence], with replacement: String, meetingID: UUID) throws {
         guard var meeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(meeting),
               let updated = TranscriptTerms.replacing(occurrences, with: replacement, in: meeting.segments) else {
-            throw PisyaError.message("Не удалось применить замену. Проверьте написание и выберите вхождения заново")
+            throw PisyaError.message("Не удалось применить замену. Проверьте написание и найдите термин заново")
         }
         var before: [UUID: String] = [:]
         var after: [UUID: String] = [:]
