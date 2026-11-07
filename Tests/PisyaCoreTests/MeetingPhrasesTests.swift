@@ -36,6 +36,12 @@ final class MeetingPhrasesTests: XCTestCase {
         )
     }
 
+    func testOpeningAndEndingAvoidRepeatingTheSameConjunction() {
+        XCTAssertFalse(MeetingPhraseGenerator.isCompatible(opening: "Чтобы не терять время,", ending: "чтобы не принимать решения в вакууме"))
+        XCTAssertFalse(MeetingPhraseGenerator.isCompatible(opening: "Прежде чем двигаться дальше,", ending: "прежде чем вернуться к исходному вопросу"))
+        XCTAssertTrue(MeetingPhraseGenerator.isCompatible(opening: "Чтобы не терять время,", ending: "пока мы не ушли в детали"))
+    }
+
     func testOutputNeverUsesIncompatibleInterrogativeOpeningOrStandaloneAside() {
         var generator = MeetingPhraseGenerator()
         for _ in 0..<2_000 {

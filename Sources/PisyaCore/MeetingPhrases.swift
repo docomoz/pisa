@@ -19,12 +19,15 @@ public struct MeetingPhraseGenerator {
                 phrase = nextCurated()
             } else {
                 let group = Self.groups.randomElement()!
+                let opening = Self.openings.randomElement()!
+                let ending = Self.endings.randomElement()!
+                guard Self.isCompatible(opening: opening, ending: ending) else { continue }
                 phrase = Self.compose(
-                    opening: Self.openings.randomElement()!,
+                    opening: opening,
                     lead: Self.leads.randomElement()!,
                     action: group.actions.randomElement()!,
                     object: group.objects.randomElement()!,
-                    ending: Self.endings.randomElement()!
+                    ending: ending
                 )
             }
             if phrase != previous && phrase.count >= 75 && phrase.split(whereSeparator: \.isWhitespace).count >= 10 {
@@ -48,6 +51,11 @@ public struct MeetingPhraseGenerator {
         let phrase = curatedDeck.removeLast()
         lastCurated = phrase
         return phrase
+    }
+
+    static func isCompatible(opening: String, ending: String) -> Bool {
+        let start = opening.lowercased()
+        return !(["чтобы", "прежде чем"].contains { start.hasPrefix($0) && ending.hasPrefix($0) })
     }
 
     static func compose(opening: String, lead: String, action: String, object: String, ending: String) -> String {
