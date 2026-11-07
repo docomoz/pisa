@@ -85,13 +85,18 @@ struct FormSection<Content: View>: View {
 }
 
 struct SearchField: View {
+    @Environment(\.appTextScale) private var textScale
+    @State private var isEditing = false
     let title: String
     @Binding var text: String
     var compact = false
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
             Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
-            TextField(title, text: $text).textFieldStyle(.plain)
+            TextField(title, text: $text, onEditingChanged: { isEditing = $0 })
+                .textFieldStyle(.plain)
+                // At the largest text size the compact native field editor sits one point higher.
+                .offset(y: compact && textScale >= 1.2 && isEditing ? 1 : 0)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск")

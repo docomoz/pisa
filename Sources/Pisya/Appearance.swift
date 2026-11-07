@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum PisyaDesign {
     enum Colors {
@@ -98,6 +99,29 @@ extension View {
         buttonStyle(PlainControlStyle()).controlKeyboardFocus()
     }
     func controlKeyboardFocus() -> some View { modifier(ControlKeyboardFocus()) }
+    func pointingHandCursor() -> some View { modifier(PointingHandCursor()) }
+}
+
+private struct PointingHandCursor: ViewModifier {
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                hovered = inside
+                updateCursor()
+            }
+            .onChange(of: enabled) { updateCursor() }
+            .onDisappear {
+                if hovered && NSCursor.current == NSCursor.pointingHand { NSCursor.arrow.set() }
+            }
+    }
+
+    private func updateCursor() {
+        if hovered && enabled { NSCursor.pointingHand.set() }
+        else if NSCursor.current == NSCursor.pointingHand { NSCursor.arrow.set() }
+    }
 }
 
 private struct ControlFocusedKey: EnvironmentKey {
@@ -169,17 +193,18 @@ private struct ActionButtonContent<Label: View>: View {
             .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
             .focusEffectDisabled()
             .onHover { hovered = $0 }
+            .pointingHandCursor()
     }
 }
 
 struct PisyaTextFieldStyle: TextFieldStyle {
     @Environment(\.isEnabled) private var enabled
-    var editingOffset: CGFloat = 0
+    let isEditing: Bool
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration.textFieldStyle(.plain)
             .textStyle(PisyaDesign.Typography.body)
             .foregroundStyle(enabled ? PisyaDesign.Colors.ink : PisyaDesign.Colors.disabledInk)
-            .offset(y: editingOffset)
+            .offset(y: isEditing ? 1 : 0)
             // Center the native editor at its intrinsic height inside the field background.
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, PisyaDesign.Spacing.related)
@@ -198,6 +223,7 @@ struct AccentIconStyle: ButtonStyle {
             .modifier(ControlFocusFill())
             .brightness(enabled && configuration.isPressed ? -0.05 : 0)
             .focusEffectDisabled()
+            .pointingHandCursor()
     }
 }
 
@@ -206,6 +232,7 @@ private struct PlainControlStyle: ButtonStyle {
         configuration.label.modifier(ControlFocusFill())
             .brightness(configuration.isPressed ? -0.05 : 0)
             .focusEffectDisabled()
+            .pointingHandCursor()
     }
 }
 

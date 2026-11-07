@@ -57,7 +57,7 @@ struct LibrarySidebar: View {
 
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
                         .plainSelection(state.selection == meeting.id)
-                        .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.id(meeting.id)
+                        .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.pointingHandCursor().id(meeting.id)
                         .accessibilityAddTraits(state.selection == meeting.id ? .isSelected : [])
                         .accessibilityAction { state.select(meeting.id) }
                         .popupContextMenu(onOpen: {
@@ -181,7 +181,7 @@ struct NameEditor: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading(title, style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                TextField("Название", text: $name).textFieldStyle(PisyaTextFieldStyle()).focused($focused).onSubmit { submit() }
+                TextField("Название", text: $name).textFieldStyle(PisyaTextFieldStyle(isEditing: focused)).focused($focused).onSubmit { submit() }
             }
             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction); Spacer(); screenButton("Сохранить") { submit() }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
         }.dialogContent().frame(width: 420).onAppear { name = initial; focused = true }
@@ -213,7 +213,7 @@ struct FolderEditor: View {
             SectionHeading(folder == nil ? "Новая папка" : "Изменить папку", style: .dialog)
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Image(systemName: symbol).font(PisyaDesign.Typography.Icon.medium).foregroundStyle(Color.ink).frame(width: 32, height: 32)
-                TextField("Название папки", text: $name).textFieldStyle(PisyaTextFieldStyle()).focused($nameFocused).onSubmit { submit() }
+                TextField("Название папки", text: $name).textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused)).focused($nameFocused).onSubmit { submit() }
             }
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
             screenText("Иконка папки").textStyle(PisyaDesign.Typography.detailMedium).foregroundStyle(Color.mutedInk)

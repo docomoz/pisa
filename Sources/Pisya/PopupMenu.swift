@@ -22,6 +22,7 @@ struct NativeActionMenu<Label: View>: View {
         let menu = nativeActionMenu(items: items(), minimumWidth: anchor.bounds.width)
         let location = NSPoint(x: anchor.bounds.minX, y: anchor.bounds.minY - PisyaDesign.Spacing.compact)
         menu.popUp(positioning: nil, at: location, in: anchor)
+        restorePointingCursor(over: anchor)
     }
 
     private struct Anchor: NSViewRepresentable {
@@ -31,13 +32,42 @@ struct NativeActionMenu<Label: View>: View {
     }
 }
 
+private func restorePointingCursor(over view: NSView) {
+    guard NSApp.isActive, let window = view.window else { return }
+    let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+    if view.bounds.intersection(view.visibleRect).contains(point) { NSCursor.pointingHand.set() }
+}
+
 func nativeActionMenu(items: [NSMenuItem], minimumWidth: CGFloat = 0) -> NSMenu {
-    let menu = NSMenu()
+    let menu = PointingActionMenu()
     menu.autoenablesItems = false
     menu.showsStateColumn = false
     menu.minimumWidth = minimumWidth
     menu.items = items
     return menu
+}
+
+private final class PointingActionMenu: NSMenu, NSMenuDelegate {
+    init() {
+        super.init(title: "")
+        delegate = self
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        // Keyboard selection must not change the cursor under a stationary mouse.
+        if NSApp.currentEvent?.type == .keyDown { return }
+        if let item, item.isEnabled, !item.isSeparatorItem {
+            NSCursor.pointingHand.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if NSCursor.current == NSCursor.pointingHand { NSCursor.arrow.set() }
+    }
 }
 
 final class NativeActionMenuItem: NSMenuItem {
@@ -153,6 +183,7 @@ private struct SecondaryClickObserver: NSViewRepresentable {
             guard window != nil else { return }
             onOpen()
             nativeActionMenu(items: items()).popUp(positioning: nil, at: point, in: self)
+            restorePointingCursor(over: self)
         }
 
         override func viewDidMoveToWindow() {

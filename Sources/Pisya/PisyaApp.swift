@@ -43,16 +43,16 @@ struct PisyaApp: App {
                     }
                     let paragraph = NSMutableParagraphStyle()
                     paragraph.alignment = .center; paragraph.paragraphSpacing = PisyaDesign.Spacing.inline
-                    let credits = "Максим Берёзкин\nmaxim@berezkin.ru\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
+                    let credits = "Максим Берёзкин\nt.me/docomoz\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
                     let attributedCredits = NSMutableAttributedString(string: credits, attributes: [
                         .font: AppTypography.credits,
                         .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
                     ])
                     attributedCredits.addAttributes([
-                        .link: URL(string: "mailto:maxim@berezkin.ru")!,
+                        .link: URL(string: "https://t.me/docomoz")!,
                         .foregroundColor: NSColor(Color.moss),
                         .underlineStyle: NSUnderlineStyle.single.rawValue
-                    ], range: (credits as NSString).range(of: "maxim@berezkin.ru"))
+                    ], range: (credits as NSString).range(of: "t.me/docomoz"))
                     options[.credits] = attributedCredits
                     NSApp.orderFrontStandardAboutPanel(options: options)
                 }
