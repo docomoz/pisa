@@ -127,4 +127,4 @@ Pisya не удаляет аудио автоматически. Удалить
 
 ## Автор
 
-Максим Берёзкин · [maxim@berezkin.ru](mailto:maxim@berezkin.ru)
+Максим Берёзкин · [t.me/docomoz](https://t.me/docomoz)
