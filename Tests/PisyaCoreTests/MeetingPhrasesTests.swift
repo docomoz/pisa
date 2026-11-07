@@ -40,6 +40,23 @@ final class MeetingPhrasesTests: XCTestCase {
         XCTAssertEqual(seen.count, MeetingPhraseGenerator.curated.count)
     }
 
+    func testConsecutivePhrasesVaryTheirOpeningWhenPossible() {
+        var generator = MeetingPhraseGenerator()
+        var remaining = Set(MeetingPhraseGenerator.curated)
+        var previousOpening: String?
+        for _ in MeetingPhraseGenerator.curated {
+            let phrase = generator.next()
+            let opening = String(phrase.split(whereSeparator: \.isWhitespace).first ?? "").lowercased().trimmingCharacters(in: .punctuationCharacters)
+            if let previousOpening, remaining.contains(where: { candidate in
+                String(candidate.split(whereSeparator: \.isWhitespace).first ?? "").lowercased().trimmingCharacters(in: .punctuationCharacters) != previousOpening
+            }) {
+                XCTAssertNotEqual(opening, previousOpening, phrase)
+            }
+            remaining.remove(phrase)
+            previousOpening = opening
+        }
+    }
+
     func testReviewedPhrasesHaveNoTrailingFullStop() {
         for phrase in MeetingPhraseGenerator.curated {
             XCTAssertFalse(phrase.hasSuffix("."), phrase)

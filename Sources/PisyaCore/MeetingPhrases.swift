@@ -18,9 +18,20 @@ public struct MeetingPhraseGenerator {
                 curatedDeck.swapAt(0, curatedDeck.count - 1)
             }
         }
+        if let lastCurated {
+            let previousOpening = Self.openingWord(lastCurated)
+            if let index = curatedDeck.lastIndex(where: { Self.openingWord($0) != previousOpening }) {
+                curatedDeck.swapAt(index, curatedDeck.count - 1)
+            }
+        }
         let phrase = curatedDeck.removeLast()
         lastCurated = phrase
         return phrase
+    }
+
+    private static func openingWord(_ phrase: String) -> String {
+        String(phrase.split(whereSeparator: \.isWhitespace).first ?? "")
+            .lowercased().trimmingCharacters(in: .punctuationCharacters)
     }
 
     // Полные реплики отредактированы целиком, чтобы шутка не зависела от случайной склейки.
