@@ -96,3 +96,5 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 .feature-grid article:nth-child(3) .number-animate{animation-delay:.24s}
 @keyframes number-arrive{from{opacity:.45;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.feature-number.number-animate{animation:none}}
+
+@media(max-width:480px){.feature-grid p span,.mcp-lead span,.mcp-prompts li span,.mcp-details p span{display:block}.mcp-flow strong{white-space:nowrap}.copy{min-height:44px;padding:0 4px;font-size:13px}}
