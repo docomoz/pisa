@@ -584,6 +584,7 @@ private struct TranscriptionProgress: View {
 }
 
 private struct SegmentEditor: View {
+    @Environment(\.appTextScale) private var textScale
     @FocusState private var speakerFocused: Bool
     @State var segment: TranscriptSegment
     var save: (TranscriptSegment) -> Void
@@ -592,8 +593,9 @@ private struct SegmentEditor: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading("Исправить реплику", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+                // At larger sizes this field editor is already aligned with the inactive text.
                 TextField("Участник", text: $segment.speaker)
-                    .textFieldStyle(PisyaTextFieldStyle(isEditing: speakerFocused)).focused($speakerFocused)
+                    .textFieldStyle(PisyaTextFieldStyle(isEditing: speakerFocused && textScale <= 1)).focused($speakerFocused)
                 FormTextEditor(text: $segment.text)
             }
             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Отмена") { dismiss() }.actionButton(); Spacer(); screenButton("Сохранить") { save(segment) }.actionButton(.primary) }
