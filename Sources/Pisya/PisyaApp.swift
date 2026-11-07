@@ -156,6 +156,7 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
     func showStatusMenu() { statusController?.showMenu() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppUpdates.shared.start()
+        Analytics.appLaunched()
         if let url = Bundle.main.url(forResource: "PisyaPlain", withExtension: "icns") {
             NSApp.applicationIconImage = NSImage(contentsOf: url)
         }
@@ -163,6 +164,9 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
             // Start without highlighting a toolbar action; Tab still enables keyboard navigation.
             NSApp.windows.first(where: { $0.canBecomeMain })?.makeFirstResponder(nil)
         }
+    }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        Analytics.appActivated()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

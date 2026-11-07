@@ -137,6 +137,29 @@ final class BackchannelLanguageTests: XCTestCase {
         }
     }
 
+    func testMixedFillerChainsKeepRussianWordsAndSentencePunctuation() {
+        let russian = segment(79, "Теперь обсудим следующий вопрос проекта")
+        let english = segment(79, "Let us discuss the next question")
+        for (original, expected) in [
+            ("Uh huh. Да.", "Угу. Да."),
+            ("Да, uh-huh! Хм? Okay…", "Да, угу! Хм? Окей…"),
+            ("Hmm. Угу, yeah?", "Хм. Угу, да?"),
+            ("Да. Uh. Huh?", "Да. Аааа. А?"),
+        ] {
+            let short = segment(75, original)
+            XCTAssertFalse(BackchannelLanguage.shouldRecheck(original, duration: 1))
+            XCTAssertEqual(BackchannelLanguage.resolve([short, russian], alternatives: [:], preceding: [])[0].text, expected)
+            XCTAssertEqual(BackchannelLanguage.resolve([short, english], alternatives: [:], preceding: [])[0].text, original)
+            XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: [:], preceding: [])[0].text, original)
+        }
+        for original in ["Да, Uh huh, John.", "Угу. Please continue.", "«Uh huh». Да.", "Да. Хм!"] {
+            let short = segment(75, original)
+            XCTAssertEqual(BackchannelLanguage.resolve([short, russian], alternatives: [:], preceding: [])[0].text, original)
+        }
+        let protected = segment(75, "Uh huh. Да.")
+        XCTAssertEqual(BackchannelLanguage.resolve([protected, russian], alternatives: [:], preceding: [], vocabulary: "Uh huh")[0].text, protected.text)
+    }
+
     func testNearbyShortEnglishSentenceOutweighsOlderRussianSpeech() {
         let russian = segment(0, "Теперь обсудим следующий вопрос проекта")
         let english = segment(10, "Are you ready?")

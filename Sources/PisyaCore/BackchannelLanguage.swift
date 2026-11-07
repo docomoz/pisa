@@ -22,10 +22,13 @@ enum BackchannelLanguage {
     ]
     private static let literalMarks = try! NSRegularExpression(pattern:
         #"[/\\`"«»“”‘~@]|(?<![A-Za-z])['’]|['’](?![A-Za-z])|(?<=[A-Za-z])\.(?=[A-Za-z])"#)
+    private static let fillerWords = try! NSRegularExpression(pattern: #"\p{L}+"#)
 
     static func shouldRecheck(_ text: String, duration: Double) -> Bool {
         guard duration <= 3, !containsLiteralMarks(text) else { return false }
         let words = RussianRecognition.words(text)
+        // Mixed filler chains need spelling edits that retain the Russian reply.
+        if words.contains(where: russianFillers.contains) { return false }
         if fillerSpelling(words) != nil { return true }
         return (1...3).contains(words.count) && words.joined().unicodeScalars.allSatisfy {
             (0x61...0x7A).contains($0.value)
@@ -101,6 +104,38 @@ enum BackchannelLanguage {
 
     private static func localizedFiller(_ text: String) -> String? {
         guard let spelling = russianSpelling(ofFiller: text) else { return nil }
+        let words = RussianRecognition.words(text)
+        guard words.contains(where: { fillerSpellings[$0] != nil }) else { return nil }
+        if words.contains(where: russianFillers.contains) {
+            let matches = fillerWords.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            let source = text as NSString
+            let result = NSMutableString(string: text)
+            var edits: [(NSRange, String)] = []
+            var index = 0
+            while index < matches.count {
+                let current = matches[index].range
+                let word = source.substring(with: current)
+                var range = current
+                var replacement = fillerSpellings[word.lowercased()]
+                if index + 1 < matches.count {
+                    let next = matches[index + 1].range
+                    let separator = source.substring(with: NSRange(location: NSMaxRange(current), length: next.location - NSMaxRange(current)))
+                    let pair = word.lowercased() + " " + source.substring(with: next).lowercased()
+                    if separator.allSatisfy({ $0.isWhitespace || "-‐‑".contains($0) }), let paired = fillerSpellings[pair] {
+                        range = NSUnionRange(current, next)
+                        replacement = paired
+                        index += 1
+                    }
+                }
+                if let replacement {
+                    let cased = word.first?.isUppercase == true ? replacement.prefix(1).uppercased() + replacement.dropFirst() : replacement
+                    edits.append((range, cased))
+                }
+                index += 1
+            }
+            for (range, replacement) in edits.reversed() { result.replaceCharacters(in: range, with: replacement) }
+            return result as String
+        }
         let punctuation = text.trimmingCharacters(in: .whitespacesAndNewlines).reversed().prefix { ".!?…".contains($0) }
         return spelling.prefix(1).uppercased() + spelling.dropFirst() + String(punctuation.reversed())
     }
@@ -124,7 +159,7 @@ enum BackchannelLanguage {
                 spellings.append(spelling)
                 index += 2
             } else {
-                guard let spelling = fillerSpellings[words[index]] else { return nil }
+                guard let spelling = fillerSpellings[words[index]] ?? (russianFillers.contains(words[index]) ? words[index] : nil) else { return nil }
                 spellings.append(spelling)
                 index += 1
             }

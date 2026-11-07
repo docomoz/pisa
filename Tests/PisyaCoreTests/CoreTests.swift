@@ -1,6 +1,12 @@
 import XCTest
 @testable import PisyaCore
 final class CoreTests: XCTestCase {
+    func testVoiceNameSuggestionsCombineSavedAndMeetingNamesWithoutCaseDuplicates() {
+        XCTAssertEqual(voiceNameSuggestions(query: "артем", meetingNames: ["артём Смирнов", "Артём Петров", "Спикер 1"], savedNames: ["Артём Смирнов", "МАРТА"]), ["Артём Смирнов", "Артём Петров"])
+        XCTAssertEqual(voiceNameSuggestions(query: " СМИР", meetingNames: [], savedNames: ["Артём Смирнов", "Анна"]), ["Артём Смирнов"])
+        XCTAssertTrue(voiceNameSuggestions(query: "  ", meetingNames: ["Артём"], savedNames: []).isEmpty)
+        XCTAssertTrue(voiceNameSuggestions(query: "Артём", meetingNames: [], savedNames: ["Артём"]).isEmpty)
+    }
     func testTranscriptSearchFindsEveryCaseInsensitiveSubstring() {
         let text = "😀 Смерцы, СМЕРЦЫ и смерцы"
         let ranges = transcriptSearchRanges(in: text, query: "смер")

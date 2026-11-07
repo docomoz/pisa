@@ -24,8 +24,80 @@ enum RecognitionQualityTests {
         var diagnostics: Bool?
     }
 
+    private struct ReplayEnvelope: Decodable {
+        let replay: Replay
+    }
+    private struct Replay: Decodable {
+        struct Interval: Decodable {
+            let start: Double
+            let end: Double
+        }
+        let meeting: Meeting
+        let vocabulary: String
+        let audioDirectory: String?
+        let targets: [UUID]
+        let fileLocalBounds: [String: Interval]?
+        let repeatFirstPass: Bool?
+    }
+
+    @MainActor private static func replay(_ request: Replay, root: URL, modelDirectory: URL) async throws {
+        let began = Date()
+        let meeting = request.meeting
+        let targetIDs = Set(request.targets)
+        let names = Set(meeting.segments.compactMap(\.audioFile))
+        let audio = request.audioDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? root.appendingPathComponent("Audio", isDirectory: true)
+        guard !targetIDs.isEmpty, targetIDs.count <= 20,
+              targetIDs.isSubset(of: Set(meeting.segments.map(\.id))),
+              meeting.segments.filter({ targetIDs.contains($0.id) }).allSatisfy({ $0.audioFile != nil }),
+              names.allSatisfy({ !$0.isEmpty && !$0.contains("/") && !$0.contains("..") }) else {
+            throw PisyaError.message("Invalid contextual replay")
+        }
+        let files = names.sorted().map { name in (audio.appendingPathComponent(name), meeting.audioOffsets[name] ?? 0) }
+        var supplied: [UUID: Range<Double>] = [:]
+        for (key, interval) in request.fileLocalBounds ?? [:] {
+            guard let id = UUID(uuidString: key), interval.start.isFinite, interval.end.isFinite,
+                  interval.start >= 0, interval.end > interval.start, interval.end - interval.start <= 32 else {
+                throw PisyaError.message("Invalid contextual replay bounds")
+            }
+            supplied[id] = interval.start..<interval.end
+        }
+        let transcriber = Transcriber()
+        let result = try await transcriber.replayRecognitionContext(meeting.segments, files: files,
+            modelDirectory: modelDirectory, speakerDirectory: root.appendingPathComponent("Models/Speakers"),
+            vocabulary: request.vocabulary, selected: targetIDs, suppliedBounds: supplied,
+            repeatFirstPass: request.repeatFirstPass ?? true)
+        let segments = result.filter { targetIDs.contains($0.id) }
+        let diagnostics = await transcriber.recognitionContextDiagnostics()
+        try emit(name: meeting.id.uuidString, mode: "context-replay",
+            text: segments.map(\.text).joined(separator: " "), seconds: Date().timeIntervalSince(began), extra: [
+                "segments": segments.map { ["id": $0.id.uuidString, "start": $0.start, "end": $0.end, "text": $0.text] },
+                "contextDiagnostics": diagnostics,
+                "boundsSource": supplied.isEmpty ? "estimated_from_saved_segments" : "supplied_where_available",
+                "contextSource": "frozen_snapshot",
+            ])
+    }
+
     @MainActor static func run() async throws {
-        let request = try JSONDecoder().decode(Request.self, from: FileHandle.standardInput.readDataToEndOfFile())
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        let userRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisya")
+        let preferencesURL = userRoot.appendingPathComponent("preferences.json")
+        let preferences = FileManager.default.fileExists(atPath: preferencesURL.path)
+            ? try JSONDecoder().decode(Preferences.self, from: Data(contentsOf: preferencesURL)) : Preferences()
+        let directory: URL
+        if let bookmark = preferences.modelBookmark {
+            var stale = false
+            directory = try URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &stale)
+        } else { directory = userRoot.appendingPathComponent("Models/Qwen3-ASR") }
+        let granted = directory.startAccessingSecurityScopedResource()
+        defer { if granted { directory.stopAccessingSecurityScopedResource() } }
+        if CommandLine.arguments.contains("--recognition-context-replay") {
+            let request = try JSONDecoder().decode(ReplayEnvelope.self, from: data)
+            try await replay(request.replay, root: userRoot, modelDirectory: directory)
+            print("RECOGNITION_QUALITY_OK")
+            return
+        }
+        let request = try JSONDecoder().decode(Request.self, from: data)
         let modes = Set(["pipeline", "acoustic", "auto", "russian", "unpenalized", "russian-unpenalized"])
         guard !request.fixtures.isEmpty, request.modes.allSatisfy(modes.contains),
               request.fixtures.allSatisfy({ !$0.samples.isEmpty && $0.samples.count <= 16000 * 120 && $0.samples.allSatisfy(\.isFinite) }),
@@ -38,17 +110,6 @@ enum RecognitionQualityTests {
               !request.modes.contains("acoustic") || request.fixtures.allSatisfy({ $0.samples.count <= 16000 * 30 }) else {
             throw PisyaError.message("Invalid recognition fixtures or modes")
         }
-        let userRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisya")
-        let preferencesURL = userRoot.appendingPathComponent("preferences.json")
-        let preferences = FileManager.default.fileExists(atPath: preferencesURL.path)
-            ? try JSONDecoder().decode(Preferences.self, from: Data(contentsOf: preferencesURL)) : Preferences()
-        let directory: URL
-        if let bookmark = preferences.modelBookmark {
-            var stale = false
-            directory = try URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-        } else { directory = userRoot.appendingPathComponent("Models/Qwen3-ASR") }
-        let granted = directory.startAccessingSecurityScopedResource()
-        defer { if granted { directory.stopAccessingSecurityScopedResource() } }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-recognition-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: root) }

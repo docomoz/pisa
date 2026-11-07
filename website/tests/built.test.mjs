@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import worker from '../dist/server/index.js';
+import { measurementIdFromConfig } from '../scripts/analytics-config.mjs';
 
 const request = (path, method = 'GET') => new Request(`https://pisya.example${path}`, { method });
 test('the built Worker serves the page and its assets', async () => {
@@ -36,4 +38,11 @@ test('download buttons lead to the installation steps, where the DMG is availabl
   assert.match(page, /id="install-guide"/);
   assert.match(page, /href="\/download">Скачайте DMG<\/a>/);
   assert.match(page, /xattr -dr com\.apple\.quarantine/);
+});
+test('the built page uses the configured measurement ID', async () => {
+  const config = JSON.parse(await readFile(new URL('../analytics.json', import.meta.url), 'utf8'));
+  const id = measurementIdFromConfig(config);
+  const page = await (await worker.fetch(request('/'), {}, {})).text();
+  const meta = page.match(/<meta name="pisya-ga-measurement-id" content="([^"]+)">/);
+  assert.equal(meta?.[1] ?? '', id);
 });

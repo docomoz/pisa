@@ -115,6 +115,8 @@ struct ModelSetupView: View {
                 item("waveform", "Речь и участники", "Русский и английский · локальная обработка")
                 Divider().opacity(0.5)
                 item("internaldrive", "Около 3 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
+                Divider().opacity(0.5)
+                item("chart.bar", "Статистика использования", "События без аудио и текста · можно отключить в настройках")
             }.padding(PisyaDesign.Spacing.content).plainSurface().padding(.bottom, PisyaDesign.Spacing.section)
             if setup.busy {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
@@ -133,7 +135,7 @@ struct ModelSetupView: View {
             } else if let error = setup.error {
                 screenText(error).textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
             } else {
-                screenLabel(setup.ready ? "Можно начинать" : "Интернет понадобится только для загрузки", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
+                screenLabel(setup.ready ? "Можно начинать" : "Модели загрузятся из интернета", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
                     .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
             }
             HStack(spacing: PisyaDesign.Spacing.related) {

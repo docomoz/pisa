@@ -54,6 +54,13 @@ final class InterfacePreview: NSObject {
         appMenu.addItem(withTitle: "Завершить просмотр", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         menu.addItem(appItem)
+        let editItem = NSMenuItem(title: "Правка", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "Правка")
+        editMenu.addItem(withTitle: "Скопировать", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Вставить", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Выделить всё", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
         let reviewItem = NSMenuItem(title: "Просмотр", action: nil, keyEquivalent: "")
         let reviewMenu = NSMenu()
         for (index, title) in ["Главный экран", "Расшифровка", "Настройки", "Пустой список голосов", "Список голосов", "Первая настройка", "Модели готовы", "Проверка моделей", "Загрузка моделей", "Ошибка загрузки", "Окно 1200 × 800", "Окно 980 × 660"].enumerated() {

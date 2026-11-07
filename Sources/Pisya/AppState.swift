@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     @Published var newFolderMeeting: Meeting?
     @Published var voiceMeeting: Meeting?
     @Published var reprocessTarget: Meeting?
+    private var termReplacementUndo: [UUID: (before: [UUID: String], after: [UUID: String])] = [:]
     private var searchIndex: [UUID: String] = [:]
     @Published var preferences = Preferences()
     @Published var search = ""
@@ -69,6 +70,7 @@ final class AppState: ObservableObject {
     var recordingMeetingID: UUID? { recording ? activeMeeting?.id : nil }
     var savingMeetingID: UUID? { recording ? nil : activeMeeting?.id }
     private var automaticallyStarted = false
+    private var recordingStartedAutomatically = false
     @Published private var pending: [UUID] = []
     private var pendingReprocessing: Set<UUID> = []
     var selected: Meeting? { meetings.first { $0.id == selection } }
@@ -179,7 +181,10 @@ final class AppState: ObservableObject {
         guard canEmptyTrash else { return }
         stopPlayback()
         do {
-            for m in meetings where m.deletedAt != nil { try library.purgeTrashed(m.id) }
+            for m in meetings where m.deletedAt != nil {
+                try library.purgeTrashed(m.id)
+                termReplacementUndo[m.id] = nil
+            }
         } catch { message = error.localizedDescription }
         do {
             meetings = try library.all(includeDeleted: true)
@@ -313,6 +318,8 @@ final class AppState: ObservableObject {
             try library.save(m)
             try await capture.start(folder: library.audioDirectory, id: m.id)
             activeMeeting = m; recording = true; recordingStarted = Date(); automaticallyStarted = automatic
+            recordingStartedAutomatically = automatic
+            Analytics.recordingStarted(automatic: automatic)
             recordingMonitor.reset()
             meterTask = Task { [weak self] in
                 while !Task.isCancelled {
@@ -345,7 +352,7 @@ final class AppState: ObservableObject {
             if runLive, let model = modelURL() {
                 livePaused = false; liveStopped = false; liveStatus = "Готовлю черновик"
                 processingID = m.id
-                liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: m.id, model: model) }
+                liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: m.id, model: model, mode: "live", reprocess: false) }
             }
         } catch {
             if runLive { processingID = nil; runNext() }
@@ -372,6 +379,7 @@ final class AppState: ObservableObject {
             m.audioFiles = result.files; m.audioOffsets = result.offsets; m.duration = result.duration
             guard !result.files.isEmpty else { throw PisyaError.message("Звук не получен. Проверьте разрешения и выбранное приложение") }
             try library.save(m); upsert(m)
+            Analytics.recordingSaved(duration: m.duration, automatic: recordingStartedAutomatically)
             if let warning = result.warning { message = warning }
             if liveTask != nil && processingID == m.id {
                 liveStopped = true
@@ -403,11 +411,13 @@ final class AppState: ObservableObject {
                 let name = "\(m.id.uuidString)-import.\(url.pathExtension)"
                 try FileManager.default.copyItem(at: url, to: library.audioURL(name))
                 m.audioFiles = [name]; try library.save(m); upsert(m); selection = m.id
+                Analytics.audioImported(duration: m.duration)
                 if modelReady { enqueue(m.id) }
             } catch { message = error.localizedDescription }
         }
     }
-    private func runLiveTranscription(id: UUID, model: URL) async {
+    private func runLiveTranscription(id: UUID, model: URL, mode: String, reprocess: Bool) async {
+        Analytics.transcriptionStarted(mode: mode, reprocess: reprocess)
         let granted = model.startAccessingSecurityScopedResource()
         var schedule = LiveTranscriptionSchedule(committed: (try? library.read(id).liveCommittedUntil) ?? 0)
         var failedDuringCapture = false
@@ -466,6 +476,7 @@ final class AppState: ObservableObject {
                         latest.duration = max(latest.duration, available)
                         latest.status = .ready; latest.error = nil; latest.liveCommittedUntil = nil
                         try library.save(latest); upsert(latest)
+                        Analytics.transcriptionCompleted(mode: mode, reprocess: reprocess, duration: latest.duration)
                         await nameCompletedMeeting(id, exportOnCompletion: true)
                         break
                     }
@@ -511,6 +522,7 @@ final class AppState: ObservableObject {
                 }
             }
         } catch {
+            Analytics.transcriptionFailed(mode: mode, cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
             var latest = (try? library.read(id))
             latest?.status = .failed
             latest?.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено" : error.localizedDescription
@@ -565,7 +577,7 @@ final class AppState: ObservableObject {
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }
             upsert(m); processingID = id; progress = 0
             liveStopped = true; livePaused = false; liveStatus = "Подготавливаю аудио"
-            liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model) }
+            liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model, mode: "resume", reprocess: reprocess) }
             return
         }
         let granted = model.startAccessingSecurityScopedResource()
@@ -573,6 +585,7 @@ final class AppState: ObservableObject {
         do { try library.save(m) } catch { message = error.localizedDescription; if granted { model.stopAccessingSecurityScopedResource() }; return }
         isReprocessing = reprocess
         upsert(m); processingID = id; progress = 0
+        Analytics.transcriptionStarted(mode: "batch", reprocess: reprocess)
         let vocabulary = preferences.vocabulary
         processingTask = Task(priority: .utility) {
             defer {
@@ -590,7 +603,11 @@ final class AppState: ObservableObject {
                 var persisted = false
                 defer { if !persisted { for url in generated { try? FileManager.default.removeItem(at: url) } } }
                 try Task.checkCancellation()
-                var latest = try library.read(id)
+                var latest = try await ProtectedFileRead.waitForAccess(read: {
+                    try library.read(id)
+                }, onDenied: {
+                    updateProcessingProgress(1, "Жду доступа к записи")
+                })
                 latest.segments = result; latest.status = .ready; latest.error = nil
                 latest.liveCommittedUntil = nil
                 let referenced = Set(result.compactMap(\.audioFile))
@@ -606,12 +623,14 @@ final class AppState: ObservableObject {
                     }
                 }
                 try library.save(latest); persisted = true; upsert(latest)
+                Analytics.transcriptionCompleted(mode: "batch", reprocess: reprocess, duration: latest.duration)
                 await nameCompletedMeeting(id, exportOnCompletion: true)
                 let shared = Set(meetings.filter { $0.id != id }.flatMap(\.audioFiles))
                 for name in obsolete where !shared.contains(name) {
                     if let url = try? library.audioURL(name) { try? FileManager.default.removeItem(at: url) }
                 }
             } catch {
+                Analytics.transcriptionFailed(mode: "batch", cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
                 var latest = (try? library.read(id)) ?? m
                 latest.status = .failed; latest.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено" : error.localizedDescription
                 try? library.save(latest); upsert(latest)
@@ -781,6 +800,56 @@ final class AppState: ObservableObject {
         catch { try? FileManager.default.removeItem(at: url); throw error }
     }
     func cancelProcessing() { processingTask?.cancel(); if processingID != recordingMeetingID { liveTask?.cancel() } }
+    func canReviewTerms(_ meeting: Meeting) -> Bool {
+        meeting.status == .ready && meeting.liveCommittedUntil == nil && meeting.deletedAt == nil &&
+            !meeting.segments.isEmpty && canModify(meeting)
+    }
+    func replaceTerms(_ occurrences: [TermOccurrence], with replacement: String, meetingID: UUID) throws {
+        guard var meeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(meeting),
+              let updated = TranscriptTerms.replacing(occurrences, with: replacement, in: meeting.segments) else {
+            throw PisyaError.message("Не удалось применить замену. Проверьте написание и выберите вхождения заново")
+        }
+        var before: [UUID: String] = [:]
+        var after: [UUID: String] = [:]
+        for (original, edited) in zip(meeting.segments, updated) where original.text != edited.text {
+            before[original.id] = original.text
+            after[original.id] = edited.text
+        }
+        guard !before.isEmpty else { return }
+        meeting.segments = updated
+        try library.save(meeting)
+        termReplacementUndo[meetingID] = (before, after)
+        upsert(meeting)
+        exportIfConfigured(meeting)
+    }
+    func canUndoTermReplacement(meetingID: UUID) -> Bool {
+        guard let undo = termReplacementUndo[meetingID],
+              let meeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(meeting) else { return false }
+        return meeting.segments.filter { undo.after[$0.id] == $0.text }.count == undo.after.count
+    }
+    func undoTermReplacement(meetingID: UUID) throws {
+        guard canUndoTermReplacement(meetingID: meetingID), let undo = termReplacementUndo[meetingID],
+              var meeting = meetings.first(where: { $0.id == meetingID }) else {
+            throw PisyaError.message("Расшифровка изменилась. Последнюю замену уже нельзя отменить")
+        }
+        for index in meeting.segments.indices {
+            if let original = undo.before[meeting.segments[index].id] { meeting.segments[index].text = original }
+        }
+        try library.save(meeting)
+        termReplacementUndo[meetingID] = nil
+        upsert(meeting)
+        exportIfConfigured(meeting)
+    }
+    func addRecognitionTerm(_ term: String) throws {
+        guard !demo else { return }
+        var updated = preferences
+        updated.vocabulary = TranscriptTerms.adding(term, to: preferences.vocabulary)
+        guard updated.vocabulary != preferences.vocabulary else {
+            throw PisyaError.message("Введите один новый термин без запятых и точек с запятой")
+        }
+        try library.savePreferences(updated)
+        preferences = updated
+    }
     func update(_ value: Meeting) {
         var meeting = value
         if let previous = meetings.first(where: { $0.id == meeting.id }) {
