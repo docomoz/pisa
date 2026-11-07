@@ -12,6 +12,8 @@ struct TermReview: View {
     @State private var occurrences: [TermOccurrence] = []
     @State private var replacement = ""
     @State private var notice: String?
+    @FocusState private var replacementFocused: Bool
+    @State private var lastReplacement: (source: String, replacement: String)?
 
     private var currentMeeting: Meeting? {
         state.meetings.first { $0.id == meeting.id && state.canReviewTerms($0) }
@@ -42,6 +44,7 @@ struct TermReview: View {
         }
         .dialogContent()
         .frame(width: 940, height: 660)
+        .background(ClickToUnfocus())
         .onAppear { refresh() }
         .onChange(of: currentMeeting?.segments) { refresh() }
         .onChange(of: state.preferences.vocabulary) { refreshCandidates() }
@@ -99,6 +102,7 @@ struct TermReview: View {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                     SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)»")
                     TextField("Термин", text: $replacement).textFieldStyle(PisyaTextFieldStyle())
+                        .focused($replacementFocused)
                         .accessibilityLabel("Правильное написание")
                         .onSubmit(replace)
                     HStack(spacing: PisyaDesign.Spacing.inline) {
@@ -202,7 +206,14 @@ struct TermReview: View {
         let chosen = occurrences.filter { $0.text != term }
         guard !chosen.isEmpty else { return }
         do {
-            try state.replaceTerms(chosen, with: term, meetingID: meeting.id)
+            let corrected = term
+            let original = source
+            try state.replaceTerms(chosen, with: corrected, meetingID: meeting.id)
+            if let original { lastReplacement = (original, corrected) }
+            source = corrected
+            replacement = corrected
+            replacementFocused = false
+            refresh()
             notice = "Исправлено: \(chosen.count)"
         } catch { notice = error.localizedDescription }
     }
@@ -210,6 +221,12 @@ struct TermReview: View {
     private func undo() {
         do {
             try state.undoTermReplacement(meetingID: meeting.id)
+            if let lastReplacement, source == lastReplacement.replacement {
+                source = lastReplacement.source
+                replacement = lastReplacement.source
+            }
+            lastReplacement = nil
+            refresh()
             notice = "Исправление отменено"
         } catch { notice = error.localizedDescription }
     }
