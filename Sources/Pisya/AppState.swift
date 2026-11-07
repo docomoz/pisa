@@ -603,7 +603,11 @@ final class AppState: ObservableObject {
                 var persisted = false
                 defer { if !persisted { for url in generated { try? FileManager.default.removeItem(at: url) } } }
                 try Task.checkCancellation()
-                var latest = try library.read(id)
+                var latest = try await ProtectedFileRead.waitForAccess(read: {
+                    try library.read(id)
+                }, onDenied: {
+                    updateProcessingProgress(1, "Жду доступа к записи")
+                })
                 latest.segments = result; latest.status = .ready; latest.error = nil
                 latest.liveCommittedUntil = nil
                 let referenced = Set(result.compactMap(\.audioFile))

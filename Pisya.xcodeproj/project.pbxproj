@@ -121,6 +121,7 @@
 		D1626134BEE0985B1B54AC2F /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0403C059496E9F8503E765 /* LibrarySidebar.swift */; };
 		D2F70CEA6A01FA1EB8A392CF /* AudioCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09969B370892AC83AE29E503 /* AudioCaptureTests.swift */; };
 		DBE6A2C76D4D6B39614B9215 /* SpeechCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F852494DC52996CF94A6511 /* SpeechCoverage.swift */; };
+		DDCEB832A34FFCDC5A040E02 /* ProtectedFileRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8822DEDF9D01BADC5E326E0E /* ProtectedFileRead.swift */; };
 		E1BC92CB83D8D573A6EDDCB6 /* LivePipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */; };
 		E219EE33C83F56DC00C52B03 /* RecognitionConsensus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 974943B40E6FB9C93380F9B6 /* RecognitionConsensus.swift */; };
 		E2A607185C09E80CBC088D30 /* RecognitionPromptEcho.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70C618715D132036633A1545 /* RecognitionPromptEcho.swift */; };
@@ -132,6 +133,7 @@
 		F213075828582EAD1BCF4290 /* MCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D39C911B36F059AE59708CE /* MCP.swift */; };
 		F4A993E5341533A92DAA73E2 /* InterfacePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D29E4EB39C41317655BE91 /* InterfacePreview.swift */; };
 		F804956EE88327D1D77B375E /* BackchannelLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8D61AC350EC04C58CC6BCA /* BackchannelLanguage.swift */; };
+		FA49EB8C5F40C1FB9083C155 /* ProtectedFileRead.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8822DEDF9D01BADC5E326E0E /* ProtectedFileRead.swift */; };
 		FDF0A010239DC120D56CD1E0 /* RussianRecognition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E86CDF57C8B39BC9E0F902E /* RussianRecognition.swift */; };
 		FE488DEAE26E87E51EC22C24 /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15F1BA27798D440B4BD55F1 /* CaptureWindow.swift */; };
 		FEADC40A879F8C137986D832 /* LiveTranscriptionSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F65EBDA94C5680BD47C9F64 /* LiveTranscriptionSchedule.swift */; };
@@ -211,6 +213,7 @@
 		829890694CC528DAFC4CCB21 /* PCMRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMRead.swift; sourceTree = "<group>"; };
 		8434C08566169642C267590E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		86EAE0DD35522A2219AE9975 /* MeetingTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTitleTests.swift; sourceTree = "<group>"; };
+		8822DEDF9D01BADC5E326E0E /* ProtectedFileRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectedFileRead.swift; sourceTree = "<group>"; };
 		8B8D61AC350EC04C58CC6BCA /* BackchannelLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackchannelLanguage.swift; sourceTree = "<group>"; };
 		8C8B71D3AD84C48529FBC366 /* TranscriptOrthography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptOrthography.swift; sourceTree = "<group>"; };
 		8E1BA91977928C54281807B8 /* ScreenTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTypography.swift; sourceTree = "<group>"; };
@@ -287,6 +290,7 @@
 				A1BD15BAEA2D3ED5B6D8816C /* MeetingTitles.swift */,
 				B278DF62917E67995A9B0B57 /* ModelInstaller.swift */,
 				04715BFB01C5131C9A26F890 /* Models.swift */,
+				8822DEDF9D01BADC5E326E0E /* ProtectedFileRead.swift */,
 				ACF0AD03B747C71B6F0901C2 /* RecognitionAudioFocus.swift */,
 				974943B40E6FB9C93380F9B6 /* RecognitionConsensus.swift */,
 				F117C37E555BE81D64BC2D4B /* RecognitionContext.swift */,
@@ -597,6 +601,7 @@
 				7C215BE79833443DBC34DEF3 /* MeetingTitles.swift in Sources */,
 				A50422B5670055545EDF9F33 /* ModelInstaller.swift in Sources */,
 				08318E52F67D3E31293557AE /* Models.swift in Sources */,
+				FA49EB8C5F40C1FB9083C155 /* ProtectedFileRead.swift in Sources */,
 				2FD6837333011E07B17B2E2E /* RecognitionAudioFocus.swift in Sources */,
 				E97CFD9793727FDA8E9BD74A /* RecognitionConsensus.swift in Sources */,
 				A6946E2DC1ED00CFA0BB73FB /* RecognitionContext.swift in Sources */,
@@ -668,6 +673,7 @@
 				76C8F12E768DF0333089517A /* PCMRead.swift in Sources */,
 				31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */,
 				2061334A8B16D54A58F9663D /* PopupMenu.swift in Sources */,
+				DDCEB832A34FFCDC5A040E02 /* ProtectedFileRead.swift in Sources */,
 				B09AE513855EDB5C45707C9C /* RecognitionAudioFocus.swift in Sources */,
 				E219EE33C83F56DC00C52B03 /* RecognitionConsensus.swift in Sources */,
 				E67B7EFB990A41574A881C33 /* RecognitionContext.swift in Sources */,
