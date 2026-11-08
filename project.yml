@@ -4,6 +4,9 @@ options:
   deploymentTarget:
     macOS: '15.0'
 packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
   MLXAudio:
     path: Vendor/mlx-audio-swift
   MLXLanguage:
@@ -70,6 +73,7 @@ targets:
         product: MLXLLM
       - package: MLXLanguage
         product: MLXLMCommon
+      - package: Sparkle
     settings:
       base:
         SWIFT_OBJC_BRIDGING_HEADER: Resources/Bridge.h

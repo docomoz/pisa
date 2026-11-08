@@ -89,7 +89,7 @@ enum VoiceProfileTests {
             let embedding: [Float] = index == 0 ? [1, 0] : [0, 1]
             var profile = VoiceProfile(name: index == 0 ? "Анна" : index == 1 ? "Борис" : index == 2 ? "Екатерина Александровна с очень длинным именем для проверки переноса в списке сохранённых голосов" : "Участник \(index + 1)", samples: [embedding])
             var examples: [VoiceExample] = []
-            for _ in 0..<(index == 0 ? 10 : index == 3 ? 0 : 1) {
+            for _ in 0..<(index == 0 ? 10 : [1, 2, 0, 4][(index - 1) % 4]) {
                 let filename = UUID().uuidString + ".caf"
                 let file = try AVAudioFile(forWriting: folder.appendingPathComponent(filename), settings: format.settings)
                 try file.write(from: buffer); file.close()
@@ -110,7 +110,8 @@ enum VoiceProfileTests {
         if !CommandLine.arguments.contains("--empty") { try seed(state, count: 12) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Pisya · Голоса"
-        window.contentView = NSHostingView(rootView: SettingsView(initialSection: "Голоса").environmentObject(state).preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU")))
+        window.contentView = NSHostingView(rootView: SettingsView(initialSection: "Голоса").environmentObject(state).preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU"))
+            .environment(\.appTextScale, CommandLine.arguments.contains("--large-text-preview") ? 1.2 : 1))
         window.center(); window.makeKeyAndOrderFront(nil); app.activate(ignoringOtherApps: true)
         app.run()
     }

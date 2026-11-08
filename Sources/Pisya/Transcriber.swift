@@ -11,6 +11,7 @@ actor Transcriber {
     private var liveRussian: RussianSpeechRecognizer?
     private var recentLanguageSegments: [TranscriptSegment] = []
     private var previousLiveCacheLimit: Int?
+    private var activeShortDecodes = 0
     private var vocabularySource: String?
     private var spokenVocabulary = SpokenVocabulary("")
     private var contextDiagnostics: [[String: String]] = []
@@ -19,6 +20,27 @@ actor Transcriber {
     /// Used by the local synthetic integration fixture to check session reuse.
     func liveModelIdentity() -> ObjectIdentifier? { liveModel.map(ObjectIdentifier.init) }
     func liveRussianModelIdentity() -> ObjectIdentifier? { liveRussian.map(ObjectIdentifier.init) }
+    func shortDecodeIsActive() -> Bool { activeShortDecodes > 0 }
+
+    private func decodeShortMicrophone(_ model: Qwen3ASRModel, audio: MLXArray, maxTokens: Int) async throws -> STTOutput {
+        try Task.checkCancellation()
+        activeShortDecodes += 1
+        defer { activeShortDecodes -= 1 }
+        // The short streaming API preserves a missing language as nil, rather
+        // than substituting English. Drain it in an independent collector:
+        // cancellation must not release MLX state while its producer still runs.
+        let collector = Task<STTOutput, Error> {
+            var final: STTOutput?
+            for try await update in model.generateStream(audio: audio, maxTokens: maxTokens, context: "", language: nil, chunkDuration: 24, repetitionPenalty: 1.1) {
+                if case .result(let result) = update { final = result }
+            }
+            guard let final else { throw PisyaError.message("Распознавание не вернуло результат") }
+            return final
+        }
+        let result = try await collector.value
+        try Task.checkCancellation()
+        return result
+    }
 
     func finishLive() {
         liveModel = nil; liveActivity = nil; liveVoices = nil; liveRussian = nil
@@ -198,8 +220,8 @@ actor Transcriber {
                                 expandedSamples = expanded.map { Array(samples[$0]) }
                             } else { expandedSamples = nil }
                             let inferenceStarted = Date()
-                            let recognized = try recognize(regionSamples, expandedSamples: expandedSamples, model: model,
-                                russian: russian, vocabulary: context, duration: region.end - region.start)
+                            let recognized = try await recognize(regionSamples, expandedSamples: expandedSamples, model: model,
+                                russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic)
                             // Give the GPU cooling/foreground headroom between utterances.
                             let thermal = ProcessInfo.processInfo.thermalState
                             if quiet || thermal == .serious || thermal == .critical {
@@ -284,8 +306,9 @@ actor Transcriber {
                 guard selected.contains(segment.id) else { continue }
                 let samples = try Self.contextSamples(url, start: interval.lowerBound, end: interval.upperBound)
                 if repeatFirstPass,
-                   let recognized = try recognize(samples, expandedSamples: nil, model: model, russian: russian,
-                                                  vocabulary: vocabulary, duration: segment.end - segment.start) {
+                   let recognized = try await recognize(samples, expandedSamples: nil, model: model, russian: russian,
+                                                  vocabulary: vocabulary, duration: segment.end - segment.start,
+                                                  isMic: name.contains("-mic.")) {
                     segments[index].text = recognized.text
                     hypotheses[segment.id] = recognized.acoustic
                 } else {
@@ -571,7 +594,7 @@ actor Transcriber {
         return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
     }
 
-    private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: Qwen3ASRModel, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double) throws -> RecognizedSpeech? {
+    private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: Qwen3ASRModel, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool) async throws -> RecognizedSpeech? {
         let audio = MLXArray(samples)
         let maxTokens = min(768, max(64, Int(duration * 16)))
         // On brief replies the vocabulary can be longer than the speech itself.
@@ -585,12 +608,22 @@ actor Transcriber {
                                language: language, chunkDuration: 30, repetitionPenalty: 1.1)
             }
         }
-        let detected = try generate(language: nil, context: context)
+        let shortMic = isMic && duration <= 1.5
+        let detected: STTOutput
+        if shortMic {
+            detected = try await decodeShortMicrophone(model, audio: audio, maxTokens: maxTokens)
+        } else {
+            detected = try generate(language: nil, context: context)
+        }
         let language = detected.language?.lowercased()
         guard language != "none", !detected.text.isEmpty else { return nil }
         let allowed = language == "russian" || language == "english"
         let result: STTOutput
-        if !allowed || MeetingSpeechText.containsForeignLetters(detected.text) {
+        let retryLanguage = shortMic
+            ? !allowed && MicrophoneLanguage.shouldRetryRussian(duration: duration, language: detected.language,
+                languageIsExplicit: detected.language != nil, text: detected.text, supportedLanguages: model.config.supportLanguages)
+            : !allowed
+        if retryLanguage || MeetingSpeechText.containsForeignLetters(detected.text) {
             result = try generate(language: allowed ? detected.language : "Russian", context: "")
         } else {
             result = detected

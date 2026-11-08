@@ -1,19 +1,59 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-<key>CFBundleDevelopmentRegion</key><string>ru</string>
-<key>CFBundleLocalizations</key><array><string>ru</string></array>
-<key>CFBundleIconFile</key><string>PisyaPlain</string>
-<key>CFBundleName</key><string>Pisya</string>
-<key>CFBundleDisplayName</key><string>Pisya</string>
-<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.docomoz.pisya.transcript</string><key>CFBundleURLSchemes</key><array><string>pisya</string></array></dict></array>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.122</string>
-<key>CFBundleVersion</key><string>162</string>
-<key>LSMinimumSystemVersion</key><string>15.0</string>
-<key>NSMicrophoneUsageDescription</key><string>Pisya записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
-<key>NSAudioCaptureUsageDescription</key><string>Pisya записывает звук собеседников из приложения звонка для локальной расшифровки.</string>
-<key>NSHighResolutionCapable</key><true/>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>ru</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ru</string>
+	</array>
+	<key>CFBundleIconFile</key>
+	<string>PisyaPlain</string>
+	<key>CFBundleName</key>
+	<string>Pisya</string>
+	<key>CFBundleDisplayName</key>
+	<string>Pisya</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.docomoz.pisya.transcript</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pisya</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.4.124</string>
+	<key>CFBundleVersion</key>
+	<string>164</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pisya записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Pisya записывает звук собеседников из приложения звонка для локальной расшифровки</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/docomoz/pisya/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>g9qlO8D7mHG5qkvX0v9ZpnQb+0JZNfKXknt6no+XDrw=</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+</dict>
+</plist>

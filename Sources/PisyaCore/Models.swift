@@ -130,6 +130,19 @@ public func timecode(_ seconds: Double) -> String {
     return t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, (t % 3600) / 60, t % 60) : String(format: "%02d:%02d", t / 60, t % 60)
 }
 
+/// Finished sidebar entries use whole minutes, rounded up; live timers remain exact.
+public func sidebarDuration(_ seconds: Double) -> String {
+    guard seconds.isFinite else { return "—" }
+    guard seconds > 0 else { return "0\u{00A0}мин" }
+    let rounded = max(1, ceil(seconds / 60))
+    guard rounded < Double(Int.max) else { return "—" }
+    let minutes = Int(rounded)
+    let hours = minutes / 60, remainder = minutes % 60
+    if hours == 0 { return "\(minutes)\u{00A0}мин" }
+    if remainder == 0 { return "\(hours)\u{00A0}ч" }
+    return "\(hours)\u{00A0}ч\u{00A0}\(remainder)\u{00A0}мин"
+}
+
 /// Signal debouncing is independent of the UI, so muted/reconnect cases can be tested.
 public struct CallDetector: Sendable {
     public enum Action: Equatable, Sendable { case start, stop, none }

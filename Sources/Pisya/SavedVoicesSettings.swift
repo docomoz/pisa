@@ -4,14 +4,15 @@ struct SavedVoicesSettings: View {
     @EnvironmentObject var state: AppState
     @State private var renaming: VoiceProfile?
     @State private var forgetting: VoiceProfile?
+    @State private var selectedExamples: [UUID: UUID] = [:]
     @FocusState private var focusedControl: VoiceControl?
     var scrollTo: (UUID) -> Void
 
     private enum VoiceControl: Hashable {
-        case actions(UUID), sample(UUID, UUID)
+        case actions(UUID), sample(UUID, UUID), sampleMenu(UUID)
         var profileID: UUID {
             switch self {
-            case .actions(let id), .sample(let id, _): return id
+            case .actions(let id), .sample(let id, _), .sampleMenu(let id): return id
             }
         }
     }
@@ -75,8 +76,10 @@ struct SavedVoicesSettings: View {
                 .accessibilityHidden(true)
             screenText(profile.name)
                 .textStyle(PisyaDesign.Typography.bodyStrong)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .screenHelp(profile.name)
             if let examples = profile.examples, !examples.isEmpty {
                 sampleControls(examples, for: profile)
             } else {
@@ -107,21 +110,41 @@ struct SavedVoicesSettings: View {
     }
 
     private func sampleControls(_ examples: [VoiceExample], for profile: VoiceProfile) -> some View {
-        let columns = Array(repeating: GridItem(.fixed(120), spacing: PisyaDesign.Spacing.inline), count: min(examples.count, 3))
-        return LazyVGrid(columns: columns, spacing: PisyaDesign.Spacing.inline) {
-            ForEach(Array(examples.enumerated()), id: \.element.id) { index, example in
-                let playing = state.playingSegmentID == example.id
-                let title = examples.count == 1 ? "Образец" : "Образец \(index + 1)"
-                let action = playing ? "Остановить" : "Послушать"
-                Button { state.playExample(example) } label: {
-                    screenLabel(title, systemImage: playing ? "stop.fill" : "play.fill")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        let index = examples.firstIndex { $0.id == state.playingSegmentID }
+            ?? examples.firstIndex { $0.id == selectedExamples[profile.id] }
+            ?? examples.startIndex
+        let example = examples[index]
+        let playing = state.playingSegmentID == example.id
+        let title = examples.count == 1 ? "Образец" : "Образец \(index + 1)"
+        let action = playing ? "Остановить" : "Послушать"
+        return HStack(spacing: PisyaDesign.Spacing.inline) {
+            Button {
+                selectedExamples[profile.id] = example.id
+                state.playExample(example)
+            } label: {
+                screenLabel(title, systemImage: playing ? "stop.fill" : "play.fill")
+            }
+            .actionButton(size: .small)
+            .disabled(state.recording)
+            .focused($focusedControl, equals: .sample(profile.id, example.id))
+            .screenHelp("\(action) образец")
+            .accessibilityLabel("\(action) образец \(index + 1), \(profile.name)")
+            if examples.count > 1 {
+                NativeActionMenu {
+                    examples.enumerated().filter { $0.element.id != example.id }.map { index, other in
+                        NativeActionMenuItem("Образец \(index + 1)", enabled: !state.recording) {
+                            selectedExamples[profile.id] = other.id
+                            state.playExample(other)
+                        }
+                    }
+                } label: {
+                    screenLabel("Ещё \(examples.count - 1)", systemImage: "chevron.down")
                 }
                 .actionButton(size: .small)
                 .disabled(state.recording)
-                .focused($focusedControl, equals: .sample(profile.id, example.id))
-                .screenHelp("\(action) образец")
-                .accessibilityLabel("\(action) образец \(index + 1), \(profile.name)")
+                .focused($focusedControl, equals: .sampleMenu(profile.id))
+                .screenHelp("Другие образцы голоса")
+                .accessibilityLabel("Другие образцы голоса «\(profile.name)»")
             }
         }.fixedSize(horizontal: true, vertical: false)
     }
