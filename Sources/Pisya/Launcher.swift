@@ -81,7 +81,7 @@ enum Launcher {
                 catch { print("QUEUE_TEST_FAILED", error.localizedDescription); exit(1) }
             }
         }
-        if CommandLine.arguments.contains("--interface-preview") || Bundle.main.object(forInfoDictionaryKey: "PisyaInterfacePreview") as? Bool == true {
+        if CommandLine.arguments.contains("--interface-preview") {
             MainActor.assumeIsolated {
                 do { try InterfacePreview.run() }
                 catch { print("INTERFACE_PREVIEW_FAILED", error.localizedDescription) }
@@ -316,6 +316,13 @@ enum Launcher {
                 } catch { print("SELF_TEST_FAILED \(error.localizedDescription)"); exit(1) }
             }
             dispatchMain()
+        } else if Bundle.main.object(forInfoDictionaryKey: "PisyaInterfacePreview") as? Bool == true {
+            // Finder preview copies still open the preview, but explicit diagnostics
+            // above must run against the same binary instead of being intercepted.
+            MainActor.assumeIsolated {
+                do { try InterfacePreview.run() }
+                catch { print("INTERFACE_PREVIEW_FAILED", error.localizedDescription) }
+            }
         } else { PisyaApp.main() }
     }
 }
