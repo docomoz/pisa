@@ -90,6 +90,7 @@ struct SearchField: View {
     let title: String
     @Binding var text: String
     var compact = false
+    var inForm = false
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
             Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
@@ -102,7 +103,9 @@ struct SearchField: View {
                     .shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск")
             }
         }.textStyle(compact ? PisyaDesign.Typography.footnote : PisyaDesign.Typography.detail)
-            .padding(PisyaDesign.Spacing.related)
+            .padding(.horizontal, PisyaDesign.Spacing.related)
+            .padding(.vertical, inForm ? PisyaDesign.Spacing.none : PisyaDesign.Spacing.related)
+            .frame(minHeight: inForm ? PisyaDesign.Metrics.regularHeight : nil)
             .background(compact ? PisyaDesign.Colors.paper : PisyaDesign.Colors.secondary,
                         in: RoundedRectangle(cornerRadius: compact ? PisyaDesign.Metrics.surfaceRadius : PisyaDesign.Metrics.cornerRadius))
     }

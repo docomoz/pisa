@@ -13,6 +13,7 @@ extension AppState {
 struct VocabularyDictionaryView: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTextScale) private var textScale
     @State private var search = ""
     @State private var input = ""
     @State private var error: String?
@@ -21,7 +22,7 @@ struct VocabularyDictionaryView: View {
     @State private var highlighted: Int?
     @State private var scrollTarget: Int?
     @State private var editing: VocabularyDictionary.Entry?
-    @State private var batchPresented = false
+    @State private var confirmingSpelling = false
     @State private var removal: VocabularyDictionary.Removal?
     @FocusState private var inputFocused: Bool
 
@@ -38,16 +39,19 @@ struct VocabularyDictionaryView: View {
                 screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
             }
             SupportingText(search.isEmpty ? "Записей: \(entries.count)" : "Найдено: \(filtered.count) из \(entries.count)")
-            SearchField(title: "Поиск по словарю", text: $search)
-            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                HStack(spacing: PisyaDesign.Spacing.related) {
-                    TextField("Слово или название", text: $input)
-                        .textFieldStyle(PisyaTextFieldStyle(isEditing: inputFocused))
-                        .focused($inputFocused).onSubmit(add)
-                        .accessibilityLabel("Слово или название")
-                    screenButton("Добавить", action: add).actionButton(.primary).disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            HStack(spacing: PisyaDesign.Spacing.related) {
+                SearchField(title: typographicText("Поиск по словарю"), text: $search, inForm: true)
+                TextField(text: $input, prompt: screenText("Слово или название")) {
+                    screenText("Слово или название")
                 }
-                screenButton("Добавить несколько…") { batchPresented = true }.actionButton()
+                // At the largest text size, the native field editor is already aligned.
+                .textFieldStyle(PisyaTextFieldStyle(isEditing: inputFocused && textScale < 1.2))
+                .focused($inputFocused)
+                .onSubmit { add() }
+                screenButton("Добавить") { add() }
+                    .actionButton(.primary)
+                    .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             if let error { SupportingText(error).foregroundStyle(.red) }
             if let notice {
@@ -99,8 +103,12 @@ struct VocabularyDictionaryView: View {
             .sheet(item: $editing) { entry in
                 VocabularyEditForm(entry: entry).environmentObject(state)
             }
-            .sheet(isPresented: $batchPresented) {
-                VocabularyBatchForm(initialText: input) { text in input = ""; inputFocused = true; added(text) }.environmentObject(state)
+            .sheet(isPresented: $confirmingSpelling) {
+                ConfirmationSheet(
+                    title: "Добавить «\(TranscriptTerms.dictionaryTerm(input))»?",
+                    message: "В словаре сохранится основная форма",
+                    actionTitle: "Добавить"
+                ) { add(confirmSpelling: true) }
             }
             .task(id: highlighted) {
                 guard highlighted != nil else { return }
@@ -114,7 +122,7 @@ struct VocabularyDictionaryView: View {
         catch { self.error = "Не удалось сохранить словарь: " + error.localizedDescription }
     }
 
-    private func add() {
+    private func add(confirmSpelling: Bool = false) {
         perform {
             let literal = try VocabularyDictionary.validatedText(input)
             let current = state.preferences.vocabulary
@@ -124,9 +132,8 @@ struct VocabularyDictionaryView: View {
                 revealText = entries.first { VocabularyDictionary.preview(literal, vocabulary: $0.text).additions.isEmpty }?.text
                 return
             }
-            if canonical != literal {
-                // Canonicalization is reviewable before it is committed.
-                batchPresented = true
+            if canonical != literal && !confirmSpelling {
+                confirmingSpelling = true
                 return
             }
             try state.saveVocabulary(preview.vocabulary)
@@ -205,70 +212,5 @@ private struct VocabularyEditForm: View {
             let updated = try VocabularyDictionary.replacing(entry, with: text, in: state.preferences.vocabulary)
             try state.saveVocabulary(updated); dismiss()
         } catch { self.error = error.localizedDescription }
-    }
-}
-
-private struct VocabularyBatchForm: View {
-    @EnvironmentObject private var state: AppState
-    @Environment(\.dismiss) private var dismiss
-    let onAdded: (String) -> Void
-    @State private var text: String
-    init(initialText: String, onAdded: @escaping (String) -> Void) {
-        self.onAdded = onAdded
-        _text = State(initialValue: initialText)
-    }
-    @State private var reviewedVocabulary: String?
-    @State private var reviewedInput: String?
-    @State private var error: String?
-    private var preview: VocabularyDictionary.Batch { VocabularyDictionary.preview(text, vocabulary: state.preferences.vocabulary) }
-    private var reviewed: Bool { reviewedVocabulary == state.preferences.vocabulary && reviewedInput == text }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
-            SectionHeading("Добавить несколько записей", subtitle: "Разделяйте записи запятой, точкой с запятой или новой строкой", style: .dialog)
-            FormTextEditor(text: $text).accessibilityLabel("Записи для добавления")
-            ScrollView {
-                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                    SectionHeading("Предварительный просмотр", style: .section)
-                    SupportingText("Новых: \(preview.additions.count) · Повторов: \(preview.duplicates.count) · Некорректных: \(preview.invalid.count) · Пустых: \(preview.emptyCount)")
-                    ForEach(Array(mappings.enumerated()), id: \.offset) { _, mapping in
-                        screenText(verbatim: mapping).fixedSize(horizontal: false, vertical: true)
-                    }
-                    if !preview.duplicates.isEmpty { SupportingText("Уже есть: " + preview.duplicates.joined(separator: ", ")) }
-                    if !preview.invalid.isEmpty { SupportingText("Не будут добавлены: " + preview.invalid.joined(separator: ", ")) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }.frame(maxHeight: .infinity)
-            if let error { SupportingText(error).foregroundStyle(.red) }
-            HStack(spacing: PisyaDesign.Spacing.related) {
-                screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction)
-                Spacer()
-                screenButton(reviewed ? "Добавить записи" : "Проверить записи", action: confirm)
-                    .actionButton(.primary).disabled(preview.additions.isEmpty)
-            }
-        }.dialogContent().frame(width: 620, height: 560)
-    }
-
-    private var mappings: [String] {
-        var current = state.preferences.vocabulary
-        return text.components(separatedBy: CharacterSet(charactersIn: ",;\r\n")).compactMap { source in
-            let literal = source.trimmingCharacters(in: .whitespacesAndNewlines)
-            let batch = VocabularyDictionary.preview(literal, vocabulary: current)
-            current = batch.vocabulary
-            guard let canonical = batch.additions.first else { return nil }
-            return literal == canonical ? canonical : "\(literal) → \(canonical)"
-        }
-    }
-
-    private func confirm() {
-        guard reviewed else {
-            reviewedVocabulary = state.preferences.vocabulary; reviewedInput = text
-            error = nil; return
-        }
-        let latest = VocabularyDictionary.preview(text, vocabulary: state.preferences.vocabulary)
-        do {
-            try state.saveVocabulary(latest.vocabulary)
-            if let last = latest.additions.last { onAdded(last) }
-            dismiss()
-        } catch { self.error = "Не удалось сохранить словарь: " + error.localizedDescription }
     }
 }
