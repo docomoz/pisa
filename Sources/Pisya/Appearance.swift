@@ -199,11 +199,12 @@ private struct ActionButtonContent<Label: View>: View {
 
 struct PisyaTextFieldStyle: TextFieldStyle {
     @Environment(\.isEnabled) private var enabled
-    let isEditing: Bool
+    var isEditing = false
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration.textFieldStyle(.plain)
             .textStyle(PisyaDesign.Typography.body)
             .foregroundStyle(enabled ? PisyaDesign.Colors.ink : PisyaDesign.Colors.disabledInk)
+            // Opt in only where the native field editor needs a baseline correction.
             .offset(y: isEditing ? 1 : 0)
             // Center the native editor at its intrinsic height inside the field background.
             .fixedSize(horizontal: false, vertical: true)

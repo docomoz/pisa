@@ -13,7 +13,6 @@ extension AppState {
 struct VocabularyDictionaryView: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appTextScale) private var textScale
     @State private var search = ""
     @State private var input = ""
     @State private var error: String?
@@ -44,8 +43,7 @@ struct VocabularyDictionaryView: View {
                 TextField(text: $input, prompt: screenText("Слово или название")) {
                     screenText("Слово или название")
                 }
-                // At the largest text size, the native field editor is already aligned.
-                .textFieldStyle(PisyaTextFieldStyle(isEditing: inputFocused && textScale < 1.2))
+                .textFieldStyle(PisyaTextFieldStyle())
                 .focused($inputFocused)
                 .onSubmit { add() }
                 screenButton("Добавить") { add() }
