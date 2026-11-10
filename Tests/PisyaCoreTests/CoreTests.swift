@@ -7,6 +7,16 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(voiceNameSuggestions(query: "  ", meetingNames: ["Артём"], savedNames: []).isEmpty)
         XCTAssertTrue(voiceNameSuggestions(query: "Артём", meetingNames: [], savedNames: ["Артём"]).isEmpty)
     }
+
+    func testVoiceNameSuggestionsMatchPrefixesOfAnyNameWord() {
+        let savedNames = ["Денис Петров", "Наталья Иванова"]
+        let meetingNames = ["Лидия Смирнова", "Анна-Мария Петровна"]
+        XCTAssertEqual(voiceNameSuggestions(query: "И", meetingNames: meetingNames, savedNames: savedNames), ["Наталья Иванова"])
+        XCTAssertEqual(voiceNameSuggestions(query: "ива нат", meetingNames: meetingNames, savedNames: savedNames), ["Наталья Иванова"])
+        XCTAssertEqual(voiceNameSuggestions(query: "мар петр", meetingNames: meetingNames, savedNames: savedNames), ["Анна-Мария Петровна"])
+        XCTAssertTrue(voiceNameSuggestions(query: "нат ван", meetingNames: meetingNames, savedNames: savedNames).isEmpty)
+    }
+
     func testTranscriptSearchFindsEveryCaseInsensitiveSubstring() {
         let text = "😀 Смерцы, СМЕРЦЫ и смерцы"
         let ranges = transcriptSearchRanges(in: text, query: "смер")
