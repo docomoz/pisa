@@ -36,7 +36,7 @@ struct SavedVoicesSettings: View {
                         .strokeBorder(PisyaDesign.Colors.secondaryAction, lineWidth: 1)
                         .allowsHitTesting(false)
                 }
-                screenText("После переименования или удаления голоса имена в прежних расшифровках сохраняются")
+                screenText("Если забыть голос, имя в прежних расшифровках сохранится")
                     .textStyle(PisyaDesign.Typography.detail)
                     .foregroundStyle(Color.mutedInk)
             }
@@ -163,7 +163,7 @@ private struct SavedVoiceNameEditor: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-            SectionHeading("Переименовать голос", subtitle: "Новое имя будет использоваться при узнавании на следующих встречах. Имена в прежних расшифровках сохранятся.", style: .dialog)
+            SectionHeading("Переименовать голос", subtitle: "Новое имя появится в прежних расшифровках и будет использоваться на новых встречах", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                 TextField("Имя участника", text: $name).textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused))
                     .accessibilityLabel("Имя сохранённого голоса").focused($nameFocused).onSubmit { save() }

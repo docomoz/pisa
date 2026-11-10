@@ -541,7 +541,7 @@ final class AppState: ObservableObject {
             try CaptureWindow.copy(tracks, start: window.start, end: end, directory: directory)
         }.value
         guard !files.isEmpty else { return [] }
-        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), profiles: voiceProfiles, quiet: quiet, live: true, preceding: preceding) { _, _ in }
+        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), quiet: quiet, live: true, preceding: preceding) { _, _ in }
         return try result.map { segment in
             var mapped = segment
             guard let temporaryName = segment.audioFile,
@@ -596,7 +596,7 @@ final class AppState: ObservableObject {
             do {
                 let files = try m.audioFiles.map { (try library.audioURL($0), m.audioOffsets[$0] ?? 0) }.filter { FileManager.default.fileExists(atPath: $0.0.path) }
                 guard !files.isEmpty else { throw PisyaError.message("Аудио этой встречи недоступно") }
-                let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), profiles: voiceProfiles, quiet: preferences.usesQuietProcessing) { [self] fraction, description in
+                let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), quiet: preferences.usesQuietProcessing) { [self] fraction, description in
                     await self.updateProcessingProgress(fraction, description)
                 }
                 let generated = try Set(result.compactMap(\.audioFile)).filter { $0.contains(".clean.") && !m.audioFiles.contains($0) }.map { try library.audioURL($0) }
@@ -608,7 +608,9 @@ final class AppState: ObservableObject {
                 }, onDenied: {
                     updateProcessingProgress(1, "Жду доступа к записи")
                 })
-                latest.segments = result; latest.status = .ready; latest.error = nil
+                // Use the current profiles even if a name changed during recognition.
+                latest.segments = SpeakerClustering.assign(result, profiles: voiceProfiles)
+                latest.status = .ready; latest.error = nil
                 latest.liveCommittedUntil = nil
                 let referenced = Set(result.compactMap(\.audioFile))
                 let obsolete = latest.audioFiles.filter { $0.contains(".clean.") && !referenced.contains($0) }
@@ -657,7 +659,8 @@ final class AppState: ObservableObject {
             }
             try Task.checkCancellation()
             guard let title, var latest = try? library.read(id), latest.deletedAt == nil,
-                  latest.segments == snapshot.segments, latest.applyGeneratedTitle(title) else { return }
+                  latest.segments.map(\.text) == snapshot.segments.map(\.text),
+                  latest.applyGeneratedTitle(title) else { return }
             try library.save(latest); upsert(latest); needsExport = true
         } catch {
             if !(error is CancellationError) {
@@ -864,9 +867,16 @@ final class AppState: ObservableObject {
     }
     func renameSpeaker(_ old: String, to new: String, meeting: Meeting) {
         let name = new.trimmingCharacters(in: .whitespacesAndNewlines); guard !name.isEmpty else { return }
-        var m = meeting
+        guard var m = meetings.first(where: { $0.id == meeting.id }) else { return }
         for index in m.segments.indices where m.segments[index].speaker == old { m.segments[index].speaker = name }
         update(m)
+    }
+    func editSegment(_ edited: TranscriptSegment, from original: TranscriptSegment, meetingID: UUID) {
+        guard var meeting = meetings.first(where: { $0.id == meetingID }),
+              let index = meeting.segments.firstIndex(where: { $0.id == edited.id }) else { return }
+        if edited.speaker != original.speaker { meeting.segments[index].speaker = edited.speaker }
+        if edited.text != original.text { meeting.segments[index].text = edited.text }
+        update(meeting)
     }
     func rememberVoice(_ speaker: String, name: String, meeting: Meeting) {
         guard !demo else { return }
@@ -884,10 +894,60 @@ final class AppState: ObservableObject {
         guard !voiceProfiles.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(clean) == .orderedSame }) else {
             throw PisyaError.message("Голос с таким именем уже сохранён. Укажите другое имя")
         }
+        let profile = voiceProfiles[index]
+        guard profile.name != clean else { return }
         var updated = voiceProfiles
         updated[index].name = clean
-        try library.saveVoices(updated)
+
+        let oldName = profile.name
+        let isDefaultLabel = oldName == "Я" || oldName == "Собеседники" ||
+            (oldName.hasPrefix("Спикер ") && Int(oldName.dropFirst("Спикер ".count)) != nil)
+        let examples = Dictionary(grouping: profile.examples ?? [], by: \.meetingID)
+        let changes = try library.all(includeDeleted: true).compactMap { original -> (before: Meeting, after: Meeting)? in
+            var meeting = original
+            let sampleIDs = Set(examples[original.id, default: []].map(\.segmentID))
+            var changed = false
+            for index in meeting.segments.indices where meeting.segments[index].speaker == oldName {
+                let segment = meeting.segments[index]
+                if isDefaultLabel && !sampleIDs.contains(segment.id) {
+                    // Generic labels are shared by unrelated voices.
+                    let isRemote = segment.audioFile.map { !$0.contains("-mic.") } ?? false
+                    guard oldName != "Я" || isRemote, let embedding = segment.embedding,
+                          VoiceMatcher.identify(embedding, profiles: voiceProfiles) == oldName else { continue }
+                }
+                if segment.audioFile == nil, (oldName == "Я") != (clean == "Я") {
+                    meeting.segments[index].audioFile = meeting.audioFiles.first {
+                        oldName == "Я" ? $0.contains("-mic.") : $0.contains("-remote.")
+                    } ?? meeting.audioFiles.first
+                }
+                meeting.segments[index].speaker = clean
+                changed = true
+            }
+            return changed ? (original, meeting) : nil
+        }
+        var saved: [Meeting] = []
+        do {
+            for change in changes {
+                try library.save(change.after)
+                saved.append(change.before)
+            }
+            try library.saveVoices(updated)
+        } catch {
+            var rollbackFailed = false
+            for meeting in saved.reversed() {
+                do { try library.save(meeting) }
+                catch { rollbackFailed = true }
+            }
+            if rollbackFailed {
+                throw PisyaError.message("Не удалось переименовать голос и восстановить все прежние подписи. Проверьте доступ к библиотеке и повторите переименование")
+            }
+            throw error
+        }
         voiceProfiles = updated
+        if !demo {
+            for change in changes { upsert(change.after) }
+            for change in changes where change.after.status == .ready { exportIfConfigured(change.after) }
+        }
     }
     func forgetVoice(_ id: UUID) throws {
         let previous = voiceProfiles
@@ -990,7 +1050,12 @@ final class AppState: ObservableObject {
     func showDemo() {
         guard !recording, processingID == nil else { return }
         demo.toggle()
-        if !demo { meetings = (try? library.all(includeDeleted: true)) ?? []; selection = filtered.first?.id; return }
+        if !demo {
+            meetings = (try? library.all(includeDeleted: true)) ?? []
+            searchIndex = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0.searchableText) })
+            selection = filtered.first?.id
+            return
+        }
         var m = Meeting(title: "Планы на неделю", source: "Толк"); m.duration = 1842; m.status = .ready
         m.segments = [
             .init(start: 12, end: 28, speaker: "Я", text: "Давайте сверим планы на неделю. Хочется сначала проверить основной сценарий и только потом добавлять новые возможности."),

@@ -242,7 +242,12 @@ struct MeetingView: View {
                 role: .destructive
             ) { state.deleteAudio(meeting) }
         }
-        .sheet(item: $editing) { segment in SegmentEditor(segment: segment) { edited in var m = meeting; if let i = m.segments.firstIndex(where: { $0.id == edited.id }) { m.segments[i] = edited; state.update(m) }; editing = nil } }
+        .sheet(item: $editing) { segment in
+            SegmentEditor(segment: segment) { edited in
+                state.editSegment(edited, from: segment, meetingID: meeting.id)
+                editing = nil
+            }
+        }
         .sheet(isPresented: $reviewingTerms) { TermReview(meeting: meeting).environmentObject(state) }
         .alert("Имя участника", isPresented: Binding(get: { speakerToRename != nil }, set: { if !$0 { speakerToRename = nil } })) {
             TextField("Имя", text: $speakerName)

@@ -11,42 +11,81 @@ enum VoiceProfileTests {
         try seed(state, count: 2)
         let original = state.voiceProfiles[0]
         let other = state.voiceProfiles[1]
+        let newName = "Новое имя"
+        let audioName = "meeting-audio.caf"
+        let audioURL = try state.library.audioURL(audioName)
+        let audio = try Data(contentsOf: root.appendingPathComponent("VoiceSamples").appendingPathComponent(original.examples![0].file))
+        try audio.write(to: audioURL)
         var active = Meeting(title: "Сохранённая встреча", source: "Проверка")
         active.status = .ready
-        active.segments = [TranscriptSegment(start: 0, end: 3, speaker: original.name, text: "Прежнее имя остаётся в расшифровке")]
+        active.notes = "\(original.name) упомянута в заметках"
+        active.audioFiles = [audioName]
+        active.audioOffsets = [audioName: 1]
+        active.segments = [
+            TranscriptSegment(start: 1, end: 2, speaker: original.name, text: "Меня зовут \(original.name)"),
+            TranscriptSegment(start: 2, end: 3, speaker: other.name, text: "Добрый день"),
+            TranscriptSegment(start: 3, end: 4, speaker: original.name, text: "Начинаем"),
+            TranscriptSegment(start: 4, end: 5, speaker: "\(original.name) Петрова", text: "Хорошо"),
+        ]
+        for index in active.segments.indices { active.segments[index].audioFile = audioName }
+        active.segments[0].embedding = original.samples[0]
         state.update(active)
-        var trashed = active; trashed.id = UUID(); trashed.deletedAt = Date()
+        var trashed = Meeting(title: "Встреча в корзине", source: "Проверка")
+        trashed.status = .ready
+        trashed.deletedAt = Date()
+        trashed.segments = [TranscriptSegment(start: 0, end: 3, speaker: original.name, text: "Встреча завершилась")]
         state.update(trashed)
-        let snapshots = try [active, trashed].map { meeting -> (URL, Data) in
-            let url = state.library.meetingsDirectory.appendingPathComponent(meeting.id.uuidString + ".json")
-            return (url, try Data(contentsOf: url))
-        }
+        var unrelated = Meeting(title: "Другая встреча", source: "Проверка")
+        unrelated.status = .ready
+        unrelated.segments = [TranscriptSegment(start: 0, end: 2, speaker: original.name.uppercased(), text: "Другое имя говорящего")]
+        state.update(unrelated)
+        var expectedActive = active
+        expectedActive.segments[0].speaker = newName
+        expectedActive.segments[2].speaker = newName
+        var expectedTrashed = trashed
+        expectedTrashed.segments[0].speaker = newName
+
         func check(_ value: Bool, _ message: String) throws {
             if !value { throw PisyaError.message(message) }
         }
-        func unchangedMeetings() throws {
-            for (url, data) in snapshots { try check(try Data(contentsOf: url) == data, "A saved transcript was rewritten") }
-            try check(state.meetings.allSatisfy { $0.segments[0].speaker == original.name }, "A transcript name changed in memory")
+        func checkTranscripts(in state: AppState) throws {
+            for expected in [expectedActive, expectedTrashed, unrelated] {
+                try check(state.meetings.first { $0.id == expected.id } == expected, "Incorrect in-memory transcript after rename: \(expected.title)")
+                try check(try state.library.read(expected.id) == expected, "Incorrect saved transcript after rename: \(expected.title)")
+            }
+            try check(try Data(contentsOf: audioURL) == audio, "Rename changed meeting audio")
         }
+
         try state.renameVoice(original.id, to: "  Новое имя \n")
-        try check(state.voiceProfiles[0].name == "Новое имя", "Rename must trim and update the saved voice")
+        try checkTranscripts(in: state)
+        try check(state.voiceProfiles[0].name == newName, "Rename must trim and update the saved voice")
         let renamed = try state.library.voices()[0]
-        try check(renamed.id == original.id && renamed.name == "Новое имя", "Rename must persist the same profile")
+        try check(renamed.id == original.id && renamed.name == newName, "Rename must persist the same profile")
         try check(renamed.samples == original.samples && renamed.examples?.map(\.file) == original.examples?.map(\.file), "Rename changed training data")
-        try check(VoiceMatcher.identify([1, 0], profiles: state.voiceProfiles) == "Новое имя", "Recognition still uses the old name")
-        try unchangedMeetings()
+        try check(VoiceMatcher.identify([1, 0], profiles: state.voiceProfiles) == newName, "Recognition still uses the old name")
+        state.search = newName
+        try check(state.filtered.map(\.id) == [active.id], "Search did not index the new active transcript label")
+        state.showingTrash = true
+        try check(state.filtered.map(\.id) == [trashed.id], "Search did not index the new trashed transcript label")
+        state.search = original.name
+        try check(state.filtered.isEmpty, "Search still indexes the old trashed transcript label")
+        state.showingTrash = false
+        state.search = ""
         for invalid in [" \n", other.name.uppercased()] {
             var rejected = false
             do { try state.renameVoice(original.id, to: invalid) } catch { rejected = true }
-            try check(rejected && state.voiceProfiles[0].name == "Новое имя", "Invalid rename was accepted")
+            try check(rejected && state.voiceProfiles[0].name == newName, "Invalid rename was accepted")
+            try checkTranscripts(in: state)
         }
         let voicesURL = root.appendingPathComponent("voices.json")
         let backupURL = root.appendingPathComponent("voices-backup.json")
+        let persistedVoices = try Data(contentsOf: voicesURL)
         try FileManager.default.moveItem(at: voicesURL, to: backupURL)
         try FileManager.default.createDirectory(at: voicesURL, withIntermediateDirectories: false)
         var renameFailed = false
         do { try state.renameVoice(original.id, to: "Не сохранено") } catch { renameFailed = true }
-        try check(renameFailed && state.voiceProfiles[0].name == "Новое имя", "Failed save changed the profile in memory")
+        try check(renameFailed && state.voiceProfiles[0].name == newName, "Failed save changed the profile in memory")
+        try checkTranscripts(in: state)
         var deleteFailed = false
         do { try state.forgetVoice(original.id) } catch { deleteFailed = true }
         try check(deleteFailed && state.voiceProfiles.count == 2, "Failed delete changed the saved profiles")
@@ -55,6 +94,12 @@ enum VoiceProfileTests {
         }
         try FileManager.default.removeItem(at: voicesURL)
         try FileManager.default.moveItem(at: backupURL, to: voicesURL)
+        try check(try Data(contentsOf: voicesURL) == persistedVoices, "Failed save changed the persisted profiles")
+        var edited = active.segments[0]
+        edited.text = "Исправленная реплика"
+        state.editSegment(edited, from: active.segments[0], meetingID: active.id)
+        expectedActive.segments[0].text = edited.text
+        try checkTranscripts(in: state)
         let playing = original.examples![0]
         state.playExample(playing)
         try check(state.playingSegmentID == playing.id, "Voice example did not start")
@@ -70,11 +115,31 @@ enum VoiceProfileTests {
         for example in other.examples ?? [] {
             try check(FileManager.default.fileExists(atPath: root.appendingPathComponent("VoiceSamples").appendingPathComponent(example.file).path), "Another voice lost its example")
         }
-        try unchangedMeetings()
+        try checkTranscripts(in: state)
         let restarted = AppState(rootURL: root)
         try check(restarted.voiceProfiles.map(\.id) == [other.id], "Forgotten voice returned after restart")
-        try check(restarted.meetings.allSatisfy { $0.segments[0].speaker == original.name }, "Transcript names changed after restart")
-        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice preserve_transcripts restart")
+        try checkTranscripts(in: restarted)
+
+        var selfMeeting = Meeting(title: "Микрофон", source: "Проверка")
+        selfMeeting.audioFiles = ["test-mic.caf", "test-remote.caf"]
+        selfMeeting.segments = [
+            TranscriptSegment(start: 0, end: 3, speaker: "Я", text: "Образец"),
+            TranscriptSegment(start: 3, end: 6, speaker: "Я", text: "Обычная метка микрофона"),
+            TranscriptSegment(start: 6, end: 9, speaker: "Я", text: "Узнанный голос с другой дорожки"),
+        ]
+        selfMeeting.segments[2].audioFile = "test-remote.caf"
+        selfMeeting.segments[2].embedding = [1, 0]
+        restarted.update(selfMeeting)
+        var selfProfile = VoiceProfile(name: "Я", samples: [[1, 0]])
+        selfProfile.examples = [VoiceExample(file: "example.caf", meetingID: selfMeeting.id,
+                                             segmentID: selfMeeting.segments[0].id, embedding: [1, 0])]
+        restarted.voiceProfiles.append(selfProfile)
+        try restarted.library.saveVoices(restarted.voiceProfiles)
+        try restarted.renameVoice(selfProfile.id, to: "Ведущий")
+        let selfSegments = try restarted.library.read(selfMeeting.id).segments
+        try check(selfSegments.map(\.speaker) == ["Ведущий", "Я", "Ведущий"], "Rename did not distinguish a voice from a generic microphone label")
+        try check(selfSegments[0].audioFile == "test-mic.caf", "Rename changed the selected audio track")
+        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label")
     }
 
     static func seed(_ state: AppState, count: Int) throws {
