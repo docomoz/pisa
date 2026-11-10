@@ -182,7 +182,7 @@ struct TermReview: View {
         let after = segment.text[range.upperBound...]
         let left = (before.count > 80 ? "…" : "") + before.suffix(80)
         let right = String(after.prefix(100)) + (after.count > 100 ? "…" : "")
-        let word = screenText(segment.text[range].description).bold().foregroundColor(.moss)
+        let word = screenText(searchMatch: String(segment.text[range]))
         return Text("\(screenText(left))\(word)\(screenText(right))")
     }
 

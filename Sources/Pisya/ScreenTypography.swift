@@ -9,11 +9,23 @@ func screenText(_ value: String, highlighting query: String) -> Text {
     for match in transcriptSearchRanges(in: display, query: query) {
         guard let stringRange = Range(match, in: display),
               let range = Range(stringRange, in: attributed) else { continue }
-        attributed[range].backgroundColor = PisyaDesign.Colors.searchMatch
-        attributed[range].foregroundColor = Color.ink
+        attributed.applySearchHighlight(to: range)
     }
     return Text(attributed)
 }
+func screenText(searchMatch value: String) -> Text {
+    var attributed = AttributedString(typographicText(value))
+    attributed.applySearchHighlight(to: attributed.startIndex..<attributed.endIndex)
+    return Text(attributed)
+}
+
+private extension AttributedString {
+    mutating func applySearchHighlight(to range: Range<Index>) {
+        self[range].backgroundColor = PisyaDesign.Colors.searchMatch
+        self[range].foregroundColor = Color.ink
+    }
+}
+
 func screenText(verbatim value: String) -> Text { Text(verbatim: value) }
 func screenText(_ date: Date, style: Text.DateStyle) -> Text { Text(date, style: style) }
 func screenButton(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> Button<Text> {
