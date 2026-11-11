@@ -38,25 +38,37 @@ struct MainView: View {
     }
     private var sidebar: some View { LibrarySidebar() }
     private var topbar: some View {
-        HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
-            if state.recording, let started = state.recordingStarted {
-                RecordingIndicator(monitor: state.recordingMonitor, started: started)
-                    .frame(minHeight: PisyaDesign.Metrics.regularHeight)
-                    .padding(.top, PisyaDesign.Spacing.content)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(TitleBarZoom().allowsHitTesting(false))
-            } else {
-                HStack(spacing: PisyaDesign.Spacing.inline) {
-                    Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
-                    BrandMoodView()
+        let panelHeight = PisyaDesign.Metrics.regularHeight + 2 * PisyaDesign.Spacing.related
+        return GeometryReader { geometry in
+            topbarControls(compact: state.recording && geometry.size.width < 740)
+        }
+        .frame(height: panelHeight + 2 * PisyaDesign.Spacing.inline)
+        .background {
+            RoundedRectangle(cornerRadius: PisyaDesign.Metrics.surfaceRadius)
+                .fill(Color.sidebarTint)
+                .padding(.horizontal, PisyaDesign.Spacing.content)
+                .padding(.vertical, PisyaDesign.Spacing.inline)
+                .allowsHitTesting(false)
+        }
+    }
+    private func topbarControls(compact: Bool) -> some View {
+        let spacing = compact ? PisyaDesign.Spacing.inline : PisyaDesign.Spacing.related
+        return HStack(spacing: spacing) {
+            Group {
+                if state.recording, let started = state.recordingStarted {
+                    RecordingIndicator(monitor: state.recordingMonitor, started: started)
+                } else {
+                    HStack(spacing: PisyaDesign.Spacing.inline) {
+                        Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
+                        BrandMoodView()
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                .accessibilityElement(children: .combine)
-                .frame(minHeight: PisyaDesign.Metrics.regularHeight)
-                .padding(.top, PisyaDesign.Spacing.content)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TitleBarZoom().allowsHitTesting(false))
             }
-            HStack(spacing: PisyaDesign.Spacing.related) {
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(TitleBarZoom().allowsHitTesting(false))
+
+            HStack(spacing: spacing) {
                 Button { showingMeetingPhrase = true } label: {
                     Text("🤦").font(PisyaDesign.Typography.Icon.medium)
                 }.actionButton().screenHelp("Фраза для созвона").accessibilityLabel("Фраза для созвона")
@@ -73,8 +85,8 @@ struct MainView: View {
                 }.actionButton(.recording)
                     .disabled(state.starting || state.demo)
             }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
-                .padding(.top, PisyaDesign.Spacing.content)
-        }.padding(.horizontal, PisyaDesign.Spacing.page).frame(height: 76)
+        }
+        .padding(.horizontal, compact ? PisyaDesign.Spacing.section : PisyaDesign.Spacing.page)
     }
     private var welcome: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
