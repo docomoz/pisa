@@ -89,5 +89,4 @@ enum AppTypography {
     // AppKit owns the menu's size, matching the other system menus.
     static let menu = NSFont.menuFont(ofSize: 0)
     static let statusCounter = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-    static let credits = NSFont.systemFont(ofSize: 14)
 }

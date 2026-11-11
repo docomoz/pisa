@@ -35,27 +35,7 @@ struct PisyaApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                screenButton("О программе Pisya") {
-                    var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
-                    if let url = Bundle.main.url(forResource: "PisyaPlain", withExtension: "icns"),
-                       let icon = NSImage(contentsOf: url) {
-                        options[.applicationIcon] = icon
-                    }
-                    let paragraph = NSMutableParagraphStyle()
-                    paragraph.alignment = .center; paragraph.paragraphSpacing = PisyaDesign.Spacing.inline
-                    let credits = "Максим Берёзкин\nt.me/docomoz\n" + typographicText("Сделано нами для нас") + "\u{00a0}💚"
-                    let attributedCredits = NSMutableAttributedString(string: credits, attributes: [
-                        .font: AppTypography.credits,
-                        .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph
-                    ])
-                    attributedCredits.addAttributes([
-                        .link: URL(string: "https://t.me/docomoz")!,
-                        .foregroundColor: NSColor(Color.moss),
-                        .underlineStyle: NSUnderlineStyle.single.rawValue
-                    ], range: (credits as NSString).range(of: "t.me/docomoz"))
-                    options[.credits] = attributedCredits
-                    NSApp.orderFrontStandardAboutPanel(options: options)
-                }
+                screenButton("О программе Pisya") { delegate.showAboutWindow() }
                 screenButton("Проверить обновления…") { updates.check() }
                     .disabled(!updates.canCheck)
             }
@@ -131,6 +111,7 @@ struct RecordingElapsed: View {
 @MainActor
 final class PisyaDelegate: NSObject, NSApplicationDelegate {
     weak var state: AppState?
+    private let aboutWindow = AboutWindowController()
     private var statusController: StatusBarController?
     private var quitShortcutMonitor: Any?
     private var openMain: (() -> Void)?
@@ -155,6 +136,7 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
         if statusController == nil { statusController = StatusBarController(state: state, openMain: openMain) }
     }
     func showStatusMenu() { statusController?.showMenu() }
+    func showAboutWindow() { aboutWindow.show() }
     func applicationDidFinishLaunching(_ notification: Notification) {
         quitShortcutMonitor = QuitShortcut.install { QuitShortcut.terminate(NSApp) }
         AppUpdates.shared.start()

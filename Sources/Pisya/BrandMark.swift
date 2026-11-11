@@ -9,8 +9,9 @@ enum BrandMark {
               let bars = value["bars"], bars.count == 5, bars.allSatisfy({ $0.count == 4 }) else { return [] }
         return bars
     }()
+    static let ink = NSColor(srgbRed: 0.22, green: 0.22, blue: 0.22, alpha: 1)
     static let menuIcon = image(color: .black, template: true)
-    static let headerIcon = image(color: NSColor(srgbRed: 0.22, green: 0.22, blue: 0.22, alpha: 1), template: false)
+    static let headerIcon = image(color: ink, template: false)
     private static func image(color: NSColor, template: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 20, height: 20), flipped: false) { _ in
             color.setFill()
