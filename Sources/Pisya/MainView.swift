@@ -291,17 +291,16 @@ struct MeetingView: View {
 
     private func transcriptColumn(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
-            if !showsTranscriptTools {
+            if showsTranscriptTools {
+                transcriptTools(showsDetailsButton: showsDetailsButton, audioSources: audioSources)
+            } else {
                 transcriptStatus
                     .padding(.top, PisyaDesign.Spacing.content)
                     .padding(.bottom, PisyaDesign.Spacing.related)
-            }
-            if !showsAutomaticPlayer && !audioSources.isEmpty {
-                SavedAudioPlayer(sources: audioSources, isInline: true)
-                    .padding(.bottom, PisyaDesign.Spacing.related)
-            }
-            if showsTranscriptTools {
-                transcriptTools(showsDetailsButton: showsDetailsButton)
+                if !showsAutomaticPlayer && !audioSources.isEmpty {
+                    SavedAudioPlayer(sources: audioSources, isInline: true)
+                        .padding(.bottom, PisyaDesign.Spacing.related)
+                }
             }
             Divider()
                 .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
@@ -379,8 +378,11 @@ struct MeetingView: View {
         }
     }
 
-    private func transcriptTools(showsDetailsButton: Bool) -> some View {
+    private func transcriptTools(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+            if !audioSources.isEmpty {
+                SavedAudioPlayer(sources: audioSources, isInline: true)
+            }
             if !meeting.segments.isEmpty || showsDetailsButton {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
                     if !meeting.segments.isEmpty {
