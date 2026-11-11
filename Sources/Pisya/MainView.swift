@@ -91,12 +91,22 @@ struct MainView: View {
     private var welcome: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             Spacer()
-            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 76, height: 76).padding(.bottom, PisyaDesign.Spacing.section)
-            screenText("Вы разговариваете.\nPisya записывает.").textStyle(PisyaDesign.Typography.hero)
-            screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.").textStyle(PisyaDesign.Typography.secondary).foregroundStyle(Color.mutedInk).padding(.top, PisyaDesign.Spacing.content)
-            HStack(spacing: PisyaDesign.Spacing.related) {
-                Button { state.showingSettings = true } label: { screenText("Настроить") }.actionButton(.primary)
-            }.padding(.top, PisyaDesign.Spacing.section)
+            VStack(spacing: PisyaDesign.Spacing.none) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable().frame(width: 76, height: 76)
+                    .padding(.bottom, PisyaDesign.Spacing.section)
+                screenText("Вы разговариваете.\nPisya записывает.")
+                    .textStyle(PisyaDesign.Typography.hero)
+                screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.")
+                    .textStyle(PisyaDesign.Typography.secondary)
+                    .foregroundStyle(Color.mutedInk)
+                    .padding(.top, PisyaDesign.Spacing.content)
+                screenButton("Настроить") { state.showingSettings = true }
+                    .actionButton(.primary)
+                    .padding(.top, PisyaDesign.Spacing.section)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
             Spacer()
             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
                 feature("lock", "Локальное распознавание", "Расшифровывайте аудио на своём Mac")
