@@ -13,7 +13,6 @@ struct SavedAudioPlayer: View {
     @State private var peaks: [Float] = []
     @State private var timeObserver: Any?
     @GestureState private var dragPosition: TimeInterval?
-    @FocusState private var timelineFocused: Bool
 
     private var player: AVPlayer { state.savedAudioPlayer }
     private var shownPosition: TimeInterval { dragPosition ?? position }
@@ -68,12 +67,6 @@ struct SavedAudioPlayer: View {
             Canvas { context, size in
                 Self.drawWaveform(context, size: size, peaks: waveform, fraction: fraction)
             }
-            .background {
-                if timelineFocused {
-                    RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)
-                        .fill(Color.moss.opacity(0.12))
-                }
-            }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .updating($dragPosition) { value, position, _ in
@@ -83,7 +76,6 @@ struct SavedAudioPlayer: View {
         }
         .frame(height: 56)
         .focusable()
-        .focused($timelineFocused)
         .focusEffectDisabled()
         .onKeyPress(.leftArrow) { seek(to: position - 5); return .handled }
         .onKeyPress(.rightArrow) { seek(to: position + 5); return .handled }
