@@ -95,10 +95,13 @@ enum VoiceProfileTests {
         try FileManager.default.removeItem(at: voicesURL)
         try FileManager.default.moveItem(at: backupURL, to: voicesURL)
         try check(try Data(contentsOf: voicesURL) == persistedVoices, "Failed save changed the persisted profiles")
-        var edited = active.segments[0]
-        edited.text = "Исправленная реплика"
-        state.editSegment(edited, from: active.segments[0], meetingID: active.id)
-        expectedActive.segments[0].text = edited.text
+        let originalSegment = active.segments[0]
+        let correctedText = "Исправленная реплика"
+        state.editSegmentText(correctedText, from: originalSegment, meetingID: active.id)
+        expectedActive.segments[0].text = correctedText
+        try checkTranscripts(in: state)
+        // An unchanged draft must preserve a newer edit saved after the draft was opened.
+        state.editSegmentText(originalSegment.text, from: originalSegment, meetingID: active.id)
         try checkTranscripts(in: state)
         let playing = original.examples![0]
         state.playExample(playing)

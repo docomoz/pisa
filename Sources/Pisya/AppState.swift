@@ -871,27 +871,12 @@ final class AppState: ObservableObject {
         guard !demo else { upsert(meeting); return }
         do { try library.save(meeting); upsert(meeting); if meeting.status == .ready { exportIfConfigured(meeting) } } catch { message = error.localizedDescription }
     }
-    func renameSpeaker(_ old: String, to new: String, meeting: Meeting) {
-        let name = new.trimmingCharacters(in: .whitespacesAndNewlines); guard !name.isEmpty else { return }
-        guard var m = meetings.first(where: { $0.id == meeting.id }) else { return }
-        for index in m.segments.indices where m.segments[index].speaker == old { m.segments[index].speaker = name }
-        update(m)
-    }
-    func editSegment(_ edited: TranscriptSegment, from original: TranscriptSegment, meetingID: UUID) {
-        guard var meeting = meetings.first(where: { $0.id == meetingID }),
-              let index = meeting.segments.firstIndex(where: { $0.id == edited.id }) else { return }
-        if edited.speaker != original.speaker { meeting.segments[index].speaker = edited.speaker }
-        if edited.text != original.text { meeting.segments[index].text = edited.text }
+    func editSegmentText(_ text: String, from original: TranscriptSegment, meetingID: UUID) {
+        guard text != original.text,
+              var meeting = meetings.first(where: { $0.id == meetingID }),
+              let index = meeting.segments.firstIndex(where: { $0.id == original.id }) else { return }
+        meeting.segments[index].text = text
         update(meeting)
-    }
-    func rememberVoice(_ speaker: String, name: String, meeting: Meeting) {
-        guard !demo else { return }
-        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let samples = meeting.segments.filter { $0.speaker == speaker && $0.end - $0.start >= 2 }.sorted { $0.end - $0.start > $1.end - $1.start }.prefix(5).compactMap(\.embedding)
-        guard !clean.isEmpty, !samples.isEmpty else { message = "Для профиля нужен чистый фрагмент голоса длиной хотя бы 2 секунды"; return }
-        if let index = voiceProfiles.firstIndex(where: { $0.name == clean }) { voiceProfiles[index].samples = Array((voiceProfiles[index].samples + samples).suffix(10)) }
-        else { voiceProfiles.append(.init(name: clean, samples: samples)) }
-        do { try library.saveVoices(voiceProfiles) } catch { message = error.localizedDescription }
     }
     func renameVoice(_ id: UUID, to name: String) throws {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)

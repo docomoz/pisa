@@ -144,8 +144,6 @@ struct MeetingView: View {
     let meeting: Meeting
     @State private var editing: TranscriptSegment?
     @State private var reviewingTerms = false
-    @State private var speakerName = ""
-    @State private var speakerToRename: String?
     @State private var title = ""
     @State private var confirmDeleteAudio = false
     @State private var transcriptSearch = ""
@@ -245,20 +243,12 @@ struct MeetingView: View {
             ) { state.deleteAudio(meeting) }
         }
         .sheet(item: $editing) { segment in
-            SegmentEditor(segment: segment) { edited in
-                state.editSegment(edited, from: segment, meetingID: meeting.id)
+            SegmentEditor(segment: segment) { text in
+                state.editSegmentText(text, from: segment, meetingID: meeting.id)
                 editing = nil
             }
         }
         .sheet(isPresented: $reviewingTerms) { TermReview(meeting: meeting).environmentObject(state) }
-        .alert("Имя участника", isPresented: Binding(get: { speakerToRename != nil }, set: { if !$0 { speakerToRename = nil } })) {
-            TextField("Имя", text: $speakerName)
-            screenButton("Сохранить") { if let old = speakerToRename { state.renameSpeaker(old, to: speakerName, meeting: meeting) }; speakerToRename = nil }
-            if !state.demo && meeting.segments.contains(where: { $0.speaker == speakerToRename && $0.embedding != nil }) {
-                screenButton("Сохранить имя и запомнить голос") { if let old = speakerToRename { state.rememberVoice(old, name: speakerName, meeting: meeting); state.renameSpeaker(old, to: speakerName, meeting: meeting) }; speakerToRename = nil }
-            }
-            screenButton("Отмена", role: .cancel) { speakerToRename = nil }
-        } message: { screenText("Имя изменится в этой встрече. «Запомнить голос» сохраняет локальный образец для следующих встреч; выбирайте только проверенные реплики") }
     }
 
     private func transcriptColumn(showsDetailsButton: Bool) -> some View {
@@ -599,21 +589,29 @@ private struct TranscriptionProgress: View {
 }
 
 private struct SegmentEditor: View {
-    @Environment(\.appTextScale) private var textScale
-    @FocusState private var speakerFocused: Bool
-    @State var segment: TranscriptSegment
-    var save: (TranscriptSegment) -> Void
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    private let speaker: String
+    private let save: (String) -> Void
+
+    init(segment: TranscriptSegment, save: @escaping (String) -> Void) {
+        speaker = segment.speaker
+        _text = State(initialValue: segment.text)
+        self.save = save
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading("Исправить реплику", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                // At larger sizes this field editor is already aligned with the inactive text.
-                TextField("Участник", text: $segment.speaker)
-                    .textFieldStyle(PisyaTextFieldStyle(isEditing: speakerFocused && textScale <= 1)).focused($speakerFocused)
-                FormTextEditor(text: $segment.text)
+                screenText(speaker).textStyle(PisyaDesign.Typography.detailStrong)
+                FormTextEditor(text: $text).accessibilityLabel("Текст реплики")
             }
-            HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Отмена") { dismiss() }.actionButton(); Spacer(); screenButton("Сохранить") { save(segment) }.actionButton(.primary) }
+            HStack(spacing: PisyaDesign.Spacing.related) {
+                screenButton("Отмена") { dismiss() }.actionButton()
+                Spacer()
+                screenButton("Сохранить") { save(text) }.actionButton(.primary)
+            }
         }.dialogContent().frame(width: 520)
     }
 }
