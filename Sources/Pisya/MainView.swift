@@ -92,8 +92,8 @@ struct MainView: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             Spacer()
             VStack(spacing: PisyaDesign.Spacing.none) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable().frame(width: 76, height: 76)
+                AnimatedBrandMark(size: 76)
+                    .accessibilityHidden(true)
                     .padding(.bottom, PisyaDesign.Spacing.section)
                 screenText("Вы разговариваете.\nPisya записывает.")
                     .textStyle(PisyaDesign.Typography.hero)
