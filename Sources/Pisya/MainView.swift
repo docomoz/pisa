@@ -219,17 +219,25 @@ struct MeetingView: View {
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
             GeometryReader { geometry in
                 let extraWidth = Self.detailsColumnWidth * (max(1, textScale) - 1)
-                let showsColumn = showsTranscriptTools && geometry.size.width >= Self.transcriptWidthWithDetails + Self.detailsColumnWidth + extraWidth
-                HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
-                    transcriptColumn(showsDetailsButton: !showsColumn, audioSources: visibleAudioSources)
-                    if showsColumn {
-                        ScrollView {
-                            meetingDetails(buttonSize: .regular)
-                                .padding(.leading, PisyaDesign.Spacing.content)
-                        }
-                        .frame(width: Self.detailsColumnWidth + extraWidth)
-                        .background(alignment: .leading) {
-                            Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
+                let detailsWidth = Self.detailsColumnWidth + extraWidth
+                let showsColumn = showsTranscriptTools && geometry.size.width >= Self.transcriptWidthWithDetails + detailsWidth
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
+                    if showsTranscriptTools && !visibleAudioSources.isEmpty {
+                        SavedAudioPlayer(sources: visibleAudioSources, isInline: true)
+                            .padding(.trailing, showsColumn ? detailsWidth + PisyaDesign.Spacing.section : PisyaDesign.Spacing.none)
+                            .padding(.bottom, PisyaDesign.Spacing.related)
+                    }
+                    HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
+                        transcriptColumn(showsDetailsButton: !showsColumn, audioSources: visibleAudioSources)
+                        if showsColumn {
+                            ScrollView {
+                                meetingDetails(buttonSize: .regular)
+                                    .padding(.leading, PisyaDesign.Spacing.content)
+                            }
+                            .frame(width: detailsWidth)
+                            .background(alignment: .leading) {
+                                Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
+                            }
                         }
                     }
                 }
@@ -304,7 +312,7 @@ struct MeetingView: View {
     private func transcriptColumn(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             if showsTranscriptTools {
-                transcriptTools(showsDetailsButton: showsDetailsButton, audioSources: audioSources)
+                transcriptTools(showsDetailsButton: showsDetailsButton)
             } else {
                 transcriptStatus
                     .padding(.top, PisyaDesign.Spacing.content)
@@ -390,11 +398,8 @@ struct MeetingView: View {
         }
     }
 
-    private func transcriptTools(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
+    private func transcriptTools(showsDetailsButton: Bool) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-            if !audioSources.isEmpty {
-                SavedAudioPlayer(sources: audioSources, isInline: true)
-            }
             if !meeting.segments.isEmpty || showsDetailsButton {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
                     if !meeting.segments.isEmpty {
@@ -511,7 +516,9 @@ struct MeetingView: View {
         let folder = state.folders.first { $0.id == meeting.folderID }
         return VStack(alignment: .leading, spacing: buttonSize == .small ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                SectionHeading("ДЕЙСТВИЯ", style: .feature).foregroundStyle(Color.mutedInk)
+                if buttonSize == .small {
+                    SectionHeading("ДЕЙСТВИЯ", style: .feature).foregroundStyle(Color.mutedInk)
+                }
                 VStack(spacing: PisyaDesign.Spacing.inline) {
                     Button {
                         showsMeetingDetails = false
