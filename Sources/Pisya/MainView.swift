@@ -479,7 +479,18 @@ struct MeetingView: View {
                     } else if isQueued {
                         screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
                     } else if isTranscribing && !isSaving {
-                        screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton()
+                        HStack(spacing: PisyaDesign.Spacing.related) {
+                            if state.canUseTurboTranscription(meeting.id) {
+                                screenToggle("Турбо-режим", isOn: Binding(
+                                    get: { state.turboTranscriptionEnabled },
+                                    set: { state.setTurboTranscription($0, for: meeting.id) }
+                                ))
+                                .textStyle(PisyaDesign.Typography.detail)
+                                .screenHelp("Повышает приоритет распознавания. Mac может нагреваться сильнее.")
+                            }
+                            screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton()
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
                     }
                 }
                 if isSaving || (isTranscribing && !isRecording && !state.livePaused) {
@@ -488,14 +499,6 @@ struct MeetingView: View {
                     TranscriptionProgress(fraction: fraction,
                                           label: isSaving ? "Сохранение записи" : isLive ? "Доля обработанного аудио" : "Ход расшифровки",
                                           roundsDown: isLive)
-                }
-                if isTranscribing && state.canUseTurboTranscription(meeting.id) {
-                    screenToggle("Турбо-режим", isOn: Binding(
-                        get: { state.turboTranscriptionEnabled },
-                        set: { state.setTurboTranscription($0, for: meeting.id) }
-                    ))
-                    .textStyle(PisyaDesign.Typography.detail)
-                    .screenHelp("Повышает приоритет распознавания. Mac может нагреваться сильнее.")
                 }
             }
         }
