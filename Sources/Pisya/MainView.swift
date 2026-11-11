@@ -71,13 +71,13 @@ struct MainView: View {
             HStack(spacing: spacing) {
                 Button { showingMeetingPhrase = true } label: {
                     Text("🤦").font(PisyaDesign.Typography.Icon.medium)
-                }.actionButton().screenHelp("Фраза для созвона").accessibilityLabel("Фраза для созвона")
+                }.actionButton(.toolbarSecondary).screenHelp("Фраза для созвона").accessibilityLabel("Фраза для созвона")
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
-                }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
+                }.actionButton(.toolbarSecondary).screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
                     screenLabel("Импорт", systemImage: "tray.and.arrow.down")
-                }.actionButton().disabled(state.demo)
+                }.actionButton(.toolbarSecondary).disabled(state.demo)
                     .screenHelp("Импортировать аудио").accessibilityLabel("Импортировать аудио")
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
