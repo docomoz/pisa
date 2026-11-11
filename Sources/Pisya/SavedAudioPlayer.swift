@@ -5,6 +5,7 @@ import SwiftUI
 struct SavedAudioPlayer: View {
     @EnvironmentObject private var state: AppState
     let sources: [RecordingAudioSource]
+    var isInline = false
 
     @State private var item: AVPlayerItem?
     @State private var duration: TimeInterval = 0
@@ -45,9 +46,9 @@ struct SavedAudioPlayer: View {
                         .accessibilityHidden(true)
                     }
                 }
-                .padding(.vertical, PisyaDesign.Spacing.related)
+                .padding(.vertical, isInline ? PisyaDesign.Spacing.none : PisyaDesign.Spacing.related)
                 .disabled(state.recording || state.starting)
-                Divider()
+                if !isInline { Divider() }
             }
         }
         .task(id: sources) { await prepare() }

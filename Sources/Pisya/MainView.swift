@@ -147,6 +147,7 @@ struct MeetingView: View {
     @State private var title = ""
     @State private var confirmDeleteAudio = false
     @State private var transcriptSearch = ""
+    @State private var showsSavedAudio = false
     @State private var showsMeetingDetails = false
     @State private var showsDetailsKeyboardFocus = false
     @FocusState private var focusedField: Field?
@@ -172,6 +173,12 @@ struct MeetingView: View {
         })
     }
     var body: some View {
+        let hasAudio = !isRecording && !isSaving && state.hasAudio(meeting)
+        let showsAutomaticPlayer = !showsTranscriptTools && meeting.segments.isEmpty
+        let audioSources = !isRecording && !isSaving && !state.demo && (showsAutomaticPlayer || (showsTranscriptTools && hasAudio))
+            ? MeetingAudioExport.playbackSources(for: meeting, in: state.library) : []
+        let canToggleAudio = showsTranscriptTools && hasAudio && !audioSources.isEmpty
+        let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
                 screenText(meetingDateLabel(meeting.date))
@@ -181,8 +188,7 @@ struct MeetingView: View {
                     screenText("·")
                     screenText(timecode(meeting.duration)).monospacedDigit()
                     screenText("·")
-                    screenLabel(state.hasAudio(meeting) ? "Аудио сохранено" : "Без аудио", systemImage: "waveform")
-                        .fixedSize()
+                    audioStatus(hasAudio: hasAudio, canToggleAudio: canToggleAudio)
                 }
                 Spacer()
                 if showsTranscriptTools { screenLabel("Готово", systemImage: "checkmark.circle") }
@@ -202,7 +208,7 @@ struct MeetingView: View {
                 let extraWidth = Self.detailsColumnWidth * (max(1, textScale) - 1)
                 let showsColumn = showsTranscriptTools && geometry.size.width >= Self.transcriptWidthWithDetails + Self.detailsColumnWidth + extraWidth
                 HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
-                    transcriptColumn(showsDetailsButton: !showsColumn)
+                    transcriptColumn(showsDetailsButton: !showsColumn, audioSources: visibleAudioSources)
                     if showsColumn {
                         ScrollView {
                             meetingDetails(buttonSize: .regular)
@@ -223,6 +229,9 @@ struct MeetingView: View {
         }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.top, PisyaDesign.Spacing.page)
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
+        .onChange(of: canToggleAudio) { _, enabled in
+            if !enabled { showsSavedAudio = false }
+        }
         .onChange(of: showsTranscriptTools) { _, visible in
             if !visible {
                 transcriptSearch = ""
@@ -251,10 +260,38 @@ struct MeetingView: View {
         .sheet(isPresented: $reviewingTerms) { TermReview(meeting: meeting).environmentObject(state) }
     }
 
-    private func transcriptColumn(showsDetailsButton: Bool) -> some View {
+    @ViewBuilder
+    private func audioStatus(hasAudio: Bool, canToggleAudio: Bool) -> some View {
+        if canToggleAudio {
+            Button { showsSavedAudio.toggle() } label: {
+                HStack(spacing: PisyaDesign.Spacing.compact) {
+                    screenLabel("Аудио сохранено", systemImage: "waveform")
+                    Image(systemName: showsSavedAudio ? "chevron.up" : "chevron.down")
+                        .textStyle(PisyaDesign.Typography.footnoteMedium)
+                        .accessibilityHidden(true)
+                }
+                .padding(.vertical, PisyaDesign.Spacing.compact)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(AccentIconStyle())
+            .onKeyPress(.space) {
+                showsSavedAudio.toggle()
+                return .handled
+            }
+            .controlKeyboardFocus()
+            .fixedSize()
+            .accessibilityValue(showsSavedAudio ? "Плеер открыт" : "Плеер закрыт")
+            .screenHelp(showsSavedAudio ? "Свернуть плеер" : "Показать плеер")
+        } else {
+            screenLabel(hasAudio ? "Аудио сохранено" : "Без аудио", systemImage: "waveform")
+                .fixedSize()
+        }
+    }
+
+    private func transcriptColumn(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             if showsTranscriptTools {
-                transcriptTools(showsDetailsButton: showsDetailsButton)
+                transcriptTools(showsDetailsButton: showsDetailsButton, audioSources: audioSources)
             } else {
                 transcriptStatus
                     .padding(.top, PisyaDesign.Spacing.content)
@@ -263,9 +300,7 @@ struct MeetingView: View {
             Divider()
                 .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
             if meeting.segments.isEmpty {
-                let audioSources = isRecording || isSaving || state.demo
-                    ? [] : MeetingAudioExport.playbackSources(for: meeting, in: state.library)
-                if !audioSources.isEmpty {
+                if !showsTranscriptTools && !audioSources.isEmpty {
                     SavedAudioPlayer(sources: audioSources)
                 }
                 VStack(spacing: PisyaDesign.Spacing.section) {
@@ -335,8 +370,11 @@ struct MeetingView: View {
         }
     }
 
-    private func transcriptTools(showsDetailsButton: Bool) -> some View {
+    private func transcriptTools(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
+            if !audioSources.isEmpty {
+                SavedAudioPlayer(sources: audioSources, isInline: true)
+            }
             if !meeting.segments.isEmpty || showsDetailsButton {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
                     if !meeting.segments.isEmpty {
