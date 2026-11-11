@@ -479,6 +479,14 @@ struct MeetingView: View {
                                           label: isSaving ? "Сохранение записи" : isLive ? "Доля обработанного аудио" : "Ход расшифровки",
                                           roundsDown: isLive)
                 }
+                if isTranscribing && state.canUseTurboTranscription(meeting.id) {
+                    screenToggle("Турбо-режим", isOn: Binding(
+                        get: { state.turboTranscriptionEnabled },
+                        set: { state.setTurboTranscription($0, for: meeting.id) }
+                    ))
+                    .textStyle(PisyaDesign.Typography.detail)
+                    .screenHelp("Повышает приоритет распознавания. Mac может нагреваться сильнее.")
+                }
             }
         }
     }

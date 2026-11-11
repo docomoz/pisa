@@ -49,7 +49,8 @@ actor Transcriber {
         if let limit = previousLiveCacheLimit { Memory.cacheLimit = limit; previousLiveCacheLimit = nil }
     }
 
-    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+        let performance = performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal)
         contextDiagnostics = []
         guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path), FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("model.safetensors").path) else { throw PisyaError.message("Выберите папку модели Qwen3-ASR с config.json и model.safetensors") }
         let previousCacheLimit = Memory.cacheLimit
@@ -219,15 +220,10 @@ actor Transcriber {
                                     sampleCount: samples.count, maximumPadding: 8000)
                                 expandedSamples = expanded.map { Array(samples[$0]) }
                             } else { expandedSamples = nil }
-                            let inferenceStarted = Date()
+                            let inferenceStarted = ContinuousClock.now
                             let recognized = try await recognize(regionSamples, expandedSamples: expandedSamples, model: model,
                                 russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic)
-                            // Give the GPU cooling/foreground headroom between utterances.
-                            let thermal = ProcessInfo.processInfo.thermalState
-                            if quiet || thermal == .serious || thermal == .critical {
-                                let delay = min(3, max(0.1, Date().timeIntervalSince(inferenceStarted) * (quiet ? 0.6 : 0.2)))
-                                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                            }
+                            try await performance.pace(after: inferenceStarted)
                             guard let recognized else { continue }
                             let speaker = isMic ? "Я" : "Собеседники"
                             var segment = TranscriptSegment(start: offset + start + region.start, end: offset + start + region.end, speaker: speaker, text: recognized.text)
@@ -251,7 +247,7 @@ actor Transcriber {
             sorted = try await contextualRevision(sorted, preceding: preceding,
                 files: preparedFiles, bounds: audioBounds, hypotheses: acousticHypotheses, model: model, russian: russian,
                 vocabulary: context,
-                quiet: quiet, collectDiagnostics: collectDiagnostics, progress: progress)
+                performance: performance, collectDiagnostics: collectDiagnostics, progress: progress)
         }
         if let first = sorted.first, let previous = recentLanguageSegments.first, first.start <= previous.start { recentLanguageSegments = [] }
         let localized = BackchannelLanguage.resolve(sorted, alternatives: backchannels,
@@ -319,7 +315,7 @@ actor Transcriber {
         }
         return try await contextualRevision(segments, preceding: [], files: files, bounds: bounds,
             hypotheses: hypotheses, model: model, russian: russian, vocabulary: vocabulary,
-            quiet: false, collectDiagnostics: true, selected: selected) { _, _ in }
+            performance: TranscriptionPerformance(), collectDiagnostics: true, selected: selected) { _, _ in }
     }
 
     private struct RecognizedSpeech { var text: String; var russianBackchannel: String?; var acoustic: RecognitionAcousticResult? }
@@ -328,7 +324,7 @@ actor Transcriber {
     /// correction never becomes evidence for a later correction in this pass.
     private func contextualRevision(_ segments: [TranscriptSegment], preceding: [TranscriptSegment],
         files: [(URL, Double)], bounds: [UUID: Range<Double>], hypotheses: [UUID: RecognitionAcousticResult], model: Qwen3ASRModel,
-        russian: RussianSpeechRecognizer?, vocabulary: String, quiet: Bool, collectDiagnostics: Bool,
+        russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance, collectDiagnostics: Bool,
         selected: Set<UUID>? = nil, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
         guard let russian, !vocabulary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             try Task.checkCancellation()
@@ -395,7 +391,7 @@ actor Transcriber {
             guard let samples = try? Self.contextSamples(url, start: audioRange.lowerBound, end: audioRange.upperBound),
                   !samples.isEmpty else { continue }
             let acoustic = hypotheses[segment.id] ?? russian.recognizeDetailed(samples)
-            let began = Date()
+            let began = ContinuousClock.now
             func decode(_ prompt: String, samples: [Float], retry: RecognitionContext.Retry,
                         applyVocabulary: Bool = true) throws -> String {
                 let audio = MLXArray(samples)
@@ -560,11 +556,7 @@ actor Transcriber {
             }
             await progress(0.85 + 0.15 * Double(index + 1) / Double(max(1, segments.count)),
                 "Уточняю по контексту · \(timecode(segment.start))")
-            let thermal = ProcessInfo.processInfo.thermalState
-            if quiet || thermal == .serious || thermal == .critical {
-                let delay = min(3, max(0.1, Date().timeIntervalSince(began) * (quiet ? 0.6 : 0.2)))
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            }
+            try await performance.pace(after: began)
         }
         try Task.checkCancellation()
         await progress(1, "Расшифровка готова")

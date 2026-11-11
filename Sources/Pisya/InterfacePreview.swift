@@ -207,9 +207,31 @@ final class InterfacePreview: NSObject {
         state.enqueue(saved.id)
         guard state.processingID == saved.id else { throw PisyaError.message("Не запустилась расшифровка предыдущей встречи") }
 
+        guard !state.canUseTurboTranscription(saved.id) else {
+            throw PisyaError.message("Турбо-режим доступен при включённой тихой обработке")
+        }
+        state.preferences.quietProcessing = false
+        state.setTurboTranscription(true, for: saved.id)
+        guard state.turboTranscriptionEnabled else {
+            throw PisyaError.message("Турбо-режим не включился для сохранённого аудио")
+        }
+
         let current = Meeting(title: "Текущая встреча", source: state.source)
         state.update(current)
         state.beginRecordingSession(current, automatic: false)
+        state.setTurboTranscription(false, for: current.id)
+        guard state.canUseTurboTranscription(saved.id), state.turboTranscriptionEnabled else {
+            throw PisyaError.message("Текущая запись повлияла на турбо-режим предыдущей встречи")
+        }
+        state.preferences.quietProcessing = true
+        guard !state.canUseTurboTranscription(saved.id), !state.turboTranscriptionEnabled else {
+            throw PisyaError.message("Тихая обработка не отключила турбо-режим")
+        }
+        state.preferences.quietProcessing = false
+        guard !state.turboTranscriptionEnabled else {
+            throw PisyaError.message("Турбо-режим включился без запроса")
+        }
+        state.setTurboTranscription(true, for: saved.id)
         state.cancelProcessing()
         try await waitForTranscriptionToStop(state)
         guard state.recordingMeetingID == current.id else { throw PisyaError.message("Отмена расшифровки остановила запись") }
@@ -219,6 +241,9 @@ final class InterfacePreview: NSObject {
         guard state.processingID == saved.id, resumed.liveCommittedUntil == 3, resumed.segments == saved.segments else {
             throw PisyaError.message("Не удалось продолжить предыдущую расшифровку с сохранённого места во время записи")
         }
+        guard state.canUseTurboTranscription(saved.id), !state.turboTranscriptionEnabled else {
+            throw PisyaError.message("Турбо-режим сохранился после остановки расшифровки")
+        }
         state.cancelProcessing()
         try await waitForTranscriptionToStop(state)
 
@@ -227,6 +252,10 @@ final class InterfacePreview: NSObject {
         guard state.recordingMeetingID == current.id, state.processingID == current.id,
               live.status == .processing, live.liveCommittedUntil == 0 else {
             throw PisyaError.message("Текущая запись не запустила черновик с начала записанного аудио")
+        }
+        state.setTurboTranscription(true, for: current.id)
+        guard !state.canUseTurboTranscription(current.id), !state.turboTranscriptionEnabled else {
+            throw PisyaError.message("Турбо-режим доступен при расшифровке текущей записи")
         }
         state.recording = false
         state.cancelProcessing()

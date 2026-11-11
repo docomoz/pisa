@@ -18,12 +18,23 @@ final class AppState: ObservableObject {
     @Published var reprocessTarget: Meeting?
     private var termReplacementUndo: [UUID: (before: [UUID: String], after: [UUID: String])] = [:]
     private var searchIndex: [UUID: String] = [:]
-    @Published var preferences = Preferences()
+    @Published var preferences = Preferences() {
+        didSet {
+            if preferences.usesQuietProcessing != oldValue.usesQuietProcessing {
+                setTurboEnabled(false)
+            }
+        }
+    }
     @Published var search = ""
     @Published var recording = false
     @Published var starting = false
     @Published var recordingStarted: Date?
-    @Published var processingID: UUID?
+    @Published var processingID: UUID? {
+        didSet {
+            if processingID != oldValue { setTurboEnabled(false) }
+        }
+    }
+    @Published private(set) var turboTranscriptionEnabled = false
     @Published var progress: Double = 0
     @Published var phase = ""
     @Published var permissionIssue: CapturePermission?
@@ -60,6 +71,8 @@ final class AppState: ObservableObject {
     private var meterTask: Task<Void, Never>?
     private var offsetTask: Task<Void, Never>?
     private let transcriber = Transcriber()
+    private let transcriptionPerformance = TranscriptionPerformance(mode: .quiet)
+    private var turboActivity: NSObjectProtocol?
     private let titleModel = MeetingTitleModel()
     private var processingTask: Task<Void, Never>?
     private var liveTask: Task<Void, Never>?
@@ -284,6 +297,29 @@ final class AppState: ObservableObject {
     func savePreferences() { do { try library.savePreferences(preferences) } catch { message = error.localizedDescription } }
     func setAutomatic(_ enabled: Bool) { preferences.automaticRecording = enabled; detector.reset(); savePreferences() }
     func setBackgroundTranscription(_ enabled: Bool) { preferences.backgroundTranscription = enabled; savePreferences() }
+    func canUseTurboTranscription(_ id: UUID) -> Bool {
+        !demo && !preferences.usesQuietProcessing && processingID == id && activeMeeting?.id != id
+            && meetings.contains { $0.id == id && $0.status == .processing }
+    }
+    func setTurboTranscription(_ enabled: Bool, for id: UUID) {
+        guard canUseTurboTranscription(id) else { return }
+        setTurboEnabled(enabled)
+    }
+    private func setTurboEnabled(_ enabled: Bool) {
+        if enabled != turboTranscriptionEnabled {
+            turboTranscriptionEnabled = enabled
+            if enabled {
+                turboActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiated,
+                    reason: "Turbo transcription")
+            } else if let activity = turboActivity {
+                ProcessInfo.processInfo.endActivity(activity)
+                turboActivity = nil
+            }
+        }
+        let liveCapture = processingID != nil && processingID == activeMeeting?.id
+        transcriptionPerformance.mode = liveCapture || preferences.usesQuietProcessing
+            ? .quiet : enabled ? .turbo : .normal
+    }
     func toggleLivePause() { livePaused.toggle(); liveStatus = livePaused ? "Расшифровка на паузе" : "Готовлю черновик" }
     private func pollCall() {
         if let player, player.isPlaying, player.currentTime >= playbackEnd { player.stop(); playingSegmentID = nil }
@@ -395,6 +431,7 @@ final class AppState: ObservableObject {
             try? library.save(m); upsert(m); message = error.localizedDescription
         }
         activeMeeting = nil; recordingStarted = nil
+        if processingID == m.id { setTurboEnabled(false) }
     }
     func importAudio() {
         guard !demo else { return }
@@ -426,10 +463,13 @@ final class AppState: ObservableObject {
             while true {
                 try Task.checkCancellation()
                 let stopped = liveStopped
-                let thermal = ProcessInfo.processInfo.thermalState
-                if thermal == .serious || thermal == .critical {
-                    liveStatus = "Обработка отложена до охлаждения"
-                    try await Task.sleep(nanoseconds: 5_000_000_000); continue
+                if transcriptionPerformance.mode.pausesForHeat(ProcessInfo.processInfo.thermalState) {
+                    if liveStatus != "Обработка отложена до охлаждения" {
+                        liveStatus = "Обработка отложена до охлаждения"
+                    }
+                    let delay: Duration = stopped && !preferences.usesQuietProcessing ? .milliseconds(200) : .seconds(5)
+                    try await Task.sleep(for: delay)
+                    continue
                 }
                 if !stopped && (livePaused || failedDuringCapture || boundaryExhausted) {
                     liveStatus = livePaused ? "Расшифровка на паузе" : "Черновик продолжится после записи"
@@ -476,6 +516,7 @@ final class AppState: ObservableObject {
                         latest.duration = max(latest.duration, available)
                         latest.status = .ready; latest.error = nil; latest.liveCommittedUntil = nil
                         try library.save(latest); upsert(latest)
+                        setTurboEnabled(false)
                         Analytics.transcriptionCompleted(mode: mode, reprocess: reprocess, duration: latest.duration)
                         await nameCompletedMeeting(id, exportOnCompletion: true)
                         break
@@ -487,7 +528,7 @@ final class AppState: ObservableObject {
                 do {
                     liveStatus = stopped ? "Завершаю расшифровку" : "Готовлю черновик"
                     let preceding = try library.read(id).segments.filter { $0.end <= window.start && $0.end >= window.start - 300 }
-                    var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, quiet: stopped ? preferences.usesQuietProcessing : true, preceding: preceding)
+                    var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, preceding: preceding)
                     var committedEnd = LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: segments)
                     if committedEnd <= window.start + 0.001 {
                         if !stopped {
@@ -499,7 +540,7 @@ final class AppState: ObservableObject {
                         // A continuous turn longer than a batch has no safe
                         // boundary. Recognize this still-uncommitted batch
                         // without lookahead and make progress after stop.
-                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, quiet: preferences.usesQuietProcessing, preceding: preceding)
+                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, preceding: preceding)
                         committedEnd = window.end
                     } else { segments.removeAll { $0.end > committedEnd } }
                     try Task.checkCancellation()
@@ -533,15 +574,15 @@ final class AppState: ObservableObject {
         liveTask = nil; liveStatus = ""; liveAudioDuration = nil; processingID = nil; phase = ""; runNext()
     }
 
-    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, quiet: Bool, preceding: [TranscriptSegment] = []) async throws -> [TranscriptSegment] {
+    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, preceding: [TranscriptSegment] = []) async throws -> [TranscriptSegment] {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-window-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
-        let files = try await Task.detached(priority: .utility) {
+        let files = try await Task.detached(executorPreference: transcriptionPerformance, priority: .utility) {
             try CaptureWindow.copy(tracks, start: window.start, end: end, directory: directory)
         }.value
         guard !files.isEmpty else { return [] }
-        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), quiet: quiet, live: true, preceding: preceding) { _, _ in }
+        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance, live: true, preceding: preceding) { _, _ in }
         return try result.map { segment in
             var mapped = segment
             guard let temporaryName = segment.audioFile,
@@ -564,7 +605,9 @@ final class AppState: ObservableObject {
             do { try library.save(meeting) } catch { message = error.localizedDescription; return }
             upsert(meeting); processingID = id
             livePaused = false; liveStopped = false; liveStatus = "Готовлю черновик"
-            liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model, mode: "live", reprocess: false) }
+            liveTask = Task(executorPreference: transcriptionPerformance, priority: .utility) { @MainActor in
+                await self.runLiveTranscription(id: id, model: model, mode: "live", reprocess: false)
+            }
             return
         }
         if reprocess { pendingReprocessing.insert(id) }
@@ -589,7 +632,9 @@ final class AppState: ObservableObject {
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }
             upsert(m); processingID = id; progress = 0
             liveStopped = true; livePaused = false; liveStatus = "Подготавливаю аудио"
-            liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model, mode: "resume", reprocess: reprocess) }
+            liveTask = Task(executorPreference: transcriptionPerformance, priority: .utility) { @MainActor in
+                await self.runLiveTranscription(id: id, model: model, mode: "resume", reprocess: reprocess)
+            }
             return
         }
         let granted = model.startAccessingSecurityScopedResource()
@@ -599,7 +644,7 @@ final class AppState: ObservableObject {
         upsert(m); processingID = id; progress = 0
         Analytics.transcriptionStarted(mode: "batch", reprocess: reprocess)
         let vocabulary = preferences.vocabulary
-        processingTask = Task(priority: .utility) {
+        processingTask = Task(executorPreference: transcriptionPerformance, priority: .utility) { @MainActor [self] in
             defer {
                 if granted { model.stopAccessingSecurityScopedResource() }
                 isReprocessing = false
@@ -608,7 +653,7 @@ final class AppState: ObservableObject {
             do {
                 let files = try m.audioFiles.map { (try library.audioURL($0), m.audioOffsets[$0] ?? 0) }.filter { FileManager.default.fileExists(atPath: $0.0.path) }
                 guard !files.isEmpty else { throw PisyaError.message("Аудио этой встречи недоступно") }
-                let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), quiet: preferences.usesQuietProcessing) { [self] fraction, description in
+                let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance) { [self] fraction, description in
                     await self.updateProcessingProgress(fraction, description)
                 }
                 let generated = try Set(result.compactMap(\.audioFile)).filter { $0.contains(".clean.") && !m.audioFiles.contains($0) }.map { try library.audioURL($0) }
@@ -637,6 +682,7 @@ final class AppState: ObservableObject {
                     }
                 }
                 try library.save(latest); persisted = true; upsert(latest)
+                setTurboEnabled(false)
                 Analytics.transcriptionCompleted(mode: "batch", reprocess: reprocess, duration: latest.duration)
                 await nameCompletedMeeting(id, exportOnCompletion: true)
                 let shared = Set(meetings.filter { $0.id != id }.flatMap(\.audioFiles))
@@ -819,7 +865,11 @@ final class AppState: ObservableObject {
         do { try library.saveVoices(profiles); let previous = voiceProfiles; voiceProfiles = profiles; cleanupVoiceExamples(previous: previous, current: profiles) }
         catch { try? FileManager.default.removeItem(at: url); throw error }
     }
-    func cancelProcessing() { processingTask?.cancel(); if processingID != recordingMeetingID { liveTask?.cancel() } }
+    func cancelProcessing() {
+        setTurboEnabled(false)
+        processingTask?.cancel()
+        if processingID != recordingMeetingID { liveTask?.cancel() }
+    }
     func canReviewTerms(_ meeting: Meeting) -> Bool {
         meeting.status == .ready && meeting.liveCommittedUntil == nil && meeting.deletedAt == nil &&
             !meeting.segments.isEmpty && canModify(meeting)
