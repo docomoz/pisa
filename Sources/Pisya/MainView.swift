@@ -161,6 +161,7 @@ struct MeetingView: View {
     private var isTranscribing: Bool { meeting.status == .processing && state.processingID == meeting.id }
     private var canStartLiveTranscription: Bool { isRecording && state.canStartLiveTranscription }
     private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
+    private var showsAutomaticPlayer: Bool { !showsTranscriptTools && meeting.segments.isEmpty }
     private var showsTranscriptStatus: Bool { isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) }
     private var needsTitleSpacing: Bool { showsTranscriptTools || (!showsTranscriptStatus && !isRecording) }
     private var finishesRecording: Bool {
@@ -175,10 +176,9 @@ struct MeetingView: View {
     }
     var body: some View {
         let hasAudio = !isRecording && !isSaving && state.hasAudio(meeting)
-        let showsAutomaticPlayer = !showsTranscriptTools && meeting.segments.isEmpty
-        let audioSources = !isRecording && !isSaving && !state.demo && (showsAutomaticPlayer || (showsTranscriptTools && hasAudio))
+        let audioSources = !isRecording && !isSaving && !state.demo && (showsAutomaticPlayer || hasAudio)
             ? MeetingAudioExport.playbackSources(for: meeting, in: state.library) : []
-        let canToggleAudio = showsTranscriptTools && hasAudio && !audioSources.isEmpty
+        let canToggleAudio = !showsAutomaticPlayer && !audioSources.isEmpty
         let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: PisyaDesign.Spacing.related) {
@@ -291,19 +291,24 @@ struct MeetingView: View {
 
     private func transcriptColumn(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
-            if showsTranscriptTools {
-                transcriptTools(showsDetailsButton: showsDetailsButton, audioSources: audioSources)
-            } else {
+            if !showsTranscriptTools {
                 transcriptStatus
                     .padding(.top, PisyaDesign.Spacing.content)
                     .padding(.bottom, PisyaDesign.Spacing.related)
             }
+            if !showsAutomaticPlayer && !audioSources.isEmpty {
+                SavedAudioPlayer(sources: audioSources, isInline: true)
+                    .padding(.bottom, PisyaDesign.Spacing.related)
+            }
+            if showsTranscriptTools {
+                transcriptTools(showsDetailsButton: showsDetailsButton)
+            }
             Divider()
                 .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
+            if showsAutomaticPlayer && !audioSources.isEmpty {
+                SavedAudioPlayer(sources: audioSources)
+            }
             if meeting.segments.isEmpty {
-                if !showsTranscriptTools && !audioSources.isEmpty {
-                    SavedAudioPlayer(sources: audioSources)
-                }
                 VStack(spacing: PisyaDesign.Spacing.section) {
                     Spacer()
                     if isRecording || isSaving || isTranscribing || isQueued {
@@ -374,11 +379,8 @@ struct MeetingView: View {
         }
     }
 
-    private func transcriptTools(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
+    private func transcriptTools(showsDetailsButton: Bool) -> some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-            if !audioSources.isEmpty {
-                SavedAudioPlayer(sources: audioSources, isInline: true)
-            }
             if !meeting.segments.isEmpty || showsDetailsButton {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
                     if !meeting.segments.isEmpty {
