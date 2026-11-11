@@ -36,11 +36,26 @@ final class InterfacePreview: NSObject {
             fixture.audioOffsets = [remote: 5]
             fixture.duration = 42
         }
-        if CommandLine.arguments.contains("--processing-preview") { fixture.status = .processing }
+        let recordingPreview = CommandLine.arguments.contains("--recording-transcription-preview")
+        if recordingPreview {
+            fixture.status = .failed
+            fixture.liveCommittedUntil = 160
+        } else if CommandLine.arguments.contains("--processing-preview") {
+            fixture.status = .processing
+        }
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)
-        if CommandLine.arguments.contains("--processing-preview") {
+        if recordingPreview {
+            try Self.prepareModelPath(for: state)
+            var saved = Meeting(title: "Сохранённое аудио", source: state.source)
+            saved.audioFiles = fixture.audioFiles
+            saved.duration = fixture.duration
+            state.update(saved)
+            let current = Meeting(title: "Текущая запись", source: state.source)
+            state.update(current)
+            state.beginRecordingSession(current, automatic: false)
+        } else if CommandLine.arguments.contains("--processing-preview") {
             state.processingID = fixture.id
             state.liveStatus = "Завершаю расшифровку"
         }
@@ -176,6 +191,62 @@ final class InterfacePreview: NSObject {
         guard state.isQueued(first.id) else { throw PisyaError.message("Запись нельзя снова добавить в очередь") }
         state.cancelQueued(first.id); state.cancelQueued(second.id); state.cancelQueued(active)
         guard state.processingID == active else { throw PisyaError.message("Отмена очереди остановила обработку") }
+    }
+
+    static func testTranscriptionDuringRecording() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Recording-Queue-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        try prepareModelPath(for: state)
+        var saved = Meeting(title: "Предыдущая встреча", source: state.source)
+        saved.liveCommittedUntil = 3
+        saved.audioFiles = ["saved-mic.caf"]
+        saved.segments = [.init(start: 0, end: 2, speaker: "Я", text: "Сохранённая реплика")]
+        try writeAudio(to: state.library.audioURL(saved.audioFiles[0]), duration: 6, frequency: 180)
+        state.update(saved)
+        state.enqueue(saved.id)
+        guard state.processingID == saved.id else { throw PisyaError.message("Не запустилась расшифровка предыдущей встречи") }
+
+        let current = Meeting(title: "Текущая встреча", source: state.source)
+        state.update(current)
+        state.beginRecordingSession(current, automatic: false)
+        state.cancelProcessing()
+        try await waitForTranscriptionToStop(state)
+        guard state.recordingMeetingID == current.id else { throw PisyaError.message("Отмена расшифровки остановила запись") }
+
+        state.enqueue(saved.id)
+        let resumed = try state.library.read(saved.id)
+        guard state.processingID == saved.id, resumed.liveCommittedUntil == 3, resumed.segments == saved.segments else {
+            throw PisyaError.message("Не удалось продолжить предыдущую расшифровку с сохранённого места во время записи")
+        }
+        state.cancelProcessing()
+        try await waitForTranscriptionToStop(state)
+
+        state.enqueue(current.id)
+        let live = try state.library.read(current.id)
+        guard state.recordingMeetingID == current.id, state.processingID == current.id,
+              live.status == .processing, live.liveCommittedUntil == 0 else {
+            throw PisyaError.message("Текущая запись не запустила черновик с начала записанного аудио")
+        }
+        state.recording = false
+        state.cancelProcessing()
+        try await waitForTranscriptionToStop(state)
+    }
+
+    private static func prepareModelPath(for state: AppState) throws {
+        // The test covers task selection before inference. A live task waits for capture boundaries.
+        let model = state.library.root.appendingPathComponent("Models/Qwen3-ASR")
+        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: model.appendingPathComponent("config.json"))
+        state.modelSetup.phase = .ready
+    }
+
+    private static func waitForTranscriptionToStop(_ state: AppState) async throws {
+        for _ in 0..<200 {
+            if state.processingID == nil { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw PisyaError.message("Обработка не остановилась")
     }
 
     static func run() throws {

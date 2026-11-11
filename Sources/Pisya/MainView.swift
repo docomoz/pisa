@@ -159,6 +159,7 @@ struct MeetingView: View {
     private var isSaving: Bool { state.savingMeetingID == meeting.id }
     private var isQueued: Bool { state.isQueued(meeting.id) }
     private var isTranscribing: Bool { meeting.status == .processing && state.processingID == meeting.id }
+    private var canStartLiveTranscription: Bool { isRecording && state.canStartLiveTranscription }
     private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
     private var showsTranscriptStatus: Bool { isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) }
     private var needsTitleSpacing: Bool { showsTranscriptTools || (!showsTranscriptStatus && !isRecording) }
@@ -307,6 +308,9 @@ struct MeetingView: View {
                     Spacer()
                     if isRecording || isSaving || isTranscribing || isQueued {
                         SectionHeading(isRecording && isTranscribing ? "Здесь появится черновик" : "Здесь появится расшифровка")
+                        if canStartLiveTranscription && !showsTranscriptStatus {
+                            liveTranscriptionButton(size: .regular).controlSize(.large)
+                        }
                     } else {
                         if audioSources.isEmpty {
                             Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform")
@@ -321,7 +325,7 @@ struct MeetingView: View {
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 420)
                         }
-                        if !state.recording && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
+                        if state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
                     }
                     Spacer()
                 }.frame(maxWidth: .infinity)
@@ -427,7 +431,7 @@ struct MeetingView: View {
                         SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
                     }
                     Spacer(minLength: PisyaDesign.Spacing.none)
-                    if meeting.status == .failed && meeting.deletedAt == nil && !state.recording
+                    if meeting.status == .failed && meeting.deletedAt == nil
                         && !isSaving && state.canModify(meeting) && state.hasAudio(meeting) {
                         if meeting.liveCommittedUntil != nil {
                             screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
@@ -439,6 +443,8 @@ struct MeetingView: View {
                         screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
                             .actionButton(size: .small)
                             .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
+                    } else if canStartLiveTranscription {
+                        liveTranscriptionButton(size: .small)
                     } else if isQueued {
                         screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton(size: .small)
                     } else if isTranscribing && !isSaving {
@@ -454,6 +460,11 @@ struct MeetingView: View {
                 }
             }
         }
+    }
+    private func liveTranscriptionButton(size: ActionButtonSize) -> some View {
+        screenButton((meeting.liveCommittedUntil ?? 0) > 0 ? "Продолжить расшифровку" : "Начать расшифровку") {
+            state.enqueue(meeting.id)
+        }.actionButton(.primary, size: size)
     }
     private var transcriptStatusTitle: String {
         if isSaving { return "Сохраняю запись" }

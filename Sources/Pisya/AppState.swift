@@ -70,6 +70,7 @@ final class AppState: ObservableObject {
     private var recordingTitleDraft: String?
     var recordingMeetingID: UUID? { recording ? activeMeeting?.id : nil }
     var savingMeetingID: UUID? { recording ? nil : activeMeeting?.id }
+    var canStartLiveTranscription: Bool { !demo && recordingMeetingID != nil && processingID == nil && modelReady }
     private var automaticallyStarted = false
     private var recordingStartedAutomatically = false
     @Published private var pending: [UUID] = []
@@ -312,18 +313,14 @@ final class AppState: ObservableObject {
         let selectedSource = source
         var m = Meeting(title: "", source: selectedSource)
         m.title = m.defaultTitle; m.automaticTitle = m.title
-        let runLive = preferences.usesBackgroundTranscription && modelReady && processingID == nil
-        if runLive { m.status = .processing; m.liveCommittedUntil = 0; processingID = m.id }
         // Journal expected paths before capture, so interrupted sessions remain discoverable.
         m.audioFiles = ["\(m.id.uuidString)-mic.caf", "\(m.id.uuidString)-remote.caf"]
         do {
             try await capture.prepare()
             try library.save(m)
             try await capture.start(folder: library.audioDirectory, id: m.id)
-            activeMeeting = m; recording = true; recordingStarted = Date(); automaticallyStarted = automatic
-            recordingStartedAutomatically = automatic
+            beginRecordingSession(m, automatic: automatic)
             Analytics.recordingStarted(automatic: automatic)
-            recordingMonitor.reset()
             meterTask = Task { [weak self] in
                 while !Task.isCancelled {
                     guard let self else { return }
@@ -350,15 +347,8 @@ final class AppState: ObservableObject {
                     do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
                 }
             }
-            showingTrash = false; folderFilter = nil; unfiledOnly = false
-            upsert(m); selection = m.id
-            if runLive, let model = modelURL() {
-                livePaused = false; liveStopped = false; liveStatus = "Готовлю черновик"
-                processingID = m.id
-                liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: m.id, model: model, mode: "live", reprocess: false) }
-            }
+            if preferences.usesBackgroundTranscription && canStartLiveTranscription { enqueue(m.id) }
         } catch {
-            if runLive { processingID = nil; runNext() }
             m.status = .failed; m.error = error.localizedDescription
             if hasAudio(m) { try? library.save(m); upsert(m) }
             else { try? library.discardEmptyDraft(m) }
@@ -366,6 +356,13 @@ final class AppState: ObservableObject {
             else { message = error.localizedDescription }
             detector.manuallyStopped()
         }
+    }
+    func beginRecordingSession(_ meeting: Meeting, automatic: Bool) {
+        activeMeeting = meeting; recording = true; recordingStarted = Date()
+        automaticallyStarted = automatic; recordingStartedAutomatically = automatic
+        recordingMonitor.reset()
+        showingTrash = false; folderFilter = nil; unfiledOnly = false
+        upsert(meeting); selection = meeting.id
     }
     func stopRecording(manual: Bool = false) async {
         guard recording, var m = activeMeeting else { return }
@@ -558,6 +555,18 @@ final class AppState: ObservableObject {
     func enqueue(_ id: UUID, reprocess: Bool = false) {
         guard !demo, id != processingID, !pending.contains(id) else { return }
         guard modelReady else { modelSetup.presented = true; return }
+        if id == recordingMeetingID {
+            // An open recording can only be read through the capture boundaries.
+            guard !reprocess, canStartLiveTranscription,
+                  var meeting = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
+            meeting.status = .processing; meeting.error = nil
+            meeting.liveCommittedUntil = meeting.liveCommittedUntil ?? 0
+            do { try library.save(meeting) } catch { message = error.localizedDescription; return }
+            upsert(meeting); processingID = id
+            livePaused = false; liveStopped = false; liveStatus = "Готовлю черновик"
+            liveTask = Task(priority: .utility) { await self.runLiveTranscription(id: id, model: model, mode: "live", reprocess: false) }
+            return
+        }
         if reprocess { pendingReprocessing.insert(id) }
         pending.append(id); runNext()
     }

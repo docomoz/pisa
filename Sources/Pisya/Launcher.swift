@@ -76,10 +76,15 @@ enum Launcher {
             return
         }
         if CommandLine.arguments.contains("--queue-self-test") {
-            MainActor.assumeIsolated {
-                do { try InterfacePreview.testQueue(); print("QUEUE_TEST_OK"); exit(0) }
+            Task { @MainActor in
+                do {
+                    try InterfacePreview.testQueue()
+                    try await InterfacePreview.testTranscriptionDuringRecording()
+                    print("QUEUE_TEST_OK"); exit(0)
+                }
                 catch { print("QUEUE_TEST_FAILED", error.localizedDescription); exit(1) }
             }
+            dispatchMain()
         }
         if CommandLine.arguments.contains("--interface-preview") {
             MainActor.assumeIsolated {
