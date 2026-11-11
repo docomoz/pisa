@@ -16,7 +16,7 @@ for size in [16, 32, 128, 256, 512] {
         let context = NSGraphicsContext.current!.cgContext
         context.scaleBy(x: CGFloat(pixels) / 1024, y: CGFloat(pixels) / 1024)
         NSColor(white: 0.98, alpha: 1).setFill()
-        let tile = NSBezierPath(roundedRect: NSRect(x: 64, y: 64, width: 896, height: 896), xRadius: 204, yRadius: 204)
+        let tile = NSBezierPath(roundedRect: NSRect(x: 94, y: 94, width: 836, height: 836), xRadius: 190, yRadius: 190)
         tile.fill()
         NSColor(white: 0.85, alpha: 1).setStroke(); tile.lineWidth = 2; tile.stroke()
         NSColor(srgbRed: 0.22, green: 0.22, blue: 0.22, alpha: 1).setFill()
