@@ -199,16 +199,14 @@ struct FolderEditor: View {
     @State private var symbol = "folder"
     @FocusState private var nameFocused: Bool
     private let icons: [(String, String)] = [
-        ("folder", "Папка"), ("briefcase", "Работа"), ("person", "Человек"), ("person.2", "Команда"),
-        ("person.3", "Группа"), ("bubble.left", "Разговор"), ("bubble.left.and.bubble.right", "Обсуждение"), ("phone", "Звонки"),
-        ("video", "Видеовстречи"), ("mic", "Микрофон"), ("headphones", "Аудио"), ("music.note", "Музыка"),
-        ("doc.text", "Документы"), ("book", "Книги"), ("bookmark", "Закладки"), ("graduationcap", "Обучение"),
-        ("lightbulb", "Идеи"), ("sparkles", "Вдохновение"), ("pencil", "Заметки"), ("paintbrush", "Творчество"),
-        ("calendar", "Планы"), ("clock", "Время"), ("checkmark.circle", "Задачи"), ("flag", "Цели"),
-        ("star", "Избранное"), ("heart", "Личное"), ("house", "Дом"), ("building.2", "Компания"),
-        ("globe", "Мир"), ("map", "Карта"), ("location", "Места"), ("airplane", "Поездки"),
-        ("car", "Автомобиль"), ("cup.and.saucer", "Кофе"), ("gift", "Подарки"), ("leaf", "Природа"),
-        ("wrench.and.screwdriver", "Инструменты"), ("gearshape", "Настройки"), ("chart.bar", "Аналитика"), ("tray", "Входящие")
+        ("folder", "Папка"), ("briefcase", "Проекты"), ("person", "Встречи один на один"), ("person.2", "Команда"),
+        ("person.3", "Общие собрания"), ("bubble.left.and.bubble.right", "Обсуждения"), ("phone", "Звонки"), ("video", "Видеовстречи"),
+        ("doc.text", "Документы"), ("graduationcap", "Обучение"), ("lightbulb", "Идеи"), ("calendar", "Планирование"),
+        ("checkmark.circle", "Задачи"), ("flag", "Цели"), ("star", "Избранное"), ("airplane", "Командировки"),
+        ("building.2", "Компания"), ("globe", "Международные проекты"), ("map", "География"), ("chart.bar", "Аналитика"),
+        ("chevron.left.forwardslash.chevron.right", "Разработка"), ("shippingbox", "Продукт"), ("megaphone", "Маркетинг"), ("creditcard", "Финансы"),
+        ("cart", "Продажи"), ("person.crop.rectangle", "Найм"), ("headphones", "Поддержка"), ("paintpalette", "Дизайн"),
+        ("exclamationmark.triangle", "Риски"), ("lock.shield", "Безопасность"), ("ladybug", "Тестирование"), ("arrow.triangle.branch", "Процессы")
     ]
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
