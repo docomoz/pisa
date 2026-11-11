@@ -6,35 +6,24 @@ import CryptoKit
 enum Analytics {
     private static let appID = "AE7E544F-BD61-47AA-AD9C-631D875CC692"
     private static let defaults = UserDefaults.standard
-    private static let enabledKey = "usageAnalyticsEnabled"
+    // Keep opt-outs saved by versions that offered the setting.
+    private static let previouslyDisabled = (defaults.object(forKey: "usageAnalyticsEnabled") as? Bool) == false
     private static let identityKey = "usageAnalyticsIdentity"
     private static let queueKey = "usageAnalyticsQueue"
     private static let activeDayKey = "usageAnalyticsActiveDay"
     private static var queue = defaults.data(forKey: queueKey).flatMap { try? JSONDecoder().decode(UsageEventQueue.self, from: $0) } ?? UsageEventQueue()
     private static var task: URLSessionDataTask?
-    private static var generation = 0
     private static var retryTask: Task<Void, Never>?
     private static var retryDelay: UInt64 = 60
     private static let session = URLSession(configuration: .ephemeral)
 
-    static var enabled: Bool { defaults.object(forKey: enabledKey) as? Bool ?? true }
     private static var isPreview: Bool {
         ProcessInfo.processInfo.environment["PISYA_DISABLE_ANALYTICS"] == "1"
             || CommandLine.arguments.contains(where: { $0.hasPrefix("--") })
             || Bundle.main.object(forInfoDictionaryKey: "PisyaInterfacePreview") as? Bool == true
             || Bundle.main.object(forInfoDictionaryKey: "PisyaSourceLinkPreview") as? Bool == true
     }
-    private static var allowed: Bool { enabled && !isPreview }
-    static func setEnabled(_ value: Bool) {
-        guard !isPreview else { return }
-        defaults.set(value, forKey: enabledKey)
-        if !value {
-            generation += 1
-            retryTask?.cancel(); retryTask = nil; retryDelay = 60
-            task?.cancel(); task = nil
-            queue.removeAll(); persist()
-        } else { appActivated(); flush() }
-    }
+    private static var allowed: Bool { !isPreview && !previouslyDisabled }
     static func appLaunched() { send(.appLaunched) }
     static func appActivated() {
         guard allowed else { return }
@@ -76,7 +65,6 @@ enum Analytics {
         queue.discardOlder(than: Date().addingTimeInterval(-86_400)); persist()
         let batch = queue.pending
         guard !batch.isEmpty else { return }
-        let currentGeneration = generation
         let dateFormatter = ISO8601DateFormatter()
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
@@ -99,7 +87,6 @@ enum Analytics {
         request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         let upload = session.dataTask(with: request) { _, response, error in
             Task { @MainActor in
-                guard currentGeneration == generation else { return }
                 task = nil
                 guard allowed else { return }
                 guard error == nil, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { scheduleRetry(); return }

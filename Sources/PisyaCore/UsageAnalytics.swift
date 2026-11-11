@@ -53,5 +53,4 @@ struct UsageEventQueue: Codable {
         pending.removeAll { ids.contains($0.id) }
     }
     mutating func discardOlder(than cutoff: Date) { pending.removeAll { $0.date < cutoff } }
-    mutating func removeAll() { pending.removeAll() }
 }

@@ -116,7 +116,7 @@ struct ModelSetupView: View {
                 Divider().opacity(0.5)
                 item("internaldrive", "Около 3 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
                 Divider().opacity(0.5)
-                item("chart.bar", "Статистика использования", "События без аудио и текста · можно отключить в настройках")
+                item("chart.bar", "Статистика использования", "Анонимные события в TelemetryDeck · без аудио и текста")
             }.padding(PisyaDesign.Spacing.content).plainSurface().padding(.bottom, PisyaDesign.Spacing.section)
             if setup.busy {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {

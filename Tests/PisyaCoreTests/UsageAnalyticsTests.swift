@@ -14,8 +14,6 @@ final class UsageAnalyticsTests: XCTestCase {
         restored.append(.appActivated)
         restored.acknowledge(sent)
         XCTAssertEqual(restored.pending.map(\.event), [.appActivated])
-        restored.removeAll()
-        XCTAssertTrue(restored.pending.isEmpty)
     }
 
     func testQueueIsBoundedAndDiscardsOldestItems() throws {
