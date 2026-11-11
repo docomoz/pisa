@@ -537,7 +537,13 @@ struct MeetingView: View {
             Label {
                 screenText(title).textStyle(PisyaDesign.Typography.smallButton)
             } icon: {
-                Image(systemName: systemImage)
+                let icon = Image(systemName: systemImage)
+                ViewThatFits(in: .horizontal) {
+                    icon.fixedSize()
+                    icon.resizable().scaledToFit()
+                        .frame(width: PisyaDesign.Metrics.labelIconWidth)
+                        .fixedSize()
+                }
             }
             .labelStyle(AlignedIconLabelStyle())
             .lineLimit(1).truncationMode(.tail)
