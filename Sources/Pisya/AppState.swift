@@ -132,6 +132,10 @@ final class AppState: ObservableObject {
     }
     func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !pending.contains(m.id) }
     func canRename(_ m: Meeting) -> Bool { !demo }
+    func canMove(_ m: Meeting) -> Bool {
+        !demo && m.deletedAt == nil && activeMeeting?.id != m.id && !isQueued(m.id)
+            && (processingID != m.id || !isReprocessing)
+    }
     func isQueued(_ id: UUID) -> Bool { pending.contains(id) }
     func stageRecordingTitle(_ title: String, for meeting: Meeting) {
         guard recordingMeetingID == meeting.id else { return }
@@ -150,7 +154,7 @@ final class AppState: ObservableObject {
         }
     }
     func move(_ m: Meeting, to folder: UUID?) {
-        guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
+        guard var latest = meetings.first(where: { $0.id == m.id }), canMove(latest) else { return }
         latest.folderID = folder; update(latest)
         if !filtered.contains(where: { $0.id == selection }) { select(filtered.first?.id) }
     }
@@ -224,9 +228,7 @@ final class AppState: ObservableObject {
         }
     }
     func moveToNewFolder(_ meeting: Meeting, name: String, symbol: String) {
-        guard canModify(meeting),
-              let latest = meetings.first(where: { $0.id == meeting.id }),
-              latest.deletedAt == nil else { return }
+        guard let latest = meetings.first(where: { $0.id == meeting.id }), canMove(latest) else { return }
         if let folderID = saveFolder(name, symbol: symbol) {
             move(latest, to: folderID)
         }
@@ -634,7 +636,7 @@ final class AppState: ObservableObject {
                 }
             } catch {
                 Analytics.transcriptionFailed(mode: "batch", cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
-                var latest = (try? library.read(id)) ?? m
+                var latest = (try? library.read(id)) ?? meetings.first(where: { $0.id == id }) ?? m
                 latest.status = .failed; latest.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено" : error.localizedDescription
                 try? library.save(latest); upsert(latest)
             }

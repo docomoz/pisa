@@ -140,12 +140,34 @@ final class InterfacePreview: NSObject {
         processing.segments = [.init(start: 0, end: 1, speaker: "Я", text: "Привет")]
         state.update(processing); state.processingID = processing.id
         state.rename(processing, to: "Название во время расшифровки")
+        guard let folderID = state.saveFolder("Работа"),
+              let moveItem = MeetingActionSet(state: state, meeting: processing).contextMenuItems.first(where: \.hasSubmenu),
+              moveItem.isEnabled, let submenu = moveItem.submenu,
+              let destination = submenu.item(withTitle: "Работа") else {
+            throw PisyaError.message("Перемещение из контекстного меню недоступно во время расшифровки")
+        }
+        _ = NSApplication.shared
+        submenu.performActionForItem(at: submenu.index(of: destination))
+        guard try state.library.read(processing.id).folderID == folderID else {
+            throw PisyaError.message("Папка записи не сохранилась во время расшифровки")
+        }
+        state.moveToNewFolder(processing, name: "Планы", symbol: "folder")
+        guard let newFolder = state.folders.first(where: { $0.name == "Планы" }),
+              try state.library.read(processing.id).folderID == newFolder.id else {
+            throw PisyaError.message("Не удалось переместить запись в новую папку во время расшифровки")
+        }
         var completed = try state.library.read(processing.id)
-        guard completed.title == "Название во время расшифровки", completed.segments == processing.segments else { throw PisyaError.message("Переименование во время расшифровки не сохранилось или изменило текст") }
+        guard completed.title == "Название во время расшифровки", completed.segments == processing.segments,
+              completed.status == .processing, state.processingID == processing.id else {
+            throw PisyaError.message("Перемещение изменило название, текст или состояние расшифровки")
+        }
         completed.status = .ready
         _ = completed.applyGeneratedTitle("Автоматическое название")
         try state.library.save(completed)
-        guard try state.library.read(processing.id).title == "Название во время расшифровки" else { throw PisyaError.message("Название изменилось после завершения расшифровки") }
+        let finished = try state.library.read(processing.id)
+        guard finished.title == "Название во время расшифровки", finished.folderID == newFolder.id else {
+            throw PisyaError.message("Название или папка изменились после завершения расшифровки")
+        }
         state.processingID = active
         state.cancelQueued(first.id)
         guard !state.isQueued(first.id), state.isQueued(second.id), state.processingID == active,
