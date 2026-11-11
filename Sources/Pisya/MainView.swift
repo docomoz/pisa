@@ -278,7 +278,14 @@ struct MeetingView: View {
                                 .font(PisyaDesign.Typography.Icon.emptyState).foregroundStyle(Color.moss)
                         }
                         SectionHeading(meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено", style: .dialog)
-                        if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
+                        if let error = meeting.error {
+                            SupportingText(
+                                error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error,
+                                style: PisyaDesign.Typography.secondary
+                            )
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 420)
+                        }
                         if !state.recording && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
                     }
                     Spacer()
