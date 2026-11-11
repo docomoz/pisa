@@ -309,7 +309,7 @@ struct MeetingView: View {
                     if isRecording || isSaving || isTranscribing || isQueued {
                         SectionHeading(isRecording && isTranscribing ? "Здесь появится черновик" : "Здесь появится расшифровка")
                         if canStartLiveTranscription && !showsTranscriptStatus {
-                            liveTranscriptionButton(size: .regular).controlSize(.large)
+                            liveTranscriptionButton.controlSize(.large)
                         }
                     } else {
                         if audioSources.isEmpty {
@@ -434,21 +434,21 @@ struct MeetingView: View {
                     if meeting.status == .failed && meeting.deletedAt == nil
                         && !isSaving && state.canModify(meeting) && state.hasAudio(meeting) {
                         if meeting.liveCommittedUntil != nil {
-                            screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary, size: .small)
+                            screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
                         } else {
-                            screenButton("Расшифровать заново") { state.reprocessTarget = meeting }.actionButton(.primary, size: .small)
+                            screenButton("Расшифровать заново") { state.reprocessTarget = meeting }.actionButton(.primary)
                         }
                     }
                     if isRecording && isTranscribing {
                         screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
-                            .actionButton(size: .small)
+                            .actionButton()
                             .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
                     } else if canStartLiveTranscription {
-                        liveTranscriptionButton(size: .small)
+                        liveTranscriptionButton
                     } else if isQueued {
-                        screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton(size: .small)
+                        screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
                     } else if isTranscribing && !isSaving {
-                        screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton(size: .small)
+                        screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton()
                     }
                 }
                 if isSaving || (isTranscribing && !isRecording && !state.livePaused) {
@@ -461,10 +461,10 @@ struct MeetingView: View {
             }
         }
     }
-    private func liveTranscriptionButton(size: ActionButtonSize) -> some View {
+    private var liveTranscriptionButton: some View {
         screenButton((meeting.liveCommittedUntil ?? 0) > 0 ? "Продолжить расшифровку" : "Начать расшифровку") {
             state.enqueue(meeting.id)
-        }.actionButton(.primary, size: size)
+        }.actionButton(.primary)
     }
     private var transcriptStatusTitle: String {
         if isSaving { return "Сохраняю запись" }
