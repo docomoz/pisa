@@ -64,9 +64,9 @@ struct MainView: View {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
-                    screenLabel("Импорт…", systemImage: "tray.and.arrow.down")
+                    screenLabel("Импорт", systemImage: "tray.and.arrow.down")
                 }.actionButton().disabled(state.demo)
-                    .screenHelp("Импортировать аудио…").accessibilityLabel("Импортировать аудио…")
+                    .screenHelp("Импортировать аудио").accessibilityLabel("Импортировать аудио")
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
@@ -455,7 +455,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         state.voiceMeeting = meeting
                     } label: {
-                        detailsActionLabel("Разметить голоса…", systemImage: "person.wave.2")
+                        detailsActionLabel("Разметить голоса", systemImage: "person.wave.2")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
@@ -464,7 +464,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         reviewingTerms = true
                     } label: {
-                        detailsActionLabel("Разметить термины…", systemImage: "text.magnifyingglass")
+                        detailsActionLabel("Разметить термины", systemImage: "text.magnifyingglass")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(!state.canReviewTerms(meeting))
