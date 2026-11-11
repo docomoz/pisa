@@ -192,6 +192,7 @@ struct MeetingView: View {
             }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
             TextField("Название встречи", text: titleInput).textFieldStyle(.plain)
                 .textStyle(PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
+                .layoutPriority(1)
                 .disabled(!state.canRename(meeting))
                 .onSubmit { saveTitle(resetIfEmpty: true); focusedField = nil }
                 .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
@@ -272,12 +273,20 @@ struct MeetingView: View {
             Divider()
                 .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
             if meeting.segments.isEmpty {
+                let audioSources = isRecording || isSaving || state.demo
+                    ? [] : MeetingAudioExport.playbackSources(for: meeting, in: state.library)
+                if !audioSources.isEmpty {
+                    SavedAudioPlayer(sources: audioSources)
+                }
                 VStack(spacing: PisyaDesign.Spacing.section) {
                     Spacer()
                     if isRecording || isSaving || isTranscribing || isQueued {
                         SectionHeading(isRecording && isTranscribing ? "Здесь появится черновик" : "Здесь появится расшифровка")
                     } else {
-                        Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform").font(PisyaDesign.Typography.Icon.emptyState).foregroundStyle(Color.moss)
+                        if audioSources.isEmpty {
+                            Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform")
+                                .font(PisyaDesign.Typography.Icon.emptyState).foregroundStyle(Color.moss)
+                        }
                         SectionHeading(meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено", style: .dialog)
                         if let error = meeting.error { screenText(error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).multilineTextAlignment(.center).frame(maxWidth: 420) }
                         if !state.recording && state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }

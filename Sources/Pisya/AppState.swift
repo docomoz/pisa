@@ -51,6 +51,7 @@ final class AppState: ObservableObject {
     private var sourceRequestID = UUID()
     @Published var sourceReveal: SourceReveal?
     @Published var playingSegmentID: UUID?
+    let savedAudioPlayer = AVPlayer()
     private var player: AVAudioPlayer?
     private var playbackEnd: Double = 0
     private var playbackTimer: Timer?
@@ -304,7 +305,7 @@ final class AppState: ObservableObject {
     func startRecording(automatic: Bool = false) async {
         guard !recording, !starting, !demo else { return }
         guard !modelSetup.busy, !modelSetup.presented else { modelSetup.presented = true; return }
-        player?.stop(); playingSegmentID = nil
+        stopPlayback()
         starting = true; defer { starting = false }
         let selectedSource = source
         var m = Meeting(title: "", source: selectedSource)
@@ -668,7 +669,10 @@ final class AppState: ObservableObject {
             }
         }
     }
-    func stopPlayback() { player?.stop(); playingSegmentID = nil; playbackTimer?.invalidate(); playbackTimer = nil }
+    func stopPlayback() {
+        savedAudioPlayer.pause()
+        player?.stop(); playingSegmentID = nil; playbackTimer?.invalidate(); playbackTimer = nil
+    }
     func play(_ segment: TranscriptSegment, in meeting: Meeting) {
         if !startPlayback(segment, in: meeting, toggle: true) { message = "Аудио этого фрагмента недоступно" }
     }
@@ -726,8 +730,10 @@ final class AppState: ObservableObject {
         if playingSegmentID == example.id { stopPlayback(); return }
         guard example.file == URL(fileURLWithPath: example.file).lastPathComponent else { return }
         do {
-            player = try AVAudioPlayer(contentsOf: library.root.appendingPathComponent("VoiceSamples").appendingPathComponent(example.file))
-            playbackEnd = player?.duration ?? 0; player?.play(); playingSegmentID = example.id; schedulePlaybackStop()
+            let candidate = try AVAudioPlayer(contentsOf: library.root.appendingPathComponent("VoiceSamples").appendingPathComponent(example.file))
+            stopPlayback()
+            player = candidate
+            playbackEnd = candidate.duration; candidate.play(); playingSegmentID = example.id; schedulePlaybackStop()
         } catch { message = "Образец голоса недоступен" }
     }
     func voiceSample(for segmentID: UUID, in meeting: Meeting, allMatching: Bool) -> TranscriptSegment? {
@@ -1009,7 +1015,7 @@ final class AppState: ObservableObject {
     func deleteAudio(_ meeting: Meeting) {
         guard !demo, meeting.status == .ready, processingID != meeting.id, activeMeeting?.id != meeting.id else { return }
         do {
-            player?.stop(); playingSegmentID = nil
+            stopPlayback()
             for name in meeting.audioFiles {
                 let url = try library.audioURL(name)
                 if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }

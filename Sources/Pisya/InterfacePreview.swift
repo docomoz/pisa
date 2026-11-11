@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 /// Opens the production views with disposable content. Never opens the user's library.
@@ -14,7 +15,6 @@ final class InterfacePreview: NSObject {
         state.modelSetup.phase = .ready
         var fixture = Meeting(title: "Обсуждение планов и результатов проверки интерфейса", source: "Тестовое аудио")
         fixture.status = .ready
-        if CommandLine.arguments.contains("--processing-preview") { fixture.status = .processing }
         fixture.duration = 180
         if let example = state.voiceProfiles.first?.examples?.first {
             let file = "preview-mic.caf"
@@ -29,7 +29,14 @@ final class InterfacePreview: NSObject {
         if CommandLine.arguments.contains("--audio-saved-preview") {
             fixture.status = .recorded
             fixture.segments = []
+            let mic = "waveform-mic.caf", remote = "waveform-remote.caf"
+            try Self.writeAudio(to: state.library.audioURL(mic), duration: 42, frequency: 180)
+            try Self.writeAudio(to: state.library.audioURL(remote), duration: 34, frequency: 260)
+            fixture.audioFiles = [mic, remote]
+            fixture.audioOffsets = [remote: 5]
+            fixture.duration = 42
         }
+        if CommandLine.arguments.contains("--processing-preview") { fixture.status = .processing }
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)
@@ -76,6 +83,23 @@ final class InterfacePreview: NSObject {
         reviewItem.submenu = reviewMenu
         menu.addItem(reviewItem)
         NSApp.mainMenu = menu
+    }
+
+    private static func writeAudio(to url: URL, duration: Int, frequency: Double) throws {
+        let rate = 16_000
+        let frames = rate * duration
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: Double(rate), channels: 1),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let samples = buffer.floatChannelData?[0] else { throw PisyaError.message("Не удалось подготовить тестовое аудио") }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        for frame in 0..<frames {
+            let time = Double(frame) / Double(rate)
+            let phrase = max(0, sin(time * 1.8 + frequency))
+            let syllable = pow(sin(time * (8 + frequency / 100)), 4)
+            samples[frame] = Float(0.04 * phrase * syllable * sin(time * frequency * 2 * .pi))
+        }
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
     }
 
     @objc private func show(_ sender: NSMenuItem) {
