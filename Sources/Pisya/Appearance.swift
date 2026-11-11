@@ -14,9 +14,6 @@ enum PisyaDesign {
         static let secondaryAction = Color(red: 0.90, green: 0.92, blue: 0.94)
         static let secondaryHover = Color(red: 0.86, green: 0.89, blue: 0.92)
         static let secondaryPressed = Color(red: 0.80, green: 0.84, blue: 0.88)
-        static let toolbarAction = Color(white: 0.84)
-        static let toolbarHover = Color(white: 0.78)
-        static let toolbarPressed = Color(white: 0.72)
         static let recording = Color(red: 0.74508, green: 0.13808, blue: 0.13777)
         static let recordingHover = Color(red: 0.68, green: 0.11, blue: 0.11)
         static let recordingPressed = Color(red: 0.60, green: 0.09, blue: 0.09)
@@ -72,7 +69,7 @@ extension Color {
     static let mutedInk = PisyaDesign.Colors.mutedInk
 }
 
-enum ActionButtonRole { case primary, secondary, toolbarSecondary, recording }
+enum ActionButtonRole { case primary, secondary, recording }
 enum ActionButtonSize { case small, regular }
 
 extension View {
@@ -174,8 +171,6 @@ private struct ActionButtonContent<Label: View>: View {
             return pressed ? PisyaDesign.Colors.primaryPressed : (hovered || focused) ? PisyaDesign.Colors.primaryHover : PisyaDesign.Colors.brandAccent
         case .secondary:
             return (pressed || focused) ? PisyaDesign.Colors.secondaryPressed : hovered ? PisyaDesign.Colors.secondaryHover : PisyaDesign.Colors.secondaryAction
-        case .toolbarSecondary:
-            return (pressed || focused) ? PisyaDesign.Colors.toolbarPressed : hovered ? PisyaDesign.Colors.toolbarHover : PisyaDesign.Colors.toolbarAction
         case .recording:
             return pressed ? PisyaDesign.Colors.recordingPressed : (hovered || focused) ? PisyaDesign.Colors.recordingHover : PisyaDesign.Colors.recording
         }
@@ -184,7 +179,7 @@ private struct ActionButtonContent<Label: View>: View {
         guard enabled else { return PisyaDesign.Colors.disabledInk }
         switch role {
         case .primary: return PisyaDesign.Colors.brandAccentInk
-        case .secondary, .toolbarSecondary: return PisyaDesign.Colors.ink
+        case .secondary: return PisyaDesign.Colors.ink
         case .recording: return .white
         }
     }

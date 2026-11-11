@@ -43,13 +43,6 @@ struct MainView: View {
             topbarControls(compact: state.recording && geometry.size.width < 740)
         }
         .frame(height: panelHeight + 2 * PisyaDesign.Spacing.inline)
-        .background {
-            RoundedRectangle(cornerRadius: PisyaDesign.Metrics.surfaceRadius)
-                .fill(Color.sidebarTint)
-                .padding(.horizontal, PisyaDesign.Spacing.content)
-                .padding(.vertical, PisyaDesign.Spacing.inline)
-                .allowsHitTesting(false)
-        }
     }
     private func topbarControls(compact: Bool) -> some View {
         let spacing = compact ? PisyaDesign.Spacing.inline : PisyaDesign.Spacing.related
@@ -71,13 +64,13 @@ struct MainView: View {
             HStack(spacing: spacing) {
                 Button { showingMeetingPhrase = true } label: {
                     Text("🤦").font(PisyaDesign.Typography.Icon.medium)
-                }.actionButton(.toolbarSecondary).screenHelp("Фраза для созвона").accessibilityLabel("Фраза для созвона")
+                }.actionButton().screenHelp("Фраза для созвона").accessibilityLabel("Фраза для созвона")
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").textStyle(PisyaDesign.Typography.detailMedium)
-                }.actionButton(.toolbarSecondary).screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
+                }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
                 Button { state.importAudio() } label: {
                     screenLabel("Импорт", systemImage: "tray.and.arrow.down")
-                }.actionButton(.toolbarSecondary).disabled(state.demo)
+                }.actionButton().disabled(state.demo)
                     .screenHelp("Импортировать аудио").accessibilityLabel("Импортировать аудио")
                 Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
