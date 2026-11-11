@@ -26,6 +26,10 @@ final class InterfacePreview: NSObject {
             segment.embedding = index.isMultiple(of: 2) ? [1, 0] : [0, 1]
             return segment
         }
+        if CommandLine.arguments.contains("--audio-saved-preview") {
+            fixture.status = .recorded
+            fixture.segments = []
+        }
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)

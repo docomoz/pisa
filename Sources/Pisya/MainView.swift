@@ -162,6 +162,7 @@ struct MeetingView: View {
     private var isTranscribing: Bool { meeting.status == .processing && state.processingID == meeting.id }
     private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
     private var showsTranscriptStatus: Bool { isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) }
+    private var needsTitleSpacing: Bool { showsTranscriptTools || (!showsTranscriptStatus && !isRecording) }
     private var finishesRecording: Bool {
         !state.isReprocessing && (meeting.liveCommittedUntil != nil || meeting.source == state.source)
     }
@@ -218,7 +219,7 @@ struct MeetingView: View {
                     if visible { showsMeetingDetails = false }
                 }
             }
-            .padding(.top, showsTranscriptTools ? PisyaDesign.Spacing.related : PisyaDesign.Spacing.none)
+            .padding(.top, needsTitleSpacing ? PisyaDesign.Spacing.related : PisyaDesign.Spacing.none)
             HStack(spacing: PisyaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
         }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.top, PisyaDesign.Spacing.page)
         .background(SlimScrollbars().allowsHitTesting(false))
