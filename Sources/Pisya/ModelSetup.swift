@@ -134,7 +134,8 @@ struct ModelSetupView: View {
                 screenText(error).textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
             } else {
                 screenLabel(setup.ready ? "Можно начинать" : "Модели загрузятся из интернета", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
-                    .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.moss).frame(minHeight: 66, alignment: .top)
+                    .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.moss)
+                    .frame(minHeight: setup.ready ? nil : 66, alignment: .top)
             }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.actionButton() }
