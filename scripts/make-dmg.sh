@@ -36,7 +36,8 @@ if ! "$tools/bin/python3" -c 'import ds_store, mac_alias' >/dev/null 2>&1; then
 fi
 "$tools/bin/python3" scripts/make-ds-store.py "$mount_path"
 [[ -f "$mount_path/.DS_Store" ]] || { print -u2 "Не удалось сохранить оформление установщика"; exit 1; }
-cp "$app_bundle/Contents/Resources/PisyaPlain.icns" "$mount_path/.VolumeIcon.icns"
+swift scripts/make-icon.swift "$scratch/PisyaVolume.iconset" Resources/BrandMark.json --volume
+iconutil -c icns -o "$mount_path/.VolumeIcon.icns" "$scratch/PisyaVolume.iconset"
 SetFile -a C "$mount_path"
 rm -rf "$mount_path/.fseventsd"
 hdiutil detach "$mount_path" -quiet
