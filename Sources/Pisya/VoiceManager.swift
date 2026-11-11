@@ -65,6 +65,13 @@ struct VoiceManager: View {
         nameFocused = true
     }
 
+    private func dismissSuggestions() -> Bool {
+        guard nameFocused, !suggestions.isEmpty else { return false }
+        showSuggestions = false
+        selectedSuggestion = nil
+        return true
+    }
+
     private func applyName() {
         guard canApplyName, let selected else { return }
         showSuggestions = false
@@ -117,13 +124,16 @@ struct VoiceManager: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.id(selected).textStyle(PisyaDesign.Typography.secondary).padding(.leading, PisyaDesign.Spacing.section).frame(width: 350 * max(1, textScale))
             }
-        }.dialogContent().frame(width: 940, height: 660).background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
+        }.dialogContent().frame(width: 940, height: 660)
+            .background(ClickToUnfocus(onEscape: dismissSuggestions))
+            .onDisappear { state.stopPlayback() }
     }
 
     private var nameEditor: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
             TextField("Имя участника", text: $name)
-                .textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused))
+                // The native field editor is already baseline-aligned at 110%.
+                .textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused && textScale != AppTextSize.factor(for: 110)))
                 .focused($nameFocused)
                 .onChange(of: name) { _, newName in
                     showSuggestions = nameFocused && newName != lastChosenName
@@ -140,12 +150,7 @@ struct VoiceManager: View {
                     selectedSuggestion = max(index - 1, 0)
                     return .handled
                 }
-                .onKeyPress(.escape) {
-                    guard !suggestions.isEmpty else { return .ignored }
-                    showSuggestions = false
-                    selectedSuggestion = nil
-                    return .handled
-                }
+                .onKeyPress(.escape) { dismissSuggestions() ? .handled : .ignored }
                 .onSubmit {
                     let suggestions = suggestions
                     if let index = selectedSuggestion, suggestions.indices.contains(index) {

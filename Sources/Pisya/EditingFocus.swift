@@ -3,9 +3,13 @@ import AppKit
 
 /// Let a click on non-editable content end field editing without consuming the click.
 struct ClickToUnfocus: NSViewRepresentable {
+    var onEscape: (() -> Bool)?
+
     func makeNSView(context: Context) -> FocusObserver { FocusObserver() }
-    func updateNSView(_ nsView: FocusObserver, context: Context) {}
+    func updateNSView(_ nsView: FocusObserver, context: Context) { nsView.onEscape = onEscape }
+
     final class FocusObserver: NSView {
+        var onEscape: (() -> Bool)?
         private var monitor: Any?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
@@ -16,7 +20,7 @@ struct ClickToUnfocus: NSViewRepresentable {
                 guard let window = self?.window, event.window === window else { return event }
                 if event.type == .keyDown {
                     if event.keyCode == 53, window.firstResponder is NSTextView {
-                        window.makeFirstResponder(nil)
+                        if self?.onEscape?() != true { window.makeFirstResponder(nil) }
                         return nil
                     }
                     return event
