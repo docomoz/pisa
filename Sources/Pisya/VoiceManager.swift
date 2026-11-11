@@ -96,37 +96,7 @@ struct VoiceManager: View {
                             let automaticSample = automaticSample
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 SectionHeading("Кто говорит?", subtitle: "Фрагмент \(timecode(sample.start)) · сейчас «\(sample.speaker)»")
-                                TextField("Имя участника", text: $name)
-                                    .textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused))
-                                    .focused($nameFocused)
-                                    .onChange(of: name) { _, newName in
-                                        showSuggestions = nameFocused && newName != lastChosenName
-                                        selectedSuggestion = nil
-                                    }
-                                    .onKeyPress(.downArrow) {
-                                        guard !suggestions.isEmpty else { return .ignored }
-                                        selectedSuggestion = min((selectedSuggestion ?? -1) + 1, suggestions.count - 1)
-                                        return .handled
-                                    }
-                                    .onKeyPress(.upArrow) {
-                                        guard let index = selectedSuggestion, !suggestions.isEmpty else { return .ignored }
-                                        selectedSuggestion = max(index - 1, 0)
-                                        return .handled
-                                    }
-                                    .onKeyPress(.escape) {
-                                        guard showSuggestions, !suggestions.isEmpty else { return .ignored }
-                                        showSuggestions = false
-                                        selectedSuggestion = nil
-                                        return .handled
-                                    }
-                                    .onSubmit {
-                                        if let index = selectedSuggestion, suggestions.indices.contains(index) {
-                                            chooseSuggestion(suggestions[index])
-                                        } else { applyName() }
-                                    }
-                                if !suggestions.isEmpty {
-                                    suggestionList
-                                }
+                                nameEditor
                             }
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
@@ -150,31 +120,75 @@ struct VoiceManager: View {
         }.dialogContent().frame(width: 940, height: 660).background(ClickToUnfocus()).onDisappear { state.stopPlayback() }
     }
 
-    private var suggestionList: some View {
-        ScrollViewReader { proxy in
+    private var nameEditor: some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
+            TextField("Имя участника", text: $name)
+                .textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused))
+                .focused($nameFocused)
+                .onChange(of: name) { _, newName in
+                    showSuggestions = nameFocused && newName != lastChosenName
+                    selectedSuggestion = nil
+                }
+                .onKeyPress(.downArrow) {
+                    let count = suggestions.count
+                    guard count > 0 else { return .ignored }
+                    selectedSuggestion = min((selectedSuggestion ?? -1) + 1, count - 1)
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    guard let index = selectedSuggestion, !suggestions.isEmpty else { return .ignored }
+                    selectedSuggestion = max(index - 1, 0)
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    guard !suggestions.isEmpty else { return .ignored }
+                    showSuggestions = false
+                    selectedSuggestion = nil
+                    return .handled
+                }
+                .onSubmit {
+                    let suggestions = suggestions
+                    if let index = selectedSuggestion, suggestions.indices.contains(index) {
+                        chooseSuggestion(suggestions[index])
+                    } else {
+                        applyName()
+                    }
+                }
+            let matchingNames = suggestions
+            if !matchingNames.isEmpty {
+                suggestionList(matchingNames)
+            }
+        }
+    }
+
+    private func suggestionList(_ suggestions: [String]) -> some View {
+        let shape = RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)
+        return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
                     ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
-                        Button { chooseSuggestion(suggestion) } label: {
-                            screenText(verbatim: suggestion)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.regularHeight, alignment: .leading)
-                                .padding(.horizontal, PisyaDesign.Spacing.related)
-                                .background(index == selectedSuggestion ? PisyaDesign.Colors.selection : .clear)
-                                .contentShape(Rectangle())
+                        VoiceSuggestionRow(name: suggestion, selected: index == selectedSuggestion) {
+                            chooseSuggestion(suggestion)
                         }
-                        .shapeAwarePlainButton()
-                        .screenHelp(suggestion)
                         .id(index)
                     }
                 }
             }
             .frame(height: min(CGFloat(suggestions.count) * PisyaDesign.Metrics.regularHeight, PisyaDesign.Metrics.editorHeight))
-            .background(PisyaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+            .padding(PisyaDesign.Spacing.compact)
+            .background {
+                shape.fill(Color.paper)
+                    .shadow(color: Color.ink.opacity(0.12), radius: PisyaDesign.Spacing.inline, y: PisyaDesign.Spacing.hairline)
+            }
+            .overlay {
+                shape.strokeBorder(PisyaDesign.Colors.secondaryAction, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
             .onChange(of: selectedSuggestion) { _, index in
                 if let index { proxy.scrollTo(index) }
             }
         }
+        .background(SlimScrollbars().allowsHitTesting(false))
     }
 
     private func fragmentCard(_ segment: TranscriptSegment, in meeting: Meeting) -> some View {
@@ -206,5 +220,33 @@ struct VoiceManager: View {
         .shapeAwarePlainButton()
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .screenHelp(canPlay ? (isPlaying ? "Остановить фрагмент" : "Прослушать до 8 секунд") : "Выбрать фрагмент")
+    }
+}
+
+private struct VoiceSuggestionRow: View {
+    let name: String
+    let selected: Bool
+    let choose: () -> Void
+    @State private var hovered = false
+
+    private var fill: Color {
+        if selected { return Color.moss.opacity(0.14) }
+        return hovered ? PisyaDesign.Colors.secondaryHover : .clear
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius)
+        Button(action: choose) {
+            screenText(name)
+                .lineLimit(1)
+                .padding(.horizontal, PisyaDesign.Spacing.inline)
+                .frame(maxWidth: .infinity, minHeight: PisyaDesign.Metrics.regularHeight, alignment: .leading)
+                .background(fill, in: shape)
+                .contentShape(shape)
+        }
+        .shapeAwarePlainButton()
+        .onHover { hovered = $0 }
+        .screenHelp(name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
