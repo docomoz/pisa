@@ -33,6 +33,11 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
 public enum MeetingStatus: String, Codable, Sendable { case recorded, processing, ready, failed }
 public enum MeetingTitleOrigin: String, Codable, Sendable { case generated, custom }
 public struct Meeting: Codable, Identifiable, Equatable, Sendable {
+    public enum InterruptedTranscriptionProgress: Equatable, Sendable {
+        case savedAudio(Double)
+        case batch(Double)
+    }
+
     public var id: UUID = UUID()
     public var title: String
     public var date: Date = Date()
@@ -42,6 +47,17 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public var segments: [TranscriptSegment] = []
     /// End of the prefix whose live draft was saved atomically with segments.
     public var liveCommittedUntil: Double?
+    /// Last reported pipeline progress for an interrupted batch attempt.
+    public var interruptedBatchProgress: Double?
+    public var interruptedTranscriptionProgress: InterruptedTranscriptionProgress? {
+        guard status == .failed else { return nil }
+        if let interruptedBatchProgress, (0...1).contains(interruptedBatchProgress) {
+            // A batch still has to save the transcript after its pipeline reaches 100%.
+            return .batch(min(interruptedBatchProgress, 0.99))
+        }
+        return LiveTranscriptionSchedule.audioProgress(committed: liveCommittedUntil, duration: duration)
+            .map(InterruptedTranscriptionProgress.savedAudio)
+    }
     public var audioFiles: [String] = []
     public var audioOffsets: [String: Double] = [:]
     public var error: String?

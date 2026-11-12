@@ -231,7 +231,7 @@ struct MeetingView: View {
                             .padding(.bottom, PisyaDesign.Spacing.related)
                     }
                     HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
-                        transcriptColumn(showsDetailsButton: !showsColumn, audioSources: visibleAudioSources)
+                        transcriptColumn(showsDetailsButton: !showsColumn, audioSources: visibleAudioSources, hasAudio: hasAudio)
                         if showsColumn {
                             ScrollView {
                                 meetingDetails(buttonSize: .regular)
@@ -312,12 +312,13 @@ struct MeetingView: View {
         }
     }
 
-    private func transcriptColumn(showsDetailsButton: Bool, audioSources: [RecordingAudioSource]) -> some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
+    private func transcriptColumn(showsDetailsButton: Bool, audioSources: [RecordingAudioSource], hasAudio: Bool) -> some View {
+        let interruptedProgress = hasAudio && !isQueued ? meeting.interruptedTranscriptionProgress : nil
+        return VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             if showsTranscriptTools {
                 transcriptTools(showsDetailsButton: showsDetailsButton)
             } else {
-                transcriptStatus
+                transcriptStatus(hasAudio: hasAudio, interruptedProgress: interruptedProgress)
                     .padding(.top, PisyaDesign.Spacing.content)
                     .padding(.bottom, PisyaDesign.Spacing.related)
                 if !showsAutomaticPlayer && !audioSources.isEmpty {
@@ -343,7 +344,7 @@ struct MeetingView: View {
                             Image(systemName: meeting.status == .failed ? "exclamationmark.waveform" : "waveform")
                                 .font(PisyaDesign.Typography.Icon.emptyState).foregroundStyle(Color.moss)
                         }
-                        SectionHeading(meeting.status == .failed ? (state.hasAudio(meeting) ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено", style: .dialog)
+                        SectionHeading(meeting.status == .failed ? (hasAudio ? "Обработка не завершена" : "Запись не началась") : "Аудио сохранено", style: .dialog)
                         if let error = meeting.error {
                             SupportingText(
                                 error == "The user declined TCCs for application, window, display capture" ? CapturePermission.systemAudio.localizedDescription : error,
@@ -352,7 +353,10 @@ struct MeetingView: View {
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 420)
                         }
-                        if state.hasAudio(meeting) { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
+                        if let interruptedProgress {
+                            interruptedProgressBar(interruptedProgress).frame(maxWidth: 320)
+                        }
+                        if hasAudio { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
                     }
                     Spacer()
                 }.frame(maxWidth: .infinity)
@@ -443,7 +447,7 @@ struct MeetingView: View {
     }
 
     @ViewBuilder
-    private var transcriptStatus: some View {
+    private func transcriptStatus(hasAudio: Bool, interruptedProgress: Meeting.InterruptedTranscriptionProgress?) -> some View {
         if showsTranscriptStatus {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                 HStack(spacing: PisyaDesign.Spacing.related) {
@@ -456,7 +460,7 @@ struct MeetingView: View {
                     }
                     Spacer(minLength: PisyaDesign.Spacing.none)
                     if meeting.status == .failed && meeting.deletedAt == nil
-                        && !isSaving && state.canModify(meeting) && state.hasAudio(meeting) {
+                        && hasAudio && state.canModify(meeting) {
                         if meeting.liveCommittedUntil != nil {
                             screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
                         } else {
@@ -494,8 +498,23 @@ struct MeetingView: View {
                     TranscriptionProgress(fraction: fraction,
                                           label: isSaving ? "Сохранение записи" : isLive ? "Доля обработанного аудио" : "Ход расшифровки",
                                           roundsDown: isLive)
+                } else if let interruptedProgress {
+                    interruptedProgressBar(interruptedProgress)
                 }
             }
+        }
+    }
+    private func interruptedProgressBar(_ progress: Meeting.InterruptedTranscriptionProgress) -> some View {
+        let label: String
+        let fraction: Double
+        switch progress {
+        case .savedAudio(let value): (label, fraction) = ("Обработано аудио", value)
+        case .batch(let value): (label, fraction) = ("Ход обработки", value)
+        }
+        return VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
+            SupportingText(label, style: PisyaDesign.Typography.detail)
+                .accessibilityHidden(true)
+            TranscriptionProgress(fraction: fraction, label: label, roundsDown: true)
         }
     }
     private var liveTranscriptionButton: some View {

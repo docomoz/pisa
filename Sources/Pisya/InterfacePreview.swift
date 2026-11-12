@@ -38,7 +38,18 @@ final class InterfacePreview: NSObject {
             fixture.duration = 42
         }
         let recordingPreview = CommandLine.arguments.contains("--recording-transcription-preview")
-        if recordingPreview {
+        let interruptedPreview = CommandLine.arguments.contains("--interrupted-transcription-preview")
+        if interruptedPreview {
+            let file = "interrupted-preview-mic.caf"
+            try Self.writeAudio(to: state.library.audioURL(file), duration: 60, frequency: 180)
+            fixture.title = "Встреча с черновиком расшифровки"
+            fixture.duration = 60
+            fixture.audioFiles = [file]
+            fixture.status = .failed
+            fixture.error = "Обработка остановлена. Аудио сохранено."
+            fixture.liveCommittedUntil = 12
+            fixture.segments = Array(fixture.segments.prefix(2))
+        } else if recordingPreview {
             fixture.status = .failed
             fixture.liveCommittedUntil = 160
         } else if CommandLine.arguments.contains("--processing-preview") {
@@ -47,7 +58,22 @@ final class InterfacePreview: NSObject {
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)
-        if recordingPreview {
+        if interruptedPreview {
+            try Self.prepareModelPath(for: state)
+            var batch = fixture
+            batch.id = UUID()
+            batch.title = "Остановленная обработка аудиофайла"
+            batch.segments = []
+            batch.liveCommittedUntil = nil
+            batch.interruptedBatchProgress = 0.36
+            state.update(batch)
+
+            var earlier = batch
+            earlier.id = UUID()
+            earlier.title = "Остановка без сохранённого прогресса"
+            earlier.interruptedBatchProgress = nil
+            state.update(earlier)
+        } else if recordingPreview {
             try Self.prepareModelPath(for: state)
             var saved = Meeting(title: "Сохранённое аудио", source: state.source)
             saved.audioFiles = fixture.audioFiles

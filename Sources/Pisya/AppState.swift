@@ -580,7 +580,7 @@ final class AppState: ObservableObject {
             Analytics.transcriptionFailed(mode: mode, cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
             var latest = (try? library.read(id))
             latest?.status = .failed
-            latest?.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено" : error.localizedDescription
+            latest?.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено." : error.localizedDescription
             if let latest { try? library.save(latest); upsert(latest) }
         }
         await transcriber.finishLive()
@@ -615,6 +615,7 @@ final class AppState: ObservableObject {
             guard !reprocess, canStartLiveTranscription,
                   var meeting = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
             meeting.status = .processing; meeting.error = nil
+            meeting.interruptedBatchProgress = nil
             meeting.liveCommittedUntil = meeting.liveCommittedUntil ?? 0
             do { try library.save(meeting) } catch { message = error.localizedDescription; return }
             upsert(meeting); processingID = id
@@ -639,6 +640,7 @@ final class AppState: ObservableObject {
         // A manual retry of an interrupted draft must honor its saved checkpoint.
         let needsCleanDraft = m.status != .failed && m.liveCommittedUntil != nil
             && m.segments.contains { MeetingSpeechText.containsForeignLetters($0.text) }
+        m.interruptedBatchProgress = nil
         if case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess || needsCleanDraft) {
             guard committed.isFinite, committed >= 0 else { m.status = .failed; m.error = "Некорректный курсор черновика"; try? library.save(m); upsert(m); runNext(); return }
             m.status = .processing; m.error = nil
@@ -707,7 +709,11 @@ final class AppState: ObservableObject {
             } catch {
                 Analytics.transcriptionFailed(mode: "batch", cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
                 var latest = (try? library.read(id)) ?? meetings.first(where: { $0.id == id }) ?? m
-                latest.status = .failed; latest.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено" : error.localizedDescription
+                latest.status = .failed
+                latest.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено." : error.localizedDescription
+                if !phase.isEmpty && (0...1).contains(progress) {
+                    latest.interruptedBatchProgress = progress
+                }
                 try? library.save(latest); upsert(latest)
             }
         }
