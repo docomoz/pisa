@@ -36,6 +36,8 @@ targets:
         excludes: [Resources]
       - path: Sources/PisyaCore/Resources/PisyaYoWords.deflate
         buildPhase: resources
+      - path: Sources/PisyaCore/Resources/PisyaEntityForms.deflate
+        buildPhase: resources
       - path: Sources/PisyaCore/Resources/PisyaYoWords-LICENSE.txt
         buildPhase: resources
       - path: Resources/silero_vad.onnx

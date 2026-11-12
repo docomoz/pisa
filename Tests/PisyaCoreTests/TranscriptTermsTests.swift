@@ -36,6 +36,34 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(candidates.first { $0.text == "7АБВ" }?.occurrences.count, 2)
     }
 
+    func testCandidatesSkipNamesOfPeopleAndPlacesInRussian() {
+        let segments = [
+            segment("Про это говорили Дима, Макс, Анфиса, Кирилл и Алексей. По России, из Армении и Москвы."),
+            segment("Мы звонили Диме, Максу, Анфисе, Кириллу и Алексею из Новосибирска и Армении."),
+            segment("Команда показала ДФА, MapKit, Геопэй и Яндекс. Встретились в США и Санкт-Петербурге.")
+        ]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["ДФА", "MapKit", "Геопэй", "Яндекс"])
+        XCTAssertEqual(TranscriptTerms.matches("Дима", in: segments).map(\.text), ["Дима"])
+        XCTAssertEqual(TranscriptTerms.matches("Москвы", in: segments).map(\.text), ["Москвы"])
+    }
+
+    func testCandidatesSkipTheNamedSpeakersEvenWithoutNameContext() {
+        let segments = [
+            TranscriptSegment(start: 0, end: 2, speaker: "Спикер 1", text: "Отдельно обсудили Куделька, куделька и ДФА."),
+            TranscriptSegment(start: 2, end: 4, speaker: "Анфиса Куделька", text: "Продолжим завтра.")
+        ]
+        XCTAssertEqual(TranscriptTerms.candidates(in: segments, vocabulary: "").map(\.text), ["ДФА"])
+        XCTAssertEqual(TranscriptTerms.matches("Куделька", in: segments).count, 2)
+        XCTAssertEqual(TranscriptTerms.adding("Куделька", to: ""), "Куделька")
+    }
+
+    func testCandidatesSkipMultiwordNamesInEnglish() {
+        let segments = [segment("The team met Alice Smith in London and flew to New York with Bob. Later we tested PostgreSQL and the API.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["PostgreSQL", "API"])
+    }
+
     func testFullFormSearchRemainsLiteralWhileBaseSearchFindsFamily() throws {
         let segments = [segment("LLM, LLM'ки и LLM’ки, а также API.")]
         let base = TranscriptTerms.matches("LLM", in: segments)

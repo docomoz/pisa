@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the small Pisya word-form list from a pinned OpenCorpora snapshot."""
+"""Build Pisya word-form lists from a pinned OpenCorpora snapshot."""
 
 import argparse
 from collections import defaultdict
@@ -67,10 +67,40 @@ def select_forms(words, paradigms, tags):
     return sorted(result)
 
 
+def select_entity_forms(words, paradigms, tags):
+    personal = {"Name", "Surn", "Patr"}
+    commercial = {"Orgn", "Trad"}
+    tag_sets = [set(re.split(r"[, ]+", tag)) for tag in tags]
+    entity = ["Geox" in tag or ("sing" in tag and bool(personal & tag)) for tag in tag_sets]
+    brand = [bool(commercial & tag) for tag in tag_sets]
+    forms, competing = set(), set()
+    russian_word = re.compile(r"[а-яё]+(?:-[а-яё]+)*")
+    for word, (paradigm_id, index) in words.iteritems():
+        if len(word) < 3 or not russian_word.fullmatch(word):
+            continue
+        paradigm = paradigms[paradigm_id]
+        tag = paradigm[len(paradigm) // 3 + index]
+        if entity[tag]:
+            forms.add(word.replace("ё", "е"))
+        if brand[tag]:
+            competing.add(word.replace("ё", "е"))
+    return sorted(forms - competing)
+
+
+def write_forms(forms, output):
+    # Foundation NSData.decompressed(using: .zlib) reads raw DEFLATE.
+    compressor = zlib.compressobj(level=9, wbits=-15)
+    compressed = compressor.compress(("\n".join(forms) + "\n").encode("utf-8")) + compressor.flush()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(compressed)
+    print(f"{output.name}: {len(forms)} forms, {len(compressed)} bytes, SHA-256 {hashlib.sha256(compressed).hexdigest()}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     default_output = Path(__file__).resolve().parents[1] / "Sources/PisyaCore/Resources/PisyaYoWords.deflate"
     parser.add_argument("--output", type=Path, default=default_output)
+    parser.add_argument("--entity-output", type=Path, help="also write the list of names and places")
     args = parser.parse_args()
 
     with TemporaryDirectory() as temporary:
@@ -86,14 +116,9 @@ def main():
             words = RecordDAWG(">HH").load(str(path))
             paradigms = load_paradigms(archive.read(DATA_PATH + "paradigms.array"))
             tags = json.loads(archive.read(DATA_PATH + "gramtab-opencorpora-int.json"))
-        forms = select_forms(words, paradigms, tags)
-
-    # Foundation NSData.decompressed(using: .zlib) reads raw DEFLATE.
-    compressor = zlib.compressobj(level=9, wbits=-15)
-    compressed = compressor.compress(("\n".join(forms) + "\n").encode("utf-8")) + compressor.flush()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(compressed)
-    print(f"{len(forms)} forms, {len(compressed)} bytes, SHA-256 {hashlib.sha256(compressed).hexdigest()}")
+        write_forms(select_forms(words, paradigms, tags), args.output)
+        if args.entity_output:
+            write_forms(select_entity_forms(words, paradigms, tags), args.entity_output)
 
 
 if __name__ == "__main__":

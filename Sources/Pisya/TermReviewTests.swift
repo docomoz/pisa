@@ -18,6 +18,7 @@ enum TermReviewTests {
                                      speaker: index.isMultiple(of: 2) ? "Анна" : "Борис",
                                      text: "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.\(nameContext)")
         }
+        meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России."
         state.update(meeting)
         return try state.library.read(meeting.id)
     }
@@ -34,7 +35,12 @@ enum TermReviewTests {
         let originalData = try Data(contentsOf: file)
         let occurrences = TranscriptTerms.matches("2ГИС", in: original.segments, vocabulary: state.preferences.vocabulary)
         try check(occurrences.count == 18, "Family search did not include all endings")
-        try check(TranscriptTerms.candidates(in: original.segments, vocabulary: "").contains { $0.text == "2ГИС" && $0.occurrences.count == 18 }, "Family candidate was not grouped")
+        let candidates = TranscriptTerms.candidates(in: original.segments, vocabulary: "")
+        try check(candidates.contains { $0.text == "2ГИС" && $0.occurrences.count == 18 }, "Family candidate was not grouped")
+        let candidateTexts = Set(candidates.map(\.text))
+        try check(Set(["MapKit", "Qwen3-ASR", "LLM"]).isSubset(of: candidateTexts), "Candidate list dropped a term")
+        try check(candidateTexts.isDisjoint(with: ["Димой", "Москвы", "России"]), "Candidate list included a person or a place")
+        try check(TranscriptTerms.matches("Москвы", in: original.segments).count == 1, "Manual search did not find a place name")
 
         try state.replaceTerms(occurrences, with: "2ГИС", meetingID: original.id)
         try check(try Data(contentsOf: file) == originalData, "No-op replacement rewrote the saved meeting")

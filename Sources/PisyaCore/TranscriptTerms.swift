@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 public struct TermCandidate: Identifiable, Sendable {
     public let id: String
@@ -29,10 +30,23 @@ public enum TranscriptTerms {
         "these", "they", "this", "very", "was", "were", "what", "when", "which",
         "will", "with", "would", "yeah", "you", "your"
     ]
+    private static let entityForms: Set<String> = {
+        #if SWIFT_PACKAGE
+        let bundle = Bundle.module
+        #else
+        let bundle = Bundle.main
+        #endif
+        guard let url = bundle.url(forResource: "PisyaEntityForms", withExtension: "deflate"),
+              let compressed = NSData(contentsOf: url),
+              let data = try? compressed.decompressed(using: .zlib) else { return [] }
+        return Set((data as Data).split(separator: 0x0A).map { String(decoding: $0, as: UTF8.self) })
+    }()
 
     public static func candidates(in segments: [TranscriptSegment], vocabulary: String) -> [TermCandidate] {
         let known = Set(vocabulary.components(separatedBy: separators).map(key))
         let families = AbbreviationFamilies(vocabulary)
+        let speakers = speakerNameForms(in: segments)
+        let tagger = NLTagger(tagSchemes: [.nameType])
         struct Group {
             var text: String
             var score = 0
@@ -42,10 +56,11 @@ public enum TranscriptTerms {
 
         for segment in segments {
             let text = segment.text
-            let protected = TranscriptOrthography.literalRanges(in: text)
+            let literals = TranscriptOrthography.literalRanges(in: text)
+            var taggedNames: [NSRange]?
             for match in word.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
                 guard let range = Range(match.range, in: text),
-                      !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 })
+                      !literals.contains(where: { NSIntersectionRange($0, match.range).length > 0 })
                 else { continue }
                 let token = String(text[range])
                 let family = families.form(token)
@@ -56,6 +71,15 @@ public enum TranscriptTerms {
 
                 let stem = family?.base ?? String(token.prefix { $0 != "'" && $0 != "’" })
                 let score = signal(for: stem, normalized: key(stem), preceding: text[..<range.lowerBound])
+                if score > 0 {
+                    let entity = entityKey(stem)
+                    guard !entityForms.contains(entity), !speakers.contains(entity) else { continue }
+                    // Contextual tags can mistake acronyms and model names for entities.
+                    if family == nil, !stem.contains(where: \.isNumber) {
+                        if taggedNames == nil { taggedNames = contextualEntityRanges(in: text, using: tagger) }
+                        if taggedNames?.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) == true { continue }
+                    }
+                }
                 if score > (groups[normalized]?.score ?? 0) {
                     groups[normalized, default: Group(text: token)].score = score
                     groups[normalized, default: Group(text: token)].text = family?.base ?? token
@@ -179,6 +203,34 @@ public enum TranscriptTerms {
     private static func key(_ term: String) -> String {
         term.lowercased().replacingOccurrences(of: "’", with: "'")
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func entityKey(_ term: String) -> String {
+        term.lowercased().replacingOccurrences(of: "ё", with: "е")
+            .replacingOccurrences(of: "‐", with: "-").replacingOccurrences(of: "‑", with: "-")
+            .replacingOccurrences(of: "’", with: "'")
+    }
+
+    private static func speakerNameForms(in segments: [TranscriptSegment]) -> Set<String> {
+        let labels = Set(segments.map(\.speaker))
+        return Set(labels.flatMap { label -> [String] in
+            guard label != "Собеседники", !label.contains(where: \.isNumber) else { return [] }
+            return word.matches(in: label, range: NSRange(label.startIndex..., in: label)).compactMap { match in
+                guard let range = Range(match.range, in: label), label[range].count >= 3 else { return nil }
+                return entityKey(String(label[range]))
+            }
+        })
+    }
+
+    private static func contextualEntityRanges(in text: String, using tagger: NLTagger) -> [NSRange] {
+        tagger.string = text
+        var names: [NSRange] = []
+        tagger.enumerateTags(in: text.startIndex..<text.endIndex, unit: .word, scheme: .nameType,
+                             options: [.omitWhitespace, .omitPunctuation, .joinNames]) { tag, range in
+            if tag == .personalName || tag == .placeName { names.append(NSRange(range, in: text)) }
+            return true
+        }
+        return names
     }
 
     private static func occurrence(_ range: NSRange, in segment: TranscriptSegment, text: String,
