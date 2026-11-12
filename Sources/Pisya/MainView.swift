@@ -326,10 +326,11 @@ struct MeetingView: View {
                         .padding(.bottom, PisyaDesign.Spacing.related)
                 }
             }
-            Divider()
-                .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
             if showsAutomaticPlayer && !audioSources.isEmpty {
                 SavedAudioPlayer(sources: audioSources)
+            } else {
+                Divider()
+                    .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
             }
             if meeting.segments.isEmpty {
                 VStack(spacing: PisyaDesign.Spacing.section) {
