@@ -80,6 +80,7 @@ enum Launcher {
                 do {
                     try InterfacePreview.testQueue()
                     try await InterfacePreview.testQueuedTurboTranscription()
+                    try await InterfacePreview.testQueuedResumeWithProtectedMetadata()
                     try await InterfacePreview.testTranscriptionDuringRecording()
                     print("QUEUE_TEST_OK"); exit(0)
                 }

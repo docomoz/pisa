@@ -271,6 +271,63 @@ final class InterfacePreview: NSObject {
         }
     }
 
+    static func testQueuedResumeWithProtectedMetadata() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Protected-Resume-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        try prepareModelPath(for: state)
+        var resume = Meeting(title: "Продолжение черновика", source: state.source)
+        resume.status = .failed
+        resume.audioFiles = ["resume-mic.caf"]
+        resume.duration = 3
+        resume.liveCommittedUntil = 3
+        resume.segments = [.init(start: 0, end: 2, speaker: "Я", text: "Сохранённая реплика")]
+        resume.segments[0].audioFile = resume.audioFiles[0]
+        var blocker = resume
+        blocker.id = UUID()
+        blocker.title = "Первая запись"
+        var next = resume
+        next.id = UUID()
+        next.title = "Следующая запись"
+        try writeAudio(to: state.library.audioURL(resume.audioFiles[0]), duration: 3, frequency: 180)
+        for meeting in [blocker, resume, next] { state.update(meeting) }
+
+        let metadata = state.library.meetingsDirectory.appendingPathComponent(resume.id.uuidString + ".json")
+        let files = FileManager.default
+        var accessWasDenied = false
+        let observation = state.$processingID.sink { id in
+            guard id == resume.id else { return }
+            // Revoke reads after runNext has written the processing status.
+            try? files.setAttributes([.posixPermissions: 0], ofItemAtPath: metadata.path)
+            accessWasDenied = (try? state.library.read(resume.id)) == nil
+        }
+        defer { observation.cancel() }
+        state.enqueue(blocker.id)
+        state.enqueue(resume.id)
+        state.enqueue(next.id)
+        for _ in 0..<200 {
+            if accessWasDenied && (state.liveStatus == "Жду доступа к записи" || state.processingID != resume.id) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard accessWasDenied, state.processingID == resume.id, state.isQueued(next.id),
+              state.meetings.first(where: { $0.id == blocker.id })?.status == .ready,
+              state.liveStatus == "Жду доступа к записи" else {
+            throw PisyaError.message("Продолжение черновика потеряло своё место в очереди при отказе чтения")
+        }
+
+        try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: metadata.path)
+        for _ in 0..<500 {
+            if state.processingID == nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let completed = try state.library.read(resume.id)
+        guard state.processingID == nil, !state.isQueued(next.id), state.meetings.first(where: { $0.id == next.id })?.status == .ready,
+              completed.status == .ready, completed.liveCommittedUntil == nil, completed.segments == resume.segments,
+              state.canReviewTerms(completed) else {
+            throw PisyaError.message("После восстановления доступа черновик или очередь не завершились")
+        }
+    }
+
     static func testTranscriptionDuringRecording() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Recording-Queue-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

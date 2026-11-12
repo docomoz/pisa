@@ -39,6 +39,25 @@ final class ProtectedFileReadTests: XCTestCase {
     }
 
     @MainActor
+    func testPermissionWaitRetriesTheEntireReadAndWrite() async throws {
+        var title = "Before lock"
+        var locked = true
+        var notices = 0
+        let saved = try await ProtectedFileRead.waitForAccess(read: {
+            let currentTitle = title
+            if locked { throw CocoaError(.fileWriteNoPermission) }
+            return currentTitle
+        }, onDenied: {
+            notices += 1
+        }, wait: {
+            title = "Renamed while waiting"
+            locked = false
+        })
+        XCTAssertEqual(saved, "Renamed while waiting")
+        XCTAssertEqual(notices, 1)
+    }
+
+    @MainActor
     func testDeletionAndOtherFailuresPropagateWithoutWaiting() async {
         for error in [
             NSError(domain: NSCocoaErrorDomain, code: 260),

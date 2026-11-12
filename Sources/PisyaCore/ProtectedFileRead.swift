@@ -25,7 +25,8 @@ public enum ProtectedFileRead {
         var current = error as NSError
         // Bound traversal in case an NSError chain is malformed or cyclic.
         for _ in 0..<16 {
-            if current.domain == NSCocoaErrorDomain && current.code == NSFileReadNoPermissionError {
+            if current.domain == NSCocoaErrorDomain &&
+                [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(current.code) {
                 return true
             }
             if current.domain == NSPOSIXErrorDomain && [Int(EACCES), Int(EPERM)].contains(current.code) {
