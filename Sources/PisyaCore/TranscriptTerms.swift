@@ -43,7 +43,10 @@ public enum TranscriptTerms {
     }()
 
     public static func candidates(in segments: [TranscriptSegment], vocabulary: String) -> [TermCandidate] {
-        let known = Set(vocabulary.components(separatedBy: separators).map(key))
+        let terms = vocabulary.components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let known = Set(terms.flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }.map(key))
         let families = AbbreviationFamilies(vocabulary)
         let speakers = speakerNameForms(in: segments)
         let tagger = NLTagger(tagSchemes: [.nameType])

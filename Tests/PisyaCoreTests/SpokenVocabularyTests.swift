@@ -172,7 +172,7 @@ final class SpokenVocabularyTests: XCTestCase {
         XCTAssertEqual(vocabulary.apply(to: "ЛЛМки, ЛММки и ЛЛМами."), "LLM'ки, LMM'ки и LLM'ами.")
         XCTAssertEqual(vocabulary.apply(to: "С AIем, с AI'ем и с AI’ем."), "С AI'ем, с AI'ем и с AI'ем.")
         XCTAssertEqual(SpokenVocabulary("LLM").apply(to: "ЛМки и ЛММки."), "ЛМки и ЛММки.")
-        XCTAssertEqual(SpokenVocabulary("LLM, ЛЛМ").apply(to: "ЛЛМки"), "ЛЛМки")
+        XCTAssertEqual(SpokenVocabulary("LLM, ЛЛМ").apply(to: "ЛЛМки"), "ЛЛМ'ки")
         XCTAssertEqual(vocabulary.apply(to: "AIM, aim и аи."), "AIM, aim и аи.")
     }
 

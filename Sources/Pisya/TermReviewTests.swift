@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 enum TermReviewTests {
     private static func fixture(_ state: AppState) throws -> Meeting {
-        state.preferences.vocabulary = ""
+        state.preferences.vocabulary = "Сбер"
         state.preferences.automaticRecording = false
         try state.library.savePreferences(state.preferences)
         var meeting = Meeting(title: "Обсуждение терминов", source: "Проверка интерфейса")
@@ -18,7 +18,7 @@ enum TermReviewTests {
                                      speaker: index.isMultiple(of: 2) ? "Анна" : "Борис",
                                      text: "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.\(nameContext)")
         }
-        meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России."
+        meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России. Для ЛПР, ЛПР'ов, ЛПРов и ЛПРы обсудили запрос Сбера и встречу со Сбером."
         state.update(meeting)
         return try state.library.read(meeting.id)
     }
@@ -35,9 +35,11 @@ enum TermReviewTests {
         let originalData = try Data(contentsOf: file)
         let occurrences = TranscriptTerms.matches("2ГИС", in: original.segments, vocabulary: state.preferences.vocabulary)
         try check(occurrences.count == 18, "Family search did not include all endings")
-        let candidates = TranscriptTerms.candidates(in: original.segments, vocabulary: "")
+        let candidates = TranscriptTerms.candidates(in: original.segments, vocabulary: state.preferences.vocabulary)
         try check(candidates.contains { $0.text == "2ГИС" && $0.occurrences.count == 18 }, "Family candidate was not grouped")
+        try check(candidates.contains { $0.text == "ЛПР" && $0.occurrences.count == 4 }, "Cyrillic family candidate was not grouped")
         let candidateTexts = Set(candidates.map(\.text))
+        try check(candidateTexts.isDisjoint(with: ["Сбер", "Сбера", "Сбером"]), "Known dictionary forms appeared as candidates")
         try check(Set(["MapKit", "Qwen3-ASR", "LLM"]).isSubset(of: candidateTexts), "Candidate list dropped a term")
         try check(candidateTexts.isDisjoint(with: ["Димой", "Москвы", "России"]), "Candidate list included a person or a place")
         try check(TranscriptTerms.matches("Москвы", in: original.segments).count == 1, "Manual search did not find a place name")
@@ -69,14 +71,21 @@ enum TermReviewTests {
         try check(state.meetings.first { $0.id == original.id }?.segments == original.segments, "Undo did not restore the in-memory transcript")
         try check(!state.canUndoTermReplacement(meetingID: original.id), "Undo history was not consumed")
 
+        let cyrillic = TranscriptTerms.matches("ЛПР", in: original.segments, vocabulary: state.preferences.vocabulary)
+        try state.replaceTerms(cyrillic, with: "ЛПР", meetingID: original.id)
+        let corrected = try state.library.read(original.id)
+        try check(corrected.segments[0].text.contains("Для ЛПР, ЛПР'ов, ЛПР'ов и ЛПР'ы"), "Cyrillic endings were not corrected")
+        try check(corrected.segments[0].text.contains("запрос Сбера и встречу со Сбером"), "Dictionary forms changed in the transcript")
+        try state.undoTermReplacement(meetingID: original.id)
+
         try state.addRecognitionTerm("2ГИС'ом")
-        try check(state.preferences.vocabulary == "2ГИС", "Dictionary saved an inflected form")
-        try check(try state.library.preferences().vocabulary == "2ГИС", "Dictionary base was not persisted")
+        try check(state.preferences.vocabulary == "Сбер\n2ГИС", "Dictionary saved an inflected form")
+        try check(try state.library.preferences().vocabulary == "Сбер\n2ГИС", "Dictionary base was not persisted")
         var duplicateRejected = false
         do { try state.addRecognitionTerm("2ГИС'е") } catch { duplicateRejected = true }
-        try check(duplicateRejected && state.preferences.vocabulary == "2ГИС", "Dictionary added another form of the same base")
+        try check(duplicateRejected && state.preferences.vocabulary == "Сбер\n2ГИС", "Dictionary added another form of the same base")
         let restarted = AppState(rootURL: root)
-        try check(restarted.preferences.vocabulary == "2ГИС", "Dictionary base changed after restart")
+        try check(restarted.preferences.vocabulary == "Сбер\n2ГИС", "Dictionary base changed after restart")
         try check(restarted.meetings.first { $0.id == original.id }?.segments == original.segments, "Restored transcript changed after restart")
         print("TERM_REVIEW_TEST_OK grouped_family persisted_replacement preserved_endings stale_rejection no_op undo dictionary_base restart")
     }

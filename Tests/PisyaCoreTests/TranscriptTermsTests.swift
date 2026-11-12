@@ -36,6 +36,16 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(candidates.first { $0.text == "7АБВ" }?.occurrences.count, 2)
     }
 
+    func testCandidatesSkipRegularInflectionsOfDictionaryTerms() {
+        let text = "Для Сбера и со Сбером обсуждали API. Рассказали о Сбере."
+        let segments = [segment(text)]
+        let vocabulary = "Сбер"
+        XCTAssertEqual(TranscriptTerms.candidates(in: segments, vocabulary: vocabulary).map(\.text), ["API"])
+        XCTAssertEqual(TranscriptTerms.matches("Сбером", in: segments, vocabulary: vocabulary).map(\.text), ["Сбером"])
+        XCTAssertEqual(RecognitionVocabulary.apply(to: "Для сбера и со сбером обсуждали API. Рассказали о сбере.",
+                                                   vocabulary: vocabulary), text)
+    }
+
     func testCandidatesSkipNamesOfPeopleAndPlacesInRussian() {
         let segments = [
             segment("Про это говорили Дима, Макс, Анфиса, Кирилл и Алексей. По России, из Армении и Москвы."),

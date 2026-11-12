@@ -115,7 +115,8 @@ enum RecognitionVocabulary {
             // Preserve the ending already present in the audio transcript.
             // Only spacing, hyphenation, ё and dictionary case are normalized.
             let alternatives = [spellingPattern(stem)] + splits
-            let pattern = #"(?<![\p{L}\p{N}])(?:"# + alternatives.joined(separator: "|") + ")" + endings + #"(?![\p{L}\p{N}])"#
+            let endingPattern = "(" + endings.joined(separator: "|") + ")"
+            let pattern = #"(?<![\p{L}\p{N}])(?:"# + alternatives.joined(separator: "|") + ")" + endingPattern + #"(?![\p{L}\p{N}])"#
             guard let expression = expression(for: pattern) else { continue }
             let ns = result as NSString
             let output = NSMutableString(string: result)
@@ -138,7 +139,7 @@ enum RecognitionVocabulary {
             body = "(?:" + AbbreviationFamilies.aliases(for: term).map(NSRegularExpression.escapedPattern).joined(separator: "|")
                 + ")(?:['’]?(?:" + AbbreviationFamilies.endingPattern(numeric: term.first?.isNumber == true) + "))?"
         } else if let (stem, endings) = cyrillicForm(term) {
-            body = spellingPattern(stem) + endings
+            body = spellingPattern(stem) + "(?:" + endings.joined(separator: "|") + ")"
         } else {
             body = term.split(whereSeparator: \.isWhitespace).map { NSRegularExpression.escapedPattern(for: String($0)) }
                 .joined(separator: #"\s+"#) + #"(?:['’]?(?:ками|кой|ках|кам|ка|ку|ке|ки|ами|ями|ого|ому|ов|ом|ем|ам|ах|ям|ях|а|у|е|ы|и))?"#
@@ -147,14 +148,19 @@ enum RecognitionVocabulary {
         return expression(for: pattern)?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
-    private static func cyrillicForm(_ term: String) -> (String, String)? {
+    static func cyrillicInflections(of term: String) -> [String] {
+        guard let (stem, endings) = cyrillicForm(term) else { return [] }
+        return endings.map { stem + $0 }
+    }
+
+    private static func cyrillicForm(_ term: String) -> (stem: String, endings: [String])? {
         guard term.count >= 3, term != term.uppercased(), term.unicodeScalars.allSatisfy({
             (0x410...0x44f).contains($0.value) || $0.value == 0x401 || $0.value == 0x451 || $0.value == 45
         }) else { return nil }
-        if term.hasSuffix("а") { return (String(term.dropLast()), "(ами|ам|ах|ою|ой|а|ы|и|е|у)") }
-        if term.hasSuffix("ь") { return (String(term.dropLast()), "(ями|ям|ях|ем|ей|ь|я|ю|е|и)") }
+        if term.hasSuffix("а") { return (String(term.dropLast()), ["ами", "ам", "ах", "ою", "ой", "а", "ы", "и", "е", "у"]) }
+        if term.hasSuffix("ь") { return (String(term.dropLast()), ["ями", "ям", "ях", "ем", "ей", "ь", "я", "ю", "е", "и"]) }
         return (term, term.last.map { "бвгджзклмнпрстфхцчшщ".contains($0) } == true
-                ? #"(ами|ам|ах|ов|ом|а|у|е|ы|и)?"# : "()")
+                ? ["ами", "ам", "ах", "ов", "ом", "а", "у", "е", "ы", "и", ""] : [""])
     }
 
     private static func sentenceCase(_ spelling: String, replacing range: NSRange, in text: String) -> String {

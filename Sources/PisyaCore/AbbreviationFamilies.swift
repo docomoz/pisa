@@ -8,8 +8,7 @@ struct AbbreviationFamilies {
         let ending: String
         var text: String {
             guard !ending.isEmpty else { return base }
-            let apostrophe = base.first?.isNumber == true || base.contains { $0.isASCII && $0.isLetter }
-            return base + (apostrophe ? "'" : "") + ending
+            return base + "'" + ending
         }
     }
 

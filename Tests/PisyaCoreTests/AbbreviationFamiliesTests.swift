@@ -4,7 +4,7 @@ import XCTest
 final class AbbreviationFamiliesTests: XCTestCase {
     func testTranscriptSpellingSeparatesRecognizedEndingsFromClearAbbreviations() {
         let source = "У 2ГИСа, с 2ГИСом и с AIем. С Мариной, Куделькой и МИДом. «2ГИСом» и `AIем`."
-        let expected = "У 2ГИС'а, с 2ГИС'ом и с AI'ем. С Мариной, Куделькой и МИДом. «2ГИСом» и `AIем`."
+        let expected = "У 2ГИС'а, с 2ГИС'ом и с AI'ем. С Мариной, Куделькой и МИД'ом. «2ГИСом» и `AIем`."
         XCTAssertEqual(TranscriptOrthography.normalize(source), expected)
         XCTAssertEqual(TranscriptOrthography.normalize(expected), expected)
         XCTAssertEqual(TranscriptOrthography.normalize("LLMки", vocabulary: "LLMки"), "LLMки")
@@ -12,8 +12,25 @@ final class AbbreviationFamiliesTests: XCTestCase {
                        "проект LLMки и другие LLM'ки")
     }
 
+    func testCyrillicAbbreviationEndingsInNewAndSavedTranscripts() throws {
+        let source = "Для ЛПР, ЛПР'ов, ЛПРов и ЛПРы. Встречаемся с МИДом."
+        let expected = "Для ЛПР, ЛПР'ов, ЛПР'ов и ЛПР'ы. Встречаемся с МИД'ом."
+        XCTAssertEqual(TranscriptOrthography.normalize(source), expected)
+        XCTAssertEqual(TranscriptOrthography.normalize(expected), expected)
+        XCTAssertEqual(RecognitionVocabulary.apply(to: "лпров, ЛПР’ы и ЛПР", vocabulary: "ЛПР"),
+                       "ЛПР'ов, ЛПР'ы и ЛПР")
+
+        let segment = TranscriptSegment(start: 0, end: 2, speaker: "А", text: source)
+        let candidate = try XCTUnwrap(TranscriptTerms.candidates(in: [segment], vocabulary: "").first { $0.text == "ЛПР" })
+        XCTAssertEqual(candidate.occurrences.map(\.text), ["ЛПР", "ЛПР'ов", "ЛПРов", "ЛПРы"])
+        XCTAssertEqual(candidate.occurrences.map { TranscriptTerms.replacement(for: $0, with: "ЛПР") },
+                       ["ЛПР", "ЛПР'ов", "ЛПР'ов", "ЛПР'ы"])
+        XCTAssertEqual(TranscriptTerms.replacing(candidate.occurrences, with: "ЛПР", in: [segment])?.first?.text,
+                       "Для ЛПР, ЛПР'ов, ЛПР'ов и ЛПР'ы. Встречаемся с МИДом.")
+    }
+
     func testAllSupportedEndingsKeepTheirOwnFormAndAreIdempotent() {
-        for base in ["2ГИС", "7АБВ", "LLM", "AI"] {
+        for base in ["2ГИС", "7АБВ", "LLM", "AI", "ЛПР"] {
             let families = AbbreviationFamilies(base)
             for ending in AbbreviationFamilies.endings {
                 let expected = base + "'" + ending
@@ -71,13 +88,13 @@ final class AbbreviationFamiliesTests: XCTestCase {
         XCTAssertNil(TranscriptTerms.replacing(found, with: "2ГИС", in: [stale]))
     }
 
-    func testNativeAcronymNoOpAndSentenceInitialAttachedForms() throws {
+    func testSentenceInitialAttachedAcronymForms() throws {
         let segment = TranscriptSegment(start: 0, end: 3, speaker: "А", text: "МИДом занимаются. LLMки помогают.")
         let candidates = TranscriptTerms.candidates(in: [segment], vocabulary: "")
         XCTAssertEqual(Set(candidates.map(\.text)), ["МИД", "LLM"])
         let found = TranscriptTerms.matches("МИД", in: [segment])
-        XCTAssertEqual(TranscriptTerms.replacement(for: try XCTUnwrap(found.first), with: "МИД"), "МИДом")
-        XCTAssertEqual(RecognitionVocabulary.apply(to: "МИДом", vocabulary: "МИД"), "МИДом")
+        XCTAssertEqual(TranscriptTerms.replacement(for: try XCTUnwrap(found.first), with: "МИД"), "МИД'ом")
+        XCTAssertEqual(RecognitionVocabulary.apply(to: "МИДом", vocabulary: "МИД"), "МИД'ом")
     }
 
     func testAcronymWithInternalDigitsUsesTheSameFamily() {
