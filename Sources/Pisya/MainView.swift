@@ -807,9 +807,16 @@ private struct RecordingWaveformView: View {
         let waiting = monitor.now - monitor.began < 3
         let status = !fresh && !waiting ? "Нет новых данных" : ""
         return HStack(spacing: PisyaDesign.Spacing.related) {
-            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
-                screenLabel(title, systemImage: icon).textStyle(PisyaDesign.Typography.detailMedium)
-                if !status.isEmpty { screenText(status).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.orange) }
+            HStack(alignment: .firstTextBaseline, spacing: PisyaDesign.Spacing.inline) {
+                Image(systemName: icon)
+                    .textStyle(PisyaDesign.Typography.detailMedium)
+                    .frame(width: PisyaDesign.Metrics.labelIconWidth)
+                VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
+                    screenText(title).textStyle(PisyaDesign.Typography.detailMedium)
+                    if !status.isEmpty {
+                        screenText(status).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.orange)
+                    }
+                }
             }.frame(width: 156 * max(1, textScale), alignment: .leading)
             TimelineView(.animation(minimumInterval: 1.0 / 60)) { timeline in
                 Canvas { context, size in
