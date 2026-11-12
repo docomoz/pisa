@@ -62,4 +62,54 @@ final class MeetingPhrasesTests: XCTestCase {
             XCTAssertFalse(phrase.hasSuffix("."), phrase)
         }
     }
+
+    func testPersonalizedPhrasesAreSpacedAndUseEachKnownTermOncePerCycle() {
+        let terms = ["cOnFlUeNcE", "kpi", "ChatGPT"]
+        let vocabulary = "  cOnFlUeNcE; kpi\nChatGPT, KPI"
+        var generator = MeetingPhraseGenerator()
+        var remaining = Set(terms)
+        for index in 1...16 {
+            let phrase = generator.next(vocabulary: vocabulary)
+            if [4, 8, 12].contains(index) {
+                XCTAssertFalse(MeetingPhraseGenerator.curated.contains(phrase), phrase)
+                let matched = remaining.filter { phrase.contains($0) }
+                XCTAssertEqual(matched.count, 1, phrase)
+                remaining.subtract(matched)
+            } else {
+                XCTAssertTrue(MeetingPhraseGenerator.curated.contains(phrase), phrase)
+            }
+        }
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testBuiltInUnknownAndPartialEntriesKeepTheStandardDeck() {
+        let vocabulary = Preferences().vocabulary + ", КПРС-25; Confluence Next; KPI общий"
+        var generator = MeetingPhraseGenerator()
+        for _ in 0..<12 {
+            XCTAssertTrue(MeetingPhraseGenerator.curated.contains(generator.next(vocabulary: vocabulary)))
+        }
+    }
+
+    func testVocabularyChangesApplyToTheNextPhrase() {
+        var generator = MeetingPhraseGenerator()
+        for _ in 0..<3 { _ = generator.next(vocabulary: "Confluence") }
+        XCTAssertTrue(MeetingPhraseGenerator.curated.contains(generator.next(vocabulary: "")))
+        let next = generator.next(vocabulary: "ChatGPT")
+        XCTAssertFalse(MeetingPhraseGenerator.curated.contains(next), next)
+        XCTAssertTrue(next.contains("ChatGPT"), next)
+    }
+
+    func testAlternateSpellingsShareOneSlotAndReturnInTheNextCycle() {
+        let vocabulary = "P&L, PNL"
+        var generator = MeetingPhraseGenerator()
+        let firstCycle = (0...MeetingPhraseGenerator.curated.count).map { _ in
+            generator.next(vocabulary: vocabulary)
+        }
+        let personalized = firstCycle.filter { !MeetingPhraseGenerator.curated.contains($0) }
+        XCTAssertEqual(personalized.count, 1)
+        XCTAssertTrue(personalized.first?.contains("P&L") == true)
+
+        let nextCycle = (0..<4).map { _ in generator.next(vocabulary: "PNL") }
+        XCTAssertEqual(nextCycle.filter { $0.contains("PNL") }.count, 1)
+    }
 }

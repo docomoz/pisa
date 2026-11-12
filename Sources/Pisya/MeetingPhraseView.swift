@@ -2,9 +2,9 @@ import SwiftUI
 
 struct MeetingPhraseView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var generator = MeetingPhraseGenerator()
     @State private var phrase = ""
     @FocusState private var refreshFocused: Bool
+    let nextPhrase: () -> String
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
@@ -50,6 +50,6 @@ struct MeetingPhraseView: View {
     }
 
     private func refresh() {
-        phrase = generator.next()
+        phrase = nextPhrase()
     }
 }
