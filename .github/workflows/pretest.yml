@@ -1,0 +1,50 @@
+name: Pretest
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pretest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pretest:
+    name: macOS regression checks
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact source snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node for the website checks
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Run the complete Pretest
+        run: python3 scripts/pretest.py --output-dir build/pretest/ci
+      - name: Publish the check summary
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for report in build/pretest/ci/*/report.md; do
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Retain test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pretest-${{ github.sha }}
+          path: |
+            build/pretest/ci/**/report.md
+            build/pretest/ci/**/summary.json
+            build/pretest/ci/**/checks/**/*.log
+            build/pretest/ci/**/renders/**/*.png
+          if-no-files-found: warn
+          retention-days: 14

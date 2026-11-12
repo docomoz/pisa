@@ -128,6 +128,7 @@
 		C807E5C802ED610ACC40A178 /* AudioDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B8C8390CB5ED142F254257 /* AudioDiagnostics.swift */; };
 		C9778B81F97258A3D7A7A345 /* BrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BAEB36AD45E0E5879222A8 /* BrandMark.swift */; };
 		CB1B615B84672315A1DD9B5D /* MeetingAudioExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A1640F3C829A3EAC42947F /* MeetingAudioExport.swift */; };
+		3C498B46DCD9F0AF1330F4A8 /* SettingsSectionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487753AAF89A1138564434AC /* SettingsSectionPicker.swift */; };
 		CBAFCE5C4DA223C7EDAA20AD /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF61299E592DACDA66C9038 /* SettingsView.swift */; };
 		CF943CBC4A8D67112A04B7F9 /* RecognitionTimedWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FA7BEF0A9FA08AB299AA598 /* RecognitionTimedWords.swift */; };
 		D0964983EC38E1E9349B5CE2 /* AboutWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41C1A732C25A025EB0D1E0AD /* AboutWindow.swift */; };
@@ -267,6 +268,7 @@
 		B43E43321EFB64C8319BF650 /* Pisya.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pisya.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB973459CC4A89EAEFE6C732 /* mlx-audio-swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "mlx-audio-swift"; path = "Vendor/mlx-audio-swift"; sourceTree = SOURCE_ROOT; };
 		BC863BCCA0B85BD3E7D48CD6 /* VocabularyDictionary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocabularyDictionary.swift; sourceTree = "<group>"; };
+		487753AAF89A1138564434AC /* SettingsSectionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionPicker.swift; sourceTree = "<group>"; };
 		BEF61299E592DACDA66C9038 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		C0952B28A7DF2AC5D07C9A55 /* silero_vad.onnx */ = {isa = PBXFileReference; path = silero_vad.onnx; sourceTree = "<group>"; };
 		C12586443E3A2083AE98B8CE /* RecognitionQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionQualityTests.swift; sourceTree = "<group>"; };
@@ -418,6 +420,7 @@
 				4BB6965A2A2377BFFCF8F696 /* SavedAudioPlayer.swift */,
 				3EE0BDE0998CADB5C051301D /* SavedVoicesSettings.swift */,
 				8E1BA91977928C54281807B8 /* ScreenTypography.swift */,
+				487753AAF89A1138564434AC /* SettingsSectionPicker.swift */,
 				BEF61299E592DACDA66C9038 /* SettingsView.swift */,
 				E6601E0D6722B292A4DA886E /* SlimScrollbars.swift */,
 				41512B542C14FFC5C4E4603E /* SourceLinkPreview.swift */,
@@ -755,6 +758,7 @@
 				8226590A889BC4FEF5609A3F /* SavedAudioPlayer.swift in Sources */,
 				8BCC3A9C1558ECDF652ABFF0 /* SavedVoicesSettings.swift in Sources */,
 				3C9EB3B08457BB0D5DD8132F /* ScreenTypography.swift in Sources */,
+				3C498B46DCD9F0AF1330F4A8 /* SettingsSectionPicker.swift in Sources */,
 				CBAFCE5C4DA223C7EDAA20AD /* SettingsView.swift in Sources */,
 				600A4F30255AE54741635070 /* SlimScrollbars.swift in Sources */,
 				9161496BA8E0D4F68FF9A5FA /* SourceLinkPreview.swift in Sources */,

@@ -313,3 +313,29 @@ public struct VoiceExample: Codable, Identifiable, Sendable {
         self.file = file; self.meetingID = meetingID; self.segmentID = segmentID; self.embedding = embedding
     }
 }
+
+/// MeetingView's visibility decisions, independent of SwiftUI and audio I/O.
+/// Keep saved audio reachable after interruption and transcript tools hidden until ready.
+/// Regression history: e891567, 6f77960 and 1b6b5fb.
+struct MeetingPresentation: Equatable, Sendable {
+    let isRecording: Bool
+    let isSaving: Bool
+    let isQueued: Bool
+    let isTranscribing: Bool
+    let showsTranscriptTools: Bool
+    let showsAutomaticPlayer: Bool
+    let showsTranscriptStatus: Bool
+    /// Permission to inspect saved tracks; the view still checks their actual availability.
+    let allowsSavedAudio: Bool
+
+    init(meeting: Meeting, recordingID: UUID?, savingID: UUID?, processingID: UUID?, isQueued: Bool) {
+        isRecording = recordingID == meeting.id
+        isSaving = savingID == meeting.id
+        self.isQueued = isQueued
+        isTranscribing = meeting.status == .processing && processingID == meeting.id
+        showsTranscriptTools = meeting.status == .ready && !isRecording && !isSaving && !isQueued
+        showsAutomaticPlayer = !showsTranscriptTools && meeting.segments.isEmpty
+        showsTranscriptStatus = isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty)
+        allowsSavedAudio = !isRecording && !isSaving
+    }
+}

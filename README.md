@@ -64,7 +64,7 @@ xattr -dr com.apple.quarantine "/Applications/Pisya.app"
 
 ## Сборка
 
-Для сборки из исходников понадобятся Mac с Apple Silicon, macOS 15+, Xcode с Metal Toolchain, XcodeGen и Python 3.9 или новее.
+Для сборки из исходников понадобятся Mac с Apple Silicon, macOS 15+, Xcode с Metal Toolchain, XcodeGen, Python 3.9 или новее и Node.js 24 для проверок сайта.
 
 ```sh
 git clone --recurse-submodules https://github.com/docomoz/pisya.git
@@ -73,6 +73,14 @@ cd pisya
 ```
 
 Сборка создаёт приложение `build/Build/Products/Release/Pisya.app` и оформленный установочный образ `build/Pisya-<версия>-arm64.dmg`. В образе есть приложение и ссылка на Applications. Нативные библиотеки, Metal-ресурсы и помощник MCP уже включены в приложение. Пользователю готовой сборки не нужны Xcode, Homebrew или Python.
+
+Перед сборкой автоматически выполняется Pretest. Запустить его отдельно после нового функционала или исправления:
+
+```sh
+python3 scripts/pretest.py
+```
+
+Полный прогон требует активной графической сессии macOS. Ошибка или недоступная обязательная проверка останавливает сборку; логи и отчёт сохраняются в `build/pretest/`. CI запускает ту же команду. [Состав проверок, правила добавления регрессий и ограничения](docs/pretest.md).
 
 Если Metal Toolchain не установлен, его можно загрузить командой:
 
