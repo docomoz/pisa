@@ -14,7 +14,7 @@ struct TermReview: View {
     @State private var notice: String?
     @FocusState private var replacementFocused: Bool
     @FocusState private var queryFocused: Bool
-    @State private var lastReplacement: (source: String, replacement: String)?
+    @State private var lastReplacement: (source: String, correctedSource: String)?
 
     private var currentMeeting: Meeting? {
         state.meetings.first { $0.id == meeting.id && state.canReviewTerms($0) }
@@ -226,9 +226,10 @@ struct TermReview: View {
         do {
             let corrected = term
             let original = source
+            let correctedSource = TranscriptTerms.replacementSearchTerm(for: occurrences, with: corrected)
             try state.replaceTerms(chosen, with: corrected, meetingID: meeting.id)
-            if let original { lastReplacement = (original, corrected) }
-            source = corrected
+            if let original { lastReplacement = (original, correctedSource) }
+            source = correctedSource
             replacement = corrected
             replacementFocused = false
             refresh()
@@ -239,7 +240,7 @@ struct TermReview: View {
     private func undo() {
         do {
             try state.undoTermReplacement(meetingID: meeting.id)
-            if let lastReplacement, source == lastReplacement.replacement {
+            if let lastReplacement, source == lastReplacement.correctedSource {
                 source = lastReplacement.source
                 replacement = lastReplacement.source
             }

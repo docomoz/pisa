@@ -193,14 +193,26 @@ public enum TranscriptTerms {
         return AbbreviationFamilies.inferred(trimmed)?.base ?? trimmed
     }
 
-    /// The preview and mutation share this renderer. A family edit changes the
-    /// base only; exact full-form search retains literal replacement semantics.
+    /// The preview and mutation share this renderer. Family edits keep each
+    /// observed ending and accept an explicitly apostrophized spelling.
     public static func replacement(for occurrence: TermOccurrence, with replacement: String) -> String? {
         let trimmed = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.rangeOfCharacter(from: .newlines) == nil else { return nil }
-        guard let family = occurrence.family, !family.ending.isEmpty else { return trimmed }
-        guard AbbreviationFamilies.isBase(trimmed) else { return nil }
-        return AbbreviationFamilies.Form(base: trimmed, ending: family.ending).text
+        guard let family = occurrence.family else { return trimmed }
+        let base = apostrophizedAbbreviationBase(trimmed) ?? trimmed
+        guard !family.ending.isEmpty else { return base }
+        guard AbbreviationFamilies.isBase(base) else { return nil }
+        return AbbreviationFamilies.Form(base: base, ending: family.ending).text
+    }
+
+    public static func replacementSearchTerm(for occurrences: [TermOccurrence], with replacement: String) -> String {
+        guard occurrences.contains(where: { $0.family != nil }) else { return replacement }
+        return apostrophizedAbbreviationBase(replacement) ?? replacement
+    }
+
+    private static func apostrophizedAbbreviationBase(_ term: String) -> String? {
+        guard term.contains("'") || term.contains("’") else { return nil }
+        return AbbreviationFamilies.inferred(term)?.base
     }
 
     private static func key(_ term: String) -> String {

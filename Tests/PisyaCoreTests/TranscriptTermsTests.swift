@@ -19,6 +19,27 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(TranscriptTerms.matches("2GIS'е", in: segments).map(\.text), ["2GIS'е"])
     }
 
+    func testApostrophizedReplacementPreservesEachObservedEnding() throws {
+        let segments = [segment("Позвали ЛПДов и обсудили с ЛПДом. Слово взял ЛПД.")]
+        let found = TranscriptTerms.matches("ЛПД", in: segments)
+        XCTAssertEqual(found.map(\.text), ["ЛПДов", "ЛПДом", "ЛПД"])
+
+        let straight = "ЛПР'ов"
+        XCTAssertEqual(found.map { TranscriptTerms.replacement(for: $0, with: straight) },
+                       ["ЛПР'ов", "ЛПР'ом", "ЛПР"])
+        let changed = try XCTUnwrap(TranscriptTerms.replacing(found, with: straight, in: segments))
+        XCTAssertEqual(changed[0].text, "Позвали ЛПР'ов и обсудили с ЛПР'ом. Слово взял ЛПР.")
+        let nextSearch = TranscriptTerms.replacementSearchTerm(for: found, with: straight)
+        XCTAssertEqual(TranscriptTerms.matches(nextSearch, in: changed).map(\.text), ["ЛПР'ов", "ЛПР'ом", "ЛПР"])
+        XCTAssertEqual(found.map { TranscriptTerms.replacement(for: $0, with: "ЛПР’ов") },
+                       ["ЛПР'ов", "ЛПР'ом", "ЛПР"])
+        XCTAssertNil(TranscriptTerms.replacing(found, with: "ЛПР'слово", in: segments))
+
+        let exact = TranscriptTerms.matches("ЛПДом", in: segments)
+        XCTAssertEqual(exact.map { TranscriptTerms.replacement(for: $0, with: straight) }, ["ЛПР'ов"])
+        XCTAssertEqual(TranscriptTerms.replacementSearchTerm(for: exact, with: straight), straight)
+    }
+
     func testAddingInflectedAbbreviationStoresOnlyBase() {
         XCTAssertEqual(TranscriptTerms.adding("2ГИС'ом", to: "API"), "API\n2ГИС")
         XCTAssertEqual(TranscriptTerms.adding("2ГИС'е", to: "2ГИС"), "2ГИС")

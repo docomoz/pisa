@@ -11,12 +11,16 @@ enum TermReviewTests {
         meeting.status = .ready
         meeting.duration = 360
         let forms = ["2ГИС'а", "2ГИС'е", "2ГИС'ом"]
+        let misspellings = ["ЛПДов", "ЛПДом", "ЛПД"]
         meeting.segments = (0..<18).map { index in
             let name = index.isMultiple(of: 2) ? "Куделька" : "куделька"
             let nameContext = index < 4 ? " Обсудили проект \(name)." : ""
+            let text = "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. "
+                + "В расшифровке встретилось «\(misspellings[index % misspellings.count])». "
+                + "Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.\(nameContext)"
             return TranscriptSegment(start: Double(index * 20), end: Double(index * 20 + 18),
                                      speaker: index.isMultiple(of: 2) ? "Анна" : "Борис",
-                                     text: "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.\(nameContext)")
+                                     text: text)
         }
         meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России. Для ЛПР, ЛПР'ов, ЛПРов и ЛПРы обсудили запрос Сбера и встречу со Сбером."
         state.update(meeting)
@@ -76,6 +80,20 @@ enum TermReviewTests {
         let corrected = try state.library.read(original.id)
         try check(corrected.segments[0].text.contains("Для ЛПР, ЛПР'ов, ЛПР'ов и ЛПР'ы"), "Cyrillic endings were not corrected")
         try check(corrected.segments[0].text.contains("запрос Сбера и встречу со Сбером"), "Dictionary forms changed in the transcript")
+        try state.undoTermReplacement(meetingID: original.id)
+
+        let misspellings = TranscriptTerms.matches("ЛПД", in: original.segments, vocabulary: state.preferences.vocabulary)
+        try check(misspellings.count == 18, "Cyrillic family search did not include all endings")
+        try state.replaceTerms(misspellings, with: "ЛПР'ов", meetingID: original.id)
+        let apostrophizedEdit = try state.library.read(original.id)
+        let correctedForms = ["ЛПР'ов", "ЛПР'ом", "ЛПР"]
+        let expectedEdit = original.segments.enumerated().map { index, segment in
+            let misspelling = misspellings[index].text
+            let spelling = correctedForms[index % correctedForms.count]
+            return segment.text.replacingOccurrences(of: "«\(misspelling)»", with: "«\(spelling)»")
+        }
+        try check(apostrophizedEdit.segments.map(\.text) == expectedEdit,
+                  "Saved Cyrillic replacement lost the apostrophe or changed an ending")
         try state.undoTermReplacement(meetingID: original.id)
 
         try state.addRecognitionTerm("2ГИС'ом")
