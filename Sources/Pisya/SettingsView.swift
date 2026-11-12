@@ -50,10 +50,26 @@ struct SettingsView: View {
                     case "Экспорт":
                         columns {
                         block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
-                            if let path = state.preferences.exportDisplayPath { screenText(verbatim: path).textStyle(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) } else { screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk) }
-                            HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Выбрать папку…") { state.chooseExportFolder() }.actionButton(); if state.preferences.exportBookmark != nil { screenButton("Отключить") { state.preferences.exportBookmark = nil; state.preferences.exportDisplayPath = nil; state.savePreferences() }.actionButton() } }
-                            SupportingText("После расшифровки и последующих правок файл обновляется автоматически. В него входят текст, участники и временные метки. Аудио остаётся в библиотеке.")
-                        }
+                            if state.preferences.exportBookmark != nil {
+                                if let path = state.preferences.exportDisplayPath {
+                                    screenText(verbatim: path).textStyle(PisyaDesign.Typography.code)
+                                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                }
+                            } else {
+                                screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk)
+                            }
+                            HStack(spacing: PisyaDesign.Spacing.related) {
+                                screenButton("Выбрать папку…") { state.chooseExportFolder() }.actionButton()
+                                if state.preferences.exportBookmark != nil {
+                                    screenButton("Отключить") { state.disableExportFolder() }.actionButton()
+                                }
+                            }
+                            if state.exportFolderUnavailable {
+                                SupportingText("Папка недоступна. Автоэкспорт приостановлен. Выберите папку заново, чтобы его возобновить.")
+                            } else {
+                                SupportingText("После расшифровки и последующих правок файл обновляется автоматически. В него входят текст, участники и временные метки. Аудио остаётся в библиотеке.")
+                            }
+                        }.onAppear { state.refreshExportFolderAccess() }
                         } right: {
                             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                         block("Если папка синхронизируется", "Dropbox, iCloud или другой сервис могут отправлять её содержимое в облако") { SupportingText("Выбор такой папки разрешает выгрузку текстов через приложение синхронизации. Это отдельно от локального распознавания.") }

@@ -242,7 +242,7 @@ enum Launcher {
                 defer { try? FileManager.default.removeItem(at: root) }
                 do {
                     func check(_ condition: Bool, _ message: String) throws { if !condition { throw PisyaError.message(message) } }
-                    let state = AppState(rootURL: root)
+                    var state = AppState(rootURL: root)
                     var m = Meeting(title: "Fixture", source: "Synthetic"); m.status = .ready
                     let filename = "fixture-mic.caf"
                     let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
@@ -270,18 +270,37 @@ enum Launcher {
                     let folder = state.folders[0]
                     // A library copied from another Mac can carry an unusable export bookmark.
                     let copiedBookmark = Data("unresolvable export bookmark".utf8)
+                    let exportFolder = root.appendingPathComponent("Export", isDirectory: true)
+                    try FileManager.default.createDirectory(at: exportFolder, withIntermediateDirectories: true)
                     state.preferences.exportBookmark = copiedBookmark
+                    state.preferences.exportDisplayPath = exportFolder.path
+                    try state.library.savePreferences(state.preferences)
+                    state = AppState(rootURL: root)
+                    try check(state.message == nil, "Opening the copied library showed an export alert")
+                    try check(state.exportFolderUnavailable, "The copied export bookmark was not marked unavailable")
                     state.move(state.meetings[0], to: folder.id)
                     try check(state.meetings[0].folderID == folder.id, "Move failed")
                     try check(try state.library.read(m.id).folderID == folder.id, "Move was not saved")
                     try check(state.message == nil, "Moving with a copied bookmark triggered auto-export: \(state.message ?? "")")
 
-                    state.rename(state.meetings[0], to: "Updated transcript title")
-                    try check(try state.library.read(m.id).title == "Updated transcript title", "Export failure prevented local changes")
-                    try check(state.message?.contains("Выберите папку заново") == true, "Auto-export did not explain how to restore access")
-                    try check(state.preferences.exportBookmark == copiedBookmark, "Auto-export discarded the saved setting")
-                    state.preferences.exportBookmark = nil
-                    state.message = nil
+                    for name in ["New speaker", "Corrected speaker"] {
+                        state.assignVoice(meetingID: m.id, segmentID: segment.id, name: name, allMatching: false, remember: false)
+                        try check(try state.library.read(m.id).segments.first?.speaker == name, "Voice correction was not saved")
+                        try check(state.message == nil, "A copied export bookmark interrupted voice correction")
+                    }
+                    try check(try FileManager.default.contentsOfDirectory(atPath: exportFolder.path).isEmpty, "Export wrote to the display path without a bookmark")
+                    try check(try state.library.preferences().exportBookmark == copiedBookmark, "Auto-export discarded the saved setting")
+                    try state.setExportFolder(exportFolder)
+                    state = AppState(rootURL: root)
+                    try check(!state.exportFolderUnavailable, "Selecting a folder did not restore auto-export after reopening")
+                    state.assignVoice(meetingID: m.id, segmentID: segment.id, name: "Exported speaker", allMatching: false, remember: false)
+                    try check(state.message == nil, "Voice correction failed with a working export folder")
+                    let exports = try FileManager.default.subpathsOfDirectory(atPath: exportFolder.path).filter { $0.hasSuffix(".md") }
+                    try check(exports.count == 1, "Expected a Markdown file after restoring auto-export")
+                    let exported = try String(contentsOf: exportFolder.appendingPathComponent(exports[0]), encoding: .utf8)
+                    try check(exported.contains("· Exported speaker**"), "Markdown did not include the new speaker")
+                    state.disableExportFolder()
+                    try check(try state.library.preferences().exportBookmark == nil, "Turning off auto-export did not persist")
                     let second = state.saveFolder("Second")!
                     let third = state.saveFolder("Third")!
                     state.openFolder(folder.id)

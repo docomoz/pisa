@@ -43,6 +43,7 @@ final class AppState: ObservableObject {
     @Published var permissionIssue: CapturePermission?
     @Published var message: String?
     @Published var showingSettings = false
+    @Published private(set) var exportFolderUnavailable = false
     @Published var callActive = false
     @Published var livePaused = false
     @Published var liveStatus = ""
@@ -293,6 +294,7 @@ final class AppState: ObservableObject {
         do { library = try MeetingLibrary(root: root) } catch { fatalError("Не удалось открыть библиотеку: \(error.localizedDescription)") }
         do {
             preferences = try library.preferences()
+            refreshExportFolderAccess()
             voiceProfiles = try library.voices()
             meetings = try library.all(includeDeleted: true)
             for index in meetings.indices {
@@ -1104,9 +1106,24 @@ final class AppState: ObservableObject {
     func chooseExportFolder() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
         panel.message = "Папка для Markdown. Если это Dropbox или iCloud, тексты будут синхронизироваться их приложением"
-        if panel.runModal() == .OK, let url = panel.url {
-            do { preferences.exportBookmark = try url.bookmarkData(options: .withSecurityScope); preferences.exportDisplayPath = url.path; savePreferences() } catch { message = error.localizedDescription }
-        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try setExportFolder(url) }
+        catch { message = error.localizedDescription }
+    }
+    func disableExportFolder() {
+        do { try setExportFolder(nil) }
+        catch { message = error.localizedDescription }
+    }
+    func setExportFolder(_ folder: URL?) throws {
+        var updated = preferences
+        updated.exportBookmark = try folder?.bookmarkData(options: .withSecurityScope)
+        updated.exportDisplayPath = folder?.path
+        try library.savePreferences(updated)
+        preferences = updated
+        refreshExportFolderAccess()
+    }
+    func refreshExportFolderAccess() {
+        withConfiguredExportFolder { _ in }
     }
     func exportIfConfigured(_ meeting: Meeting) {
         guard meeting.deletedAt == nil else { return }
@@ -1120,15 +1137,33 @@ final class AppState: ObservableObject {
             message = "Экспорт не выполнен. \(detail)\(punctuation) Расшифровка сохранена на Mac."
         }
     }
-    private func withConfiguredExportFolder(_ action: (URL) throws -> Void) throws {
-        guard !demo, let data = preferences.exportBookmark else { return }
-        var stale = false
-        guard let folder = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale) else {
-            throw PisyaError.message("Папка автоэкспорта недоступна. Выберите папку заново в настройках Pisya")
+    private func withConfiguredExportFolder(_ action: (URL) throws -> Void) rethrows {
+        guard !demo else { return }
+        guard let data = preferences.exportBookmark else {
+            if exportFolderUnavailable { exportFolderUnavailable = false }
+            return
         }
-        let granted = folder.startAccessingSecurityScopedResource()
-        defer { if granted { folder.stopAccessingSecurityScopedResource() } }
-        if stale { preferences.exportBookmark = try folder.bookmarkData(options: .withSecurityScope); savePreferences() }
+        var stale = false
+        let options: URL.BookmarkResolutionOptions = [.withSecurityScope, .withoutUI, .withoutMounting]
+        guard let folder = try? URL(resolvingBookmarkData: data, options: options, bookmarkDataIsStale: &stale),
+              folder.startAccessingSecurityScopedResource() else {
+            if !exportFolderUnavailable { exportFolderUnavailable = true }
+            return
+        }
+        defer { folder.stopAccessingSecurityScopedResource() }
+        guard let values = try? folder.resourceValues(forKeys: [.isDirectoryKey, .isWritableKey]),
+              values.isDirectory == true, values.isWritable == true else {
+            if !exportFolderUnavailable { exportFolderUnavailable = true }
+            return
+        }
+
+        if exportFolderUnavailable { exportFolderUnavailable = false }
+        if stale, let bookmark = try? folder.bookmarkData(options: .withSecurityScope) {
+            var updated = preferences
+            updated.exportBookmark = bookmark
+            updated.exportDisplayPath = folder.path
+            if (try? library.savePreferences(updated)) != nil { preferences = updated }
+        }
         try action(folder)
     }
     func deleteAudio(_ meeting: Meeting) {
