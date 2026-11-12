@@ -90,22 +90,21 @@ struct SearchField: View {
     let title: String
     @Binding var text: String
     var compact = false
-    var inForm = false
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
             Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
             TextField(title, text: $text, onEditingChanged: { isEditing = $0 })
                 .textFieldStyle(.plain)
-                // At the largest text size the compact native field editor sits one point higher.
-                .offset(y: compact && textScale >= 1.2 && isEditing ? 1 : 0)
+                // At the largest text size the native field editor sits one point higher.
+                .offset(y: textScale >= 1.2 && isEditing ? 1 : 0)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск")
             }
-        }.textStyle(compact ? PisyaDesign.Typography.footnote : PisyaDesign.Typography.detail)
+        }.textStyle(compact ? PisyaDesign.Typography.footnote : PisyaDesign.Typography.body)
             .padding(.horizontal, PisyaDesign.Spacing.related)
-            .padding(.vertical, inForm ? PisyaDesign.Spacing.none : PisyaDesign.Spacing.related)
-            .frame(minHeight: inForm ? PisyaDesign.Metrics.regularHeight : nil)
+            .padding(.vertical, compact ? PisyaDesign.Spacing.related : PisyaDesign.Spacing.none)
+            .frame(minHeight: compact ? nil : PisyaDesign.Metrics.regularHeight)
             .background(compact ? PisyaDesign.Colors.paper : PisyaDesign.Colors.secondary,
                         in: RoundedRectangle(cornerRadius: compact ? PisyaDesign.Metrics.surfaceRadius : PisyaDesign.Metrics.cornerRadius))
     }

@@ -178,7 +178,7 @@ struct MeetingView: View {
     private enum Field: Hashable { case title, search }
     // Keep at least this much space for the transcript and the gap beside it.
     private static let transcriptWidthWithDetails: CGFloat = 529
-    private static let detailsColumnWidth: CGFloat = 228
+    private static let detailsColumnWidth: CGFloat = 244
     private var isRecording: Bool { state.recordingMeetingID == meeting.id }
     private var isSaving: Bool { state.savingMeetingID == meeting.id }
     private var isQueued: Bool { state.isQueued(meeting.id) }
@@ -657,7 +657,7 @@ struct MeetingView: View {
     private func detailsActionLabel(_ title: String, systemImage: String, hasMenu: Bool = false) -> some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
             Label {
-                screenText(title).textStyle(PisyaDesign.Typography.smallButton)
+                screenText(title)
             } icon: {
                 let icon = Image(systemName: systemImage)
                 ViewThatFits(in: .horizontal) {

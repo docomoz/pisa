@@ -33,7 +33,7 @@ extension PisyaDesign {
         static let transcriptHeading = Style(size: 12, weight: .medium, lineSpacing: Spacing.compact, tracking: 1.5)
         static let code = Style(size: 13, design: .monospaced, lineSpacing: Spacing.compact)
         static let elapsed = Style(size: 11, design: .monospaced, lineSpacing: Spacing.none)
-        static let button = Style(size: 16, weight: .medium, lineSpacing: Spacing.none)
+        static let button = Style(size: body.size, weight: .medium, lineSpacing: Spacing.none)
         static let smallButton = Style(size: 13, weight: .medium, lineSpacing: Spacing.none)
 
         enum Icon {

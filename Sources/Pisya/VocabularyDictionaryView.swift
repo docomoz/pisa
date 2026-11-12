@@ -39,7 +39,7 @@ struct VocabularyDictionaryView: View {
             }
             SupportingText(search.isEmpty ? "Записей: \(entries.count)" : "Найдено: \(filtered.count) из \(entries.count)")
             HStack(spacing: PisyaDesign.Spacing.related) {
-                SearchField(title: typographicText("Поиск по словарю"), text: $search, inForm: true)
+                SearchField(title: typographicText("Поиск по словарю"), text: $search)
                 TextField(text: $input, prompt: screenText("Слово или название")) {
                     screenText("Слово или название")
                 }
