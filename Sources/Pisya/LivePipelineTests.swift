@@ -92,7 +92,7 @@ public enum LivePipelineTests {
             if let initialRussianModel { try check(russianIdentity == initialRussianModel, "Russian verifier was not reused across windows") }
             else { initialRussianModel = russianIdentity }
             var commitEnd = LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: result)
-            if commitEnd <= window.start + 0.001 {
+            if commitEnd == window.start {
                 if !stopped { _ = scheduler.deferBoundary(window); return }
                 // Same conservative fallback as AppState after stop.
                 let fallbackFiles = try CaptureWindow.copy(boundaries(), start: window.start, end: window.end, directory: temp)

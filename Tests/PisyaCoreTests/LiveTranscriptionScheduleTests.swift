@@ -83,6 +83,21 @@ final class LiveTranscriptionScheduleTests: XCTestCase {
         let segment = TranscriptSegment(start: 0.9999, end: 18, speaker: "Я", text: "continuing")
         XCTAssertEqual(LiveTranscriptionSchedule.safeBoundary(start: 1, proposed: 16, segments: [segment]), 1)
     }
+    func testCrossingUtteranceNearResumedBoundaryRequiresFallback() {
+        let checkpoint = 2963.0
+        var schedule = LiveTranscriptionSchedule(committed: checkpoint)
+        let window = schedule.next(available: 3475, stopped: true)!
+        let segments = [
+            TranscriptSegment(start: checkpoint + 0.031, end: window.end + 1, speaker: "Я", text: "continuing"),
+            TranscriptSegment(start: checkpoint + 3, end: checkpoint + 5, speaker: "Другой", text: "overlapping")
+        ]
+        XCTAssertEqual(LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: segments),
+                       checkpoint)
+    }
+    func testShortFinalWindowCanCommitItsFullLength() {
+        let segment = TranscriptSegment(start: 30.2, end: 30.5, speaker: "Я", text: "done")
+        XCTAssertEqual(LiveTranscriptionSchedule.safeBoundary(start: 30, proposed: 30.5, segments: [segment]), 30.5)
+    }
     func testResumeAndExplicitReprocessingChooseDifferentStartingPoints() {
         XCTAssertEqual(LiveTranscriptionSchedule.processingMode(committed: 30, reprocess: false), .resume(30))
         XCTAssertEqual(LiveTranscriptionSchedule.processingMode(committed: 30, reprocess: true), .fromStart)

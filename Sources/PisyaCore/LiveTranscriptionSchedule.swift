@@ -59,6 +59,7 @@ public struct LiveTranscriptionSchedule: Sendable {
     /// Lookahead may contain utterances that straddle the planned boundary.
     /// Keep each whole crossing utterance in the uncommitted tail, including
     /// overlapping turns from the other track.
+    /// Return the start when the caller needs to retry with a different window.
     public static func safeBoundary(start: Double, proposed: Double, segments: [TranscriptSegment]) -> Double {
         var boundary = proposed
         while let earlier = segments.filter({ $0.start < boundary && $0.end > boundary }).map(\.start).min(), earlier < boundary {
@@ -66,6 +67,8 @@ public struct LiveTranscriptionSchedule: Sendable {
             guard next < boundary else { break }
             boundary = next
         }
-        return boundary
+        // A cut near the start would make the next batch recognize almost
+        // the same audio. A short final window can still be committed in full.
+        return boundary - start >= min(2, proposed - start) ? boundary : start
     }
 }

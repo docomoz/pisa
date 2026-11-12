@@ -530,16 +530,15 @@ final class AppState: ObservableObject {
                     let preceding = try library.read(id).segments.filter { $0.end <= window.start && $0.end >= window.start - 300 }
                     var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, preceding: preceding)
                     var committedEnd = LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: segments)
-                    if committedEnd <= window.start + 0.001 {
+                    if committedEnd == window.start {
                         if !stopped {
                             boundaryExhausted = !schedule.deferBoundary(window)
                             let delay = min(10.0, max(1.0, Date().timeIntervalSince(startedAt)))
                             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                             continue
                         }
-                        // A continuous turn longer than a batch has no safe
-                        // boundary. Recognize this still-uncommitted batch
-                        // without lookahead and make progress after stop.
+                        // The safe cut leaves too little progress. Recognize
+                        // this uncommitted batch without lookahead after stop.
                         segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, preceding: preceding)
                         committedEnd = window.end
                     } else { segments.removeAll { $0.end > committedEnd } }
