@@ -16,7 +16,7 @@ enum TermReviewTests {
             let name = index.isMultiple(of: 2) ? "Куделька" : "куделька"
             let nameContext = index < 4 ? " Обсудили проект \(name)." : ""
             let text = "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. "
-                + "В расшифровке встретилось «\(misspellings[index % misspellings.count])». "
+                + "В расшифровке встретилось (\(misspellings[index % misspellings.count])). "
                 + "Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.\(nameContext)"
             return TranscriptSegment(start: Double(index * 20), end: Double(index * 20 + 18),
                                      speaker: index.isMultiple(of: 2) ? "Анна" : "Борис",
@@ -90,7 +90,7 @@ enum TermReviewTests {
         let expectedEdit = original.segments.enumerated().map { index, segment in
             let misspelling = misspellings[index].text
             let spelling = correctedForms[index % correctedForms.count]
-            return segment.text.replacingOccurrences(of: "«\(misspelling)»", with: "«\(spelling)»")
+            return segment.text.replacingOccurrences(of: "(\(misspelling))", with: "(\(spelling))")
         }
         try check(apostrophizedEdit.segments.map(\.text) == expectedEdit,
                   "Saved Cyrillic replacement lost the apostrophe or changed an ending")
