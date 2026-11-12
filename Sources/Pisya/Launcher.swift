@@ -54,6 +54,13 @@ enum Launcher {
             }
             dispatchMain()
         }
+        if CommandLine.arguments.contains("--phrase-inference-smoke-test") {
+            Task { @MainActor in
+                do { try await MeetingTitleTests.phraseSmoke(); exit(0) }
+                catch { print("PHRASE_INFERENCE_SMOKE_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--title-inference-smoke-test") {
             Task { @MainActor in
                 do { try await MeetingTitleTests.smoke(); exit(0) }

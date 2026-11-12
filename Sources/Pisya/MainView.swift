@@ -5,7 +5,6 @@ struct MainView: View {
     @EnvironmentObject var state: AppState
     @State private var showingMeetingPhrase = false
     @State private var recordingDateReference = Date()
-    @State private var meetingPhrases = MeetingPhraseGenerator()
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.none) {
             sidebar.frame(width: 270)
@@ -28,9 +27,7 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in recordingDateReference = Date() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in recordingDateReference = Date() }
         .sheet(isPresented: $showingMeetingPhrase) {
-            MeetingPhraseView {
-                meetingPhrases.next(vocabulary: state.preferences.vocabulary)
-            }
+            MeetingPhraseView(nextPhrase: state.nextMeetingPhrase)
         }
         .sheet(item: $state.reprocessTarget) { meeting in
             ConfirmationSheet(
