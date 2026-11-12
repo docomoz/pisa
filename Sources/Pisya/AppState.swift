@@ -176,8 +176,12 @@ final class AppState: ObservableObject {
     }
     func move(_ m: Meeting, to folder: UUID?) {
         guard var latest = meetings.first(where: { $0.id == m.id }), canMove(latest) else { return }
-        latest.folderID = folder; update(latest)
-        if !filtered.contains(where: { $0.id == selection }) { select(filtered.first?.id) }
+        latest.folderID = folder
+        do {
+            try library.save(latest)
+            upsert(latest)
+            if !filtered.contains(where: { $0.id == selection }) { select(filtered.first?.id) }
+        } catch { message = error.localizedDescription }
     }
     func trash(_ m: Meeting, restore: Bool = false) {
         guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
@@ -1083,12 +1087,18 @@ final class AppState: ObservableObject {
             try withConfiguredExportFolder { folder in
                 _ = try MarkdownExporter.export(meeting, to: folder)
             }
-        } catch { message = "Экспорт не выполнен: \(error.localizedDescription). Расшифровка сохранена на Mac" }
+        } catch {
+            let detail = error.localizedDescription
+            let punctuation = detail.hasSuffix(".") ? "" : "."
+            message = "Экспорт не выполнен. \(detail)\(punctuation) Расшифровка сохранена на Mac."
+        }
     }
     private func withConfiguredExportFolder(_ action: (URL) throws -> Void) throws {
         guard !demo, let data = preferences.exportBookmark else { return }
         var stale = false
-        let folder = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
+        guard let folder = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale) else {
+            throw PisyaError.message("Папка автоэкспорта недоступна. Выберите папку заново в настройках Pisya")
+        }
         let granted = folder.startAccessingSecurityScopedResource()
         defer { if granted { folder.stopAccessingSecurityScopedResource() } }
         if stale { preferences.exportBookmark = try folder.bookmarkData(options: .withSecurityScope); savePreferences() }

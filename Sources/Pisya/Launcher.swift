@@ -268,8 +268,20 @@ enum Launcher {
                     try check(clip.length == 64000, "Voice clip frame count incorrect: \(clip.length)")
                     state.saveFolder("Folder")
                     let folder = state.folders[0]
+                    // A library copied from another Mac can carry an unusable export bookmark.
+                    let copiedBookmark = Data("unresolvable export bookmark".utf8)
+                    state.preferences.exportBookmark = copiedBookmark
                     state.move(state.meetings[0], to: folder.id)
                     try check(state.meetings[0].folderID == folder.id, "Move failed")
+                    try check(try state.library.read(m.id).folderID == folder.id, "Move was not saved")
+                    try check(state.message == nil, "Moving with a copied bookmark triggered auto-export: \(state.message ?? "")")
+
+                    state.rename(state.meetings[0], to: "Updated transcript title")
+                    try check(try state.library.read(m.id).title == "Updated transcript title", "Export failure prevented local changes")
+                    try check(state.message?.contains("Выберите папку заново") == true, "Auto-export did not explain how to restore access")
+                    try check(state.preferences.exportBookmark == copiedBookmark, "Auto-export discarded the saved setting")
+                    state.preferences.exportBookmark = nil
+                    state.message = nil
                     let second = state.saveFolder("Second")!
                     let third = state.saveFolder("Third")!
                     state.openFolder(folder.id)
