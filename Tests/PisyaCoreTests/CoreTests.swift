@@ -200,6 +200,18 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(meetingDateLabel(date(2024, 2, 29), now: date(2025, 2, 28), calendar: calendar).contains("2024"))
         XCTAssertFalse(meetingDateLabel(date(2027, 1, 1), now: now, calendar: calendar).contains("2027"))
     }
+    func testCompactMeetingDateKeepsYearAndTimeAtCalendarAnniversary() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        func date(_ year: Int, _ day: Int) -> Date {
+            calendar.date(from: DateComponents(year: year, month: 10, day: day, hour: 12, minute: 7))!
+        }
+        let now = date(2026, 8)
+        XCTAssertEqual(meetingDateLabel(date(2025, 8), now: now, calendar: calendar, compact: true), "08.10.2025, 12:07")
+        XCTAssertEqual(meetingDateLabel(date(2025, 9), now: now, calendar: calendar, compact: true), "09.10, 12:07")
+        XCTAssertEqual(meetingDateLabel(now, now: now, calendar: calendar, compact: true), "Сегодня в\u{00a0}12:07")
+        XCTAssertEqual(meetingDateLabel(date(2026, 7), now: now, calendar: calendar, compact: true), "Вчера в\u{00a0}12:07")
+    }
     func testScreenTypographyBindsShortWordsDatesAndUnitsWithoutChangingCode() {
         XCTAssertEqual(typographicText("В папку отправляется текст для встречи"), "В\u{00a0}папку отправляется текст для\u{00a0}встречи")
         XCTAssertEqual(typographicText("3 ноября · 45 секунд · 16 кГц · 25%"), "3\u{00a0}ноября · 45\u{00a0}секунд · 16\u{00a0}кГц · 25%")

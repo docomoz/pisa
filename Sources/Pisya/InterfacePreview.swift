@@ -98,6 +98,10 @@ final class InterfacePreview: NSObject {
             state.processingID = UUID()
             state.enqueue(fixture.id, reprocess: true)
         }
+        if CommandLine.arguments.contains("--sidebar-date-preview") {
+            try Self.seedSidebarDates(state)
+            state.select(fixture.id)
+        }
         state.preferences.vocabulary = Array(repeating: "2ГИС, Бронегис, Геопэй, названия проектов для проверки длинного словаря", count: 18).joined(separator: "\n")
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         super.init()
@@ -106,7 +110,8 @@ final class InterfacePreview: NSObject {
         let hosting = NSHostingView(rootView: InterfacePreviewRoot(state: state, setup: state.modelSetup)
             .preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU"))
             .environment(\.appTextScale, CommandLine.arguments.contains("--large-text-preview") ? 1.2 :
-                CommandLine.arguments.contains("--medium-text-preview") ? 1.1 : 1))
+                CommandLine.arguments.contains("--medium-text-preview") ? 1.1 :
+                CommandLine.arguments.contains("--small-text-preview") ? 0.8 : 1))
         // The review window owns its size, as SwiftUI's Window does in the app.
         // Content switches must not resize it to a view's unconstrained ideal size.
         hosting.sizingOptions = []
@@ -133,6 +138,37 @@ final class InterfacePreview: NSObject {
         reviewItem.submenu = reviewMenu
         menu.addItem(reviewItem)
         NSApp.mainMenu = menu
+    }
+
+    private static func seedSidebarDates(_ state: AppState) throws {
+        let calendar = Calendar.current
+        let now = Date()
+        let olderDay = calendar.date(byAdding: .day, value: -400, to: now) ?? now
+        let older = calendar.date(bySettingHour: 12, minute: 7, second: 0, of: olderDay) ?? olderDay
+        let folder = state.saveFolder("Документы и рабочие созвоны")
+
+        func add(_ title: String, date: Date, duration: Double = 181, inFolder: Bool = false,
+                 status: MeetingStatus = .recorded, automatic: Bool = false) -> Meeting {
+            var meeting = Meeting(title: title, source: automatic ? "Аудиофайл" : "Тестовое аудио")
+            meeting.date = date
+            meeting.duration = duration
+            meeting.folderID = inFolder ? folder : nil
+            meeting.status = status
+            if automatic { meeting.automaticTitle = title }
+            state.update(meeting)
+            return meeting
+        }
+        _ = add("Вчерашняя встреча", date: calendar.date(byAdding: .day, value: -1, to: now) ?? now, inFolder: true)
+        _ = add("Встреча на неделе", date: calendar.date(byAdding: .day, value: -2, to: now) ?? now)
+        _ = add("Встреча старше года", date: older)
+        _ = add("Тестовая запись", date: older, duration: 3_670, inFolder: true, automatic: true)
+        let processing = add("Расшифровывается", date: older, duration: 3_670, inFolder: true, status: .processing)
+        let queued = add("В очереди", date: older, duration: 3_670, inFolder: true)
+        try prepareModelPath(for: state)
+        state.processingID = processing.id
+        state.enqueue(queued.id)
+        let recording = add("Текущая запись", date: now, inFolder: true)
+        state.beginRecordingSession(recording, automatic: false)
     }
 
     private static func writeAudio(to url: URL, duration: Int, frequency: Double) throws {

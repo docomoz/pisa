@@ -40,30 +40,41 @@ struct LibrarySidebar: View {
               ScrollView {
               LazyVStack(spacing: PisyaDesign.Spacing.compact) {
                 ForEach(state.filtered) { meeting in
-                    let dateLabel = meetingDateLabel(meeting.date, now: dateReference)
                     let isAutomatic = meeting.hasAutomaticTitle
-                    let title = isAutomatic ? "\(meeting.headingTitle) · \(dateLabel)" : meeting.title
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                        screenText(title).textStyle(isAutomatic ? PisyaDesign.Typography.caption : PisyaDesign.Typography.captionMedium).lineLimit(1).truncationMode(.tail).screenHelp(title)
-                        HStack(spacing: PisyaDesign.Spacing.inline) {
-                            if !isAutomatic {
-                                screenText(dateLabel).lineLimit(1).truncationMode(.middle).layoutPriority(1).screenHelp(dateLabel)
-                                screenText("·")
-                            }
-                            if state.recordingMeetingID == meeting.id, let started = state.recordingStarted {
-                                Circle().fill(Color.recordingRed).frame(width: 6, height: 6).accessibilityHidden(true)
-                                screenText("Идёт запись").foregroundStyle(Color.recordingRed)
-                                RecordingElapsed(started: started)
-                            } else { screenText(sidebarDuration(meeting.duration)).monospacedDigit().fixedSize() }
+                        if isAutomatic {
+                            recordingDate(meeting.date, prefix: meeting.headingTitle + " · ")
+                                .textStyle(PisyaDesign.Typography.caption)
+                        } else {
+                            screenText(meeting.title).textStyle(PisyaDesign.Typography.captionMedium)
+                                .lineLimit(1).truncationMode(.tail).screenHelp(meeting.title)
+                        }
+                        HStack(spacing: PisyaDesign.Spacing.none) {
+                            HStack(spacing: PisyaDesign.Spacing.inline) {
+                                if !isAutomatic {
+                                    recordingDate(meeting.date).layoutPriority(1)
+                                    screenText("·").fixedSize()
+                                }
+                                if state.recordingMeetingID == meeting.id, let started = state.recordingStarted {
+                                    ViewThatFits(in: .horizontal) {
+                                        recordingStatus(started, showsLabel: true)
+                                        recordingStatus(started, showsLabel: false)
+                                    }
+                                } else {
+                                    screenText(sidebarDuration(meeting.duration)).monospacedDigit().fixedSize()
+                                }
+                            }.layoutPriority(1)
                             if let folder = state.folders.first(where: { $0.id == meeting.folderID }) {
-                                screenText("·")
-                                Image(systemName: folder.iconName).imageScale(.small)
-                                screenText(folder.name).lineLimit(1).layoutPriority(-1).screenHelp(folder.name)
+                                recordingFolder(folder)
                             }
-                            Spacer(minLength: 0)
-                            if state.isQueued(meeting.id) {
-                                Image(systemName: "clock").accessibilityLabel("В очереди на расшифровку").screenHelp("В очереди на расшифровку")
-                            } else if meeting.status == .processing { ProgressView().controlSize(.mini) }
+                            Spacer(minLength: PisyaDesign.Spacing.none)
+                            Group {
+                                if state.isQueued(meeting.id) {
+                                    Image(systemName: "clock").accessibilityLabel("В очереди на расшифровку").screenHelp("В очереди на расшифровку")
+                                } else if meeting.status == .processing {
+                                    ProgressView().controlSize(.mini)
+                                }
+                            }.padding(.leading, PisyaDesign.Spacing.inline).fixedSize().layoutPriority(1)
                         }.textStyle(PisyaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
 
                     }.padding(.vertical, PisyaDesign.Spacing.related).padding(.horizontal, PisyaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
@@ -110,6 +121,46 @@ struct LibrarySidebar: View {
             ) { state.removeFolder(folder) }
         }
     }
+
+    private func recordingDate(_ date: Date, prefix: String = "") -> some View {
+        let full = prefix + meetingDateLabel(date, now: dateReference)
+        let compact = prefix + meetingDateLabel(date, now: dateReference, compact: true)
+        return ViewThatFits(in: .horizontal) {
+            screenText(full).fixedSize(horizontal: true, vertical: false)
+            screenText(compact).truncationMode(.tail)
+        }
+        .lineLimit(1)
+        .screenHelp(full)
+    }
+
+    private func recordingStatus(_ started: Date, showsLabel: Bool) -> some View {
+        HStack(spacing: PisyaDesign.Spacing.inline) {
+            Circle().fill(Color.recordingRed).frame(width: 6, height: 6)
+                .accessibilityLabel(screenText("Идёт запись")).accessibilityHidden(showsLabel)
+            if showsLabel {
+                screenText("Идёт запись").foregroundStyle(Color.recordingRed)
+            }
+            RecordingElapsed(started: started)
+        }
+        .fixedSize()
+    }
+
+    private func recordingFolder(_ folder: MeetingFolder) -> some View {
+        let icon = Image(systemName: folder.iconName).imageScale(.small)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: PisyaDesign.Spacing.inline) {
+                screenText("·")
+                icon
+                screenText(folder.name)
+            }.padding(.leading, PisyaDesign.Spacing.inline)
+            HStack(spacing: PisyaDesign.Spacing.inline) {
+                screenText("·")
+                icon.accessibilityLabel(screenText(folder.name))
+            }.padding(.leading, PisyaDesign.Spacing.inline)
+            Color.clear.frame(width: 0, height: 0)
+        }.screenHelp(folder.name)
+    }
+
     private struct FolderDrag {
         let id: UUID
         let grabOffsetY: CGFloat

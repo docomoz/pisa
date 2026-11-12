@@ -132,7 +132,7 @@ public enum PisyaError: LocalizedError {
     public var errorDescription: String? { if case .message(let s) = self { return s }; return nil }
 }
 /// Use relative days for display and include the year from the first calendar anniversary.
-public func meetingDateLabel(_ date: Date, now: Date = Date(), calendar: Calendar = .current, showsRelativeDay: Bool = true) -> String {
+public func meetingDateLabel(_ date: Date, now: Date = Date(), calendar: Calendar = .current, showsRelativeDay: Bool = true, compact: Bool = false) -> String {
     var timeStyle = Date.FormatStyle().hour().minute().locale(Locale(identifier: "ru_RU"))
     timeStyle.calendar = calendar
     timeStyle.timeZone = calendar.timeZone
@@ -146,7 +146,7 @@ public func meetingDateLabel(_ date: Date, now: Date = Date(), calendar: Calenda
         }
     }
     let anniversary = calendar.date(byAdding: .year, value: 1, to: date) ?? .distantFuture
-    var style = timeStyle.day().month(.wide)
+    var style = compact ? timeStyle.day(.twoDigits).month(.twoDigits) : timeStyle.day().month(.wide)
     if anniversary <= now { style = style.year() }
     return typographicText(date.formatted(style))
 }
