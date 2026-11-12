@@ -3,6 +3,7 @@ import AppKit
 
 struct LibrarySidebar: View {
     @EnvironmentObject var state: AppState
+    let dateReference: Date
     @State private var folderEditor = false
     @State private var editingFolder: MeetingFolder?
     @State private var folderName = ""
@@ -39,11 +40,14 @@ struct LibrarySidebar: View {
               ScrollView {
               LazyVStack(spacing: PisyaDesign.Spacing.compact) {
                 ForEach(state.filtered) { meeting in
+                    let dateLabel = meetingDateLabel(meeting.date, now: dateReference)
+                    let isAutomatic = meeting.hasAutomaticTitle
+                    let title = isAutomatic ? "\(meeting.headingTitle) · \(dateLabel)" : meeting.title
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                        screenText(meeting.title).textStyle(meeting.hasAutomaticTitle ? PisyaDesign.Typography.caption : PisyaDesign.Typography.captionMedium).lineLimit(1).truncationMode(.tail).screenHelp(meeting.title)
+                        screenText(title).textStyle(isAutomatic ? PisyaDesign.Typography.caption : PisyaDesign.Typography.captionMedium).lineLimit(1).truncationMode(.tail).screenHelp(title)
                         HStack(spacing: PisyaDesign.Spacing.inline) {
-                            if !meeting.hasAutomaticTitle {
-                                screenText(meetingDateLabel(meeting.date)).lineLimit(1).truncationMode(.middle).layoutPriority(1).screenHelp(meetingDateLabel(meeting.date))
+                            if !isAutomatic {
+                                screenText(dateLabel).lineLimit(1).truncationMode(.middle).layoutPriority(1).screenHelp(dateLabel)
                                 screenText("·")
                             }
                             if state.recordingMeetingID == meeting.id, let started = state.recordingStarted {

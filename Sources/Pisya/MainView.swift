@@ -4,6 +4,7 @@ import AppKit
 struct MainView: View {
     @EnvironmentObject var state: AppState
     @State private var showingMeetingPhrase = false
+    @State private var recordingDateReference = Date()
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.none) {
             sidebar.frame(width: 270)
@@ -11,7 +12,9 @@ struct MainView: View {
             VStack(spacing: PisyaDesign.Spacing.none) {
                 topbar
                 if state.demo { screenText("ДЕМОНСТРАЦИЯ · вымышленные реплики, не настоящая запись").textStyle(PisyaDesign.Typography.microMedium).foregroundStyle(Color.moss).padding(PisyaDesign.Spacing.related).frame(maxWidth: .infinity).background(Color.moss.opacity(0.08)) }
-                if let meeting = state.selected { MeetingView(meeting: meeting).id(meeting.id) } else { welcome }
+                if let meeting = state.selected {
+                    MeetingView(meeting: meeting, dateReference: recordingDateReference).id(meeting.id)
+                } else { welcome }
             }.background(Color.paper)
         }
         .background(SlimScrollbars().allowsHitTesting(false))
@@ -20,6 +23,9 @@ struct MainView: View {
         .foregroundStyle(Color.ink)
         .tint(Color.brandAccent)
         .focusEffectDisabled()
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in recordingDateReference = Date() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in recordingDateReference = Date() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in recordingDateReference = Date() }
         .sheet(isPresented: $showingMeetingPhrase) { MeetingPhraseView() }
         .sheet(item: $state.reprocessTarget) { meeting in
             ConfirmationSheet(
@@ -36,7 +42,7 @@ struct MainView: View {
             }
         }
     }
-    private var sidebar: some View { LibrarySidebar() }
+    private var sidebar: some View { LibrarySidebar(dateReference: recordingDateReference) }
     private var topbar: some View {
         let panelHeight = PisyaDesign.Metrics.regularHeight + 2 * PisyaDesign.Spacing.related
         return GeometryReader { geometry in
@@ -157,6 +163,7 @@ struct MeetingView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTextScale) private var textScale
     let meeting: Meeting
+    let dateReference: Date
     @State private var editing: TranscriptSegment?
     @State private var reviewingTerms = false
     @State private var title = ""
@@ -197,7 +204,7 @@ struct MeetingView: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
             HStack(spacing: textScale > 1 ? PisyaDesign.Spacing.compact : PisyaDesign.Spacing.related) {
                 // Keep the same row height when the audio toggle is absent.
-                screenText(meetingDateLabel(meeting.date))
+                screenText(meetingDateLabel(meeting.date, now: dateReference))
                     .padding(.vertical, PisyaDesign.Spacing.compact)
                 screenText("·")
                 screenText(meeting.source)

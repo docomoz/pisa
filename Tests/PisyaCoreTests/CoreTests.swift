@@ -175,6 +175,18 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(imported.rename(to: customTitle))
         XCTAssertEqual(imported.headingTitle, customTitle)
     }
+    func testMeetingDateUsesLocalCalendarDayAtMidnight() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Moscow"))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, minute: 5)))
+        let yesterday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 12, day: 31, hour: 23, minute: 55)))
+        let older = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 12, day: 30, hour: 23, minute: 55)))
+
+        XCTAssertEqual(meetingDateLabel(now, now: now, calendar: calendar), "Сегодня в\u{00a0}00:05")
+        XCTAssertEqual(meetingDateLabel(yesterday, now: now, calendar: calendar), "Вчера в\u{00a0}23:55")
+        XCTAssertEqual(meetingDateLabel(older, now: now, calendar: calendar), "30\u{00a0}декабря в\u{00a0}23:55")
+        XCTAssertEqual(meetingDateLabel(yesterday, now: now, calendar: calendar, showsRelativeDay: false), "31\u{00a0}декабря в\u{00a0}23:55")
+    }
     func testDateYearAppearsAtCalendarAnniversary() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!

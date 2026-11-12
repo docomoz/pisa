@@ -71,13 +71,13 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
         guard titleOrigin == nil else { return false }
         if let automaticTitle { return title == automaticTitle }
         func normalized(_ text: String) -> String { text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
-        let stamps = [meetingDateLabel(date), date.formatted(date: .abbreviated, time: .shortened), date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "ru_RU")))]
+        let stamps = [meetingDateLabel(date, showsRelativeDay: false), date.formatted(date: .abbreviated, time: .shortened), date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Locale(identifier: "ru_RU")))]
         return ["Встреча", "Созвон", "Запись"].contains { prefix in
             stamps.contains { normalized(prefix + " · " + $0) == normalized(title) }
         }
     }
     private var defaultTitlePrefix: String { source == "Аудиофайл" ? "Запись" : "Созвон" }
-    public var defaultTitle: String { defaultTitlePrefix + " · " + meetingDateLabel(date) }
+    public var defaultTitle: String { defaultTitlePrefix + " · " + meetingDateLabel(date, showsRelativeDay: false) }
     public var headingTitle: String { hasAutomaticTitle ? defaultTitlePrefix : title }
     @discardableResult public mutating func refreshAutomaticTitle() -> Bool {
         guard hasAutomaticTitle else { return false }
@@ -128,11 +128,22 @@ public enum PisyaError: LocalizedError {
     case message(String)
     public var errorDescription: String? { if case .message(let s) = self { return s }; return nil }
 }
-/// Include the year only once the recording reaches its first calendar anniversary.
-public func meetingDateLabel(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+/// Use relative days for display and include the year from the first calendar anniversary.
+public func meetingDateLabel(_ date: Date, now: Date = Date(), calendar: Calendar = .current, showsRelativeDay: Bool = true) -> String {
+    var timeStyle = Date.FormatStyle().hour().minute().locale(Locale(identifier: "ru_RU"))
+    timeStyle.calendar = calendar
+    timeStyle.timeZone = calendar.timeZone
+    if showsRelativeDay {
+        if calendar.isDate(date, inSameDayAs: now) {
+            return typographicText("Сегодня в \(date.formatted(timeStyle))")
+        }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)),
+           calendar.isDate(date, inSameDayAs: yesterday) {
+            return typographicText("Вчера в \(date.formatted(timeStyle))")
+        }
+    }
     let anniversary = calendar.date(byAdding: .year, value: 1, to: date) ?? .distantFuture
-    var style = Date.FormatStyle().day().month(.wide).hour().minute().locale(Locale(identifier: "ru_RU"))
-    style.calendar = calendar; style.timeZone = calendar.timeZone
+    var style = timeStyle.day().month(.wide)
     if anniversary <= now { style = style.year() }
     return typographicText(date.formatted(style))
 }
