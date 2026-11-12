@@ -662,8 +662,7 @@ actor Transcriber {
            let rawResult = russian?.recognizeDetailed(samples) {
             let rawHypothesis = rawResult.text
             acoustic = rawResult
-            let hypothesis = spokenVocabulary.promptHypothesis(rawHypothesis)
-            let usesCyrillicHints = spokenVocabulary.hasCyrillicHints(in: rawHypothesis)
+            let (hypothesis, usesCyrillicHints) = spokenVocabulary.promptResult(rawHypothesis)
             if RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
                 try Task.checkCancellation()
                 let checked = try generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))

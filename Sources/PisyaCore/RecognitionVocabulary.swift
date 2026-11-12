@@ -3,6 +3,21 @@ import Foundation
 /// Render explicitly supplied dictionary entries consistently. This is spelling
 /// normalization, not fuzzy replacement of names inferred from transcript text.
 enum RecognitionVocabulary {
+    // The same spelling rules are used for many candidate spans in a turn.
+    private static let expressions: NSCache<NSData, NSRegularExpression> = {
+        let cache = NSCache<NSData, NSRegularExpression>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    private static func expression(for pattern: String) -> NSRegularExpression? {
+        let key = Data(pattern.utf8) as NSData
+        if let cached = expressions.object(forKey: key) { return cached }
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
+        expressions.setObject(expression, forKey: key)
+        return expression
+    }
+
     static func apply(to text: String, vocabulary: String) -> String {
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -101,7 +116,7 @@ enum RecognitionVocabulary {
             // Only spacing, hyphenation, ё and dictionary case are normalized.
             let alternatives = [spellingPattern(stem)] + splits
             let pattern = #"(?<![\p{L}\p{N}])(?:"# + alternatives.joined(separator: "|") + ")" + endings + #"(?![\p{L}\p{N}])"#
-            guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            guard let expression = expression(for: pattern) else { continue }
             let ns = result as NSString
             let output = NSMutableString(string: result)
             let protected = TranscriptOrthography.literalRanges(in: result)
@@ -128,8 +143,8 @@ enum RecognitionVocabulary {
             body = term.split(whereSeparator: \.isWhitespace).map { NSRegularExpression.escapedPattern(for: String($0)) }
                 .joined(separator: #"\s+"#) + #"(?:['’]?(?:ками|кой|ках|кам|ка|ку|ке|ки|ами|ями|ого|ому|ов|ом|ем|ам|ах|ям|ях|а|у|е|ы|и))?"#
         }
-        return text.range(of: #"(?<![\p{L}\p{N}])(?:"# + body + #")(?![\p{L}\p{N}])"#,
-                          options: [.regularExpression, .caseInsensitive]) != nil
+        let pattern = #"(?<![\p{L}\p{N}])(?:"# + body + #")(?![\p{L}\p{N}])"#
+        return expression(for: pattern)?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
     private static func cyrillicForm(_ term: String) -> (String, String)? {

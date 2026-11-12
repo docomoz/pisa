@@ -2,6 +2,14 @@ import XCTest
 @testable import PisyaCore
 
 final class RecognitionVocabularyTests: XCTestCase {
+    func testRepeatedTermQueriesRespectCurrentTextAndWordBoundaries() {
+        XCTAssertTrue(RecognitionVocabulary.contains("2ГИС", in: "с 2GIS’om"))
+        XCTAssertFalse(RecognitionVocabulary.contains("2ГИС", in: "с 12GIS’om"))
+        XCTAssertTrue(RecognitionVocabulary.contains("2ГИС", in: "в 2гис’е"))
+        XCTAssertTrue(RecognitionVocabulary.contains("ёлка", in: "под елкой"))
+        XCTAssertFalse(RecognitionVocabulary.contains("ёлка", in: "с метёлкой"))
+    }
+
     func testSharedAbbreviationEndingsAndExplicitCompetingEntries() {
         XCTAssertEqual(RecognitionVocabulary.apply(to: "AIем, LLMами, 2GISu и 2GISom", vocabulary: "AI, LLM, 2ГИС"),
                        "AI'ем, LLM'ами, 2ГИС'у и 2ГИС'ом")

@@ -193,7 +193,7 @@ struct SpokenVocabulary {
         return phrases.isEmpty ? nil : phrases.joined(separator: ", ")
     }
 
-    private func promptResult(_ text: String) -> (text: String, hasCyrillicHints: Bool) {
+    func promptResult(_ text: String) -> (text: String, hasCyrillicHints: Bool) {
         let normalized = apply(to: text)
         let ns = normalized as NSString
         let words = Self.words(normalized)
@@ -389,11 +389,11 @@ struct SpokenVocabulary {
         (2...6).contains(text.count) && text == text.uppercased() && text != text.lowercased()
             && text.allSatisfy { letterNames[$0.lowercased().first!] != nil }
     }
+    private static let partExpression = try! NSRegularExpression(
+        pattern: #"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]|[\p{L}&&[^A-Za-z]]+"#)
     private static func parts(_ text: String) -> [String] {
-        let pattern = #"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]|[\p{L}&&[^A-Za-z]]+"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString
-        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
+        return partExpression.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
     }
     private static func sound(_ text: String, phones: [String: [String]]) -> String {
         parts(text).map { part in
