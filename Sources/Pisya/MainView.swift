@@ -469,19 +469,21 @@ struct MeetingView: View {
                             .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
                     } else if canStartLiveTranscription {
                         liveTranscriptionButton
-                    } else if isQueued {
-                        screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
-                    } else if isTranscribing && !isSaving {
+                    } else if isQueued || (isTranscribing && !isSaving) {
                         HStack(spacing: PisyaDesign.Spacing.related) {
                             if state.canUseTurboTranscription(meeting.id) {
                                 screenToggle("Турбо-режим", isOn: Binding(
-                                    get: { state.turboTranscriptionEnabled },
+                                    get: { state.isTurboTranscriptionEnabled(for: meeting.id) },
                                     set: { state.setTurboTranscription($0, for: meeting.id) }
                                 ))
                                 .textStyle(PisyaDesign.Typography.detail)
                                 .screenHelp("Повышает приоритет распознавания. Mac может нагреваться сильнее.")
                             }
-                            screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton()
+                            if isQueued {
+                                screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
+                            } else {
+                                screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton()
+                            }
                         }
                         .fixedSize(horizontal: true, vertical: false)
                     }

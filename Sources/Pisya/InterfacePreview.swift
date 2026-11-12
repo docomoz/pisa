@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Combine
 import SwiftUI
 
 /// Opens the production views with disposable content. Never opens the user's library.
@@ -191,6 +192,57 @@ final class InterfacePreview: NSObject {
         guard state.isQueued(first.id) else { throw PisyaError.message("Запись нельзя снова добавить в очередь") }
         state.cancelQueued(first.id); state.cancelQueued(second.id); state.cancelQueued(active)
         guard state.processingID == active else { throw PisyaError.message("Отмена очереди остановила обработку") }
+    }
+
+    static func testQueuedTurboTranscription() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Queued-Turbo-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        try prepareModelPath(for: state)
+        let blocker = Meeting(title: "Текущая обработка", source: state.source)
+        let normal = Meeting(title: "Обычная обработка", source: state.source)
+        let requeued = Meeting(title: "Повторно в очереди", source: state.source)
+        let batch = Meeting(title: "Новая расшифровка", source: state.source)
+        var resume = Meeting(title: "Продолжение черновика", source: state.source)
+        resume.status = .failed
+        resume.liveCommittedUntil = 3
+        for meeting in [blocker, normal, requeued, batch, resume] { state.update(meeting) }
+        state.enqueue(blocker.id)
+        state.enqueue(normal.id)
+        state.enqueue(requeued.id)
+        state.enqueue(batch.id, reprocess: true)
+        state.enqueue(resume.id)
+
+        guard !state.canUseTurboTranscription(batch.id) else {
+            throw PisyaError.message("Турбо-режим доступен в очереди при тихой обработке")
+        }
+        state.preferences.quietProcessing = false
+        guard state.canUseTurboTranscription(batch.id), state.canUseTurboTranscription(resume.id) else {
+            throw PisyaError.message("Турбо-режим недоступен для записей в очереди")
+        }
+        state.setTurboTranscription(true, for: normal.id)
+        state.preferences.quietProcessing = true
+        state.preferences.quietProcessing = false
+        state.setTurboTranscription(true, for: requeued.id)
+        state.cancelQueued(requeued.id)
+        state.enqueue(requeued.id)
+        state.setTurboTranscription(true, for: batch.id)
+        state.setTurboTranscription(true, for: resume.id)
+        guard state.processingID == blocker.id, !state.turboTranscriptionEnabled else {
+            throw PisyaError.message("Турбо-режим в очереди изменил текущую обработку")
+        }
+
+        var turboStarts: [UUID] = []
+        let observation = state.$turboTranscriptionEnabled.sink { enabled in
+            if enabled, let id = state.processingID { turboStarts.append(id) }
+        }
+        defer { observation.cancel() }
+        state.cancelProcessing()
+        try await waitForTranscriptionToStop(state)
+        guard turboStarts == [batch.id, resume.id], !state.turboTranscriptionEnabled,
+              [normal, requeued, batch, resume].allSatisfy({ !state.isQueued($0.id) }) else {
+            throw PisyaError.message("Очередь запустила обработку с неверным турбо-режимом")
+        }
     }
 
     static func testTranscriptionDuringRecording() async throws {

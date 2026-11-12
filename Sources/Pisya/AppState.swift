@@ -22,6 +22,9 @@ final class AppState: ObservableObject {
         didSet {
             if preferences.usesQuietProcessing != oldValue.usesQuietProcessing {
                 setTurboEnabled(false)
+                for index in pending.indices where pending[index].turbo {
+                    pending[index].turbo = false
+                }
             }
         }
     }
@@ -86,8 +89,12 @@ final class AppState: ObservableObject {
     var canStartLiveTranscription: Bool { !demo && recordingMeetingID != nil && processingID == nil && modelReady }
     private var automaticallyStarted = false
     private var recordingStartedAutomatically = false
-    @Published private var pending: [UUID] = []
-    private var pendingReprocessing: Set<UUID> = []
+    private struct QueuedTranscription {
+        let id: UUID
+        let reprocess: Bool
+        var turbo = false
+    }
+    @Published private var pending: [QueuedTranscription] = []
     var selected: Meeting? { meetings.first { $0.id == selection } }
     var filtered: [Meeting] {
         meetings.filter { m in
@@ -144,13 +151,13 @@ final class AppState: ObservableObject {
         folderFilter = id; showingTrash = trash; unfiledOnly = unfiled
         select(filtered.first?.id)
     }
-    func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !pending.contains(m.id) }
+    func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !isQueued(m.id) }
     func canRename(_ m: Meeting) -> Bool { !demo }
     func canMove(_ m: Meeting) -> Bool {
         !demo && m.deletedAt == nil && activeMeeting?.id != m.id && !isQueued(m.id)
             && (processingID != m.id || !isReprocessing)
     }
-    func isQueued(_ id: UUID) -> Bool { pending.contains(id) }
+    func isQueued(_ id: UUID) -> Bool { pending.contains { $0.id == id } }
     func stageRecordingTitle(_ title: String, for meeting: Meeting) {
         guard recordingMeetingID == meeting.id else { return }
         recordingTitleDraft = title == meeting.headingTitle ? nil : title
@@ -298,12 +305,20 @@ final class AppState: ObservableObject {
     func setAutomatic(_ enabled: Bool) { preferences.automaticRecording = enabled; detector.reset(); savePreferences() }
     func setBackgroundTranscription(_ enabled: Bool) { preferences.backgroundTranscription = enabled; savePreferences() }
     func canUseTurboTranscription(_ id: UUID) -> Bool {
-        !demo && !preferences.usesQuietProcessing && processingID == id && activeMeeting?.id != id
-            && meetings.contains { $0.id == id && $0.status == .processing }
+        guard !demo, !preferences.usesQuietProcessing, activeMeeting?.id != id else { return false }
+        return isQueued(id) || (processingID == id && meetings.contains { $0.id == id && $0.status == .processing })
+    }
+    func isTurboTranscriptionEnabled(for id: UUID) -> Bool {
+        if processingID == id { return turboTranscriptionEnabled }
+        return pending.first(where: { $0.id == id })?.turbo ?? false
     }
     func setTurboTranscription(_ enabled: Bool, for id: UUID) {
         guard canUseTurboTranscription(id) else { return }
-        setTurboEnabled(enabled)
+        if let index = pending.firstIndex(where: { $0.id == id }) {
+            pending[index].turbo = enabled
+        } else {
+            setTurboEnabled(enabled)
+        }
     }
     private func setTurboEnabled(_ enabled: Bool) {
         if enabled != turboTranscriptionEnabled {
@@ -593,7 +608,7 @@ final class AppState: ObservableObject {
         }
     }
     func enqueue(_ id: UUID, reprocess: Bool = false) {
-        guard !demo, id != processingID, !pending.contains(id) else { return }
+        guard !demo, id != processingID, !isQueued(id) else { return }
         guard modelReady else { modelSetup.presented = true; return }
         if id == recordingMeetingID {
             // An open recording can only be read through the capture boundaries.
@@ -609,18 +624,17 @@ final class AppState: ObservableObject {
             }
             return
         }
-        if reprocess { pendingReprocessing.insert(id) }
-        pending.append(id); runNext()
+        pending.append(QueuedTranscription(id: id, reprocess: reprocess)); runNext()
     }
     func cancelQueued(_ id: UUID) {
-        guard pending.contains(id) else { return }
-        pendingReprocessing.remove(id)
-        pending.removeAll { $0 == id }
+        guard let index = pending.firstIndex(where: { $0.id == id }) else { return }
+        pending.remove(at: index)
     }
     private func runNext() {
         guard processingID == nil, !pending.isEmpty else { return }
-        let id = pending.removeFirst()
-        let reprocess = pendingReprocessing.remove(id) != nil
+        let request = pending.removeFirst()
+        let id = request.id
+        let reprocess = request.reprocess
         guard var m = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
         // A manual retry of an interrupted draft must honor its saved checkpoint.
         let needsCleanDraft = m.status != .failed && m.liveCommittedUntil != nil
@@ -630,6 +644,7 @@ final class AppState: ObservableObject {
             m.status = .processing; m.error = nil
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }
             upsert(m); processingID = id; progress = 0
+            if request.turbo { setTurboTranscription(true, for: id) }
             liveStopped = true; livePaused = false; liveStatus = "Подготавливаю аудио"
             liveTask = Task(executorPreference: transcriptionPerformance, priority: .utility) { @MainActor in
                 await self.runLiveTranscription(id: id, model: model, mode: "resume", reprocess: reprocess)
@@ -641,6 +656,7 @@ final class AppState: ObservableObject {
         do { try library.save(m) } catch { message = error.localizedDescription; if granted { model.stopAccessingSecurityScopedResource() }; return }
         isReprocessing = reprocess
         upsert(m); processingID = id; progress = 0
+        if request.turbo { setTurboTranscription(true, for: id) }
         Analytics.transcriptionStarted(mode: "batch", reprocess: reprocess)
         let vocabulary = preferences.vocabulary
         processingTask = Task(executorPreference: transcriptionPerformance, priority: .utility) { @MainActor [self] in
