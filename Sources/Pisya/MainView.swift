@@ -178,7 +178,6 @@ struct MeetingView: View {
     private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
     private var showsAutomaticPlayer: Bool { !showsTranscriptTools && meeting.segments.isEmpty }
     private var showsTranscriptStatus: Bool { isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) }
-    private var needsTitleSpacing: Bool { showsTranscriptTools || (!showsTranscriptStatus && !isRecording) }
     private var finishesRecording: Bool {
         !state.isReprocessing && (meeting.liveCommittedUntil != nil || meeting.source == state.source)
     }
@@ -196,8 +195,10 @@ struct MeetingView: View {
         let canToggleAudio = !showsAutomaticPlayer && !audioSources.isEmpty
         let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
-            HStack(spacing: PisyaDesign.Spacing.related) {
+            HStack(spacing: textScale > 1 ? PisyaDesign.Spacing.compact : PisyaDesign.Spacing.related) {
+                // Keep the same row height when the audio toggle is absent.
                 screenText(meetingDateLabel(meeting.date))
+                    .padding(.vertical, PisyaDesign.Spacing.compact)
                 screenText("·")
                 screenText(meeting.source)
                 if !isRecording && !isSaving {
@@ -206,10 +207,14 @@ struct MeetingView: View {
                     screenText("·")
                     audioStatus(hasAudio: hasAudio, canToggleAudio: canToggleAudio)
                 }
-                Spacer()
+                Spacer(minLength: PisyaDesign.Spacing.none)
                 if showsTranscriptTools { screenLabel("Готово", systemImage: "checkmark.circle") }
                 if state.demo { screenButton("Закрыть пример") { state.showDemo() }.actionButton(size: .small) }
-            }.textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.mutedInk).padding(.bottom, PisyaDesign.Spacing.related)
+            }
+            .lineLimit(1)
+            .textStyle(PisyaDesign.Typography.detail)
+            .foregroundStyle(Color.mutedInk)
+            .padding(.bottom, PisyaDesign.Spacing.related)
             TextField("Название встречи", text: titleInput).textFieldStyle(.plain)
                 .textStyle(PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
                 .layoutPriority(1)
@@ -248,9 +253,9 @@ struct MeetingView: View {
                     if visible { showsMeetingDetails = false }
                 }
             }
-            .padding(.top, needsTitleSpacing ? PisyaDesign.Spacing.related : PisyaDesign.Spacing.none)
+            .padding(.top, PisyaDesign.Spacing.content)
             HStack(spacing: PisyaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
-        }.padding(.horizontal, PisyaDesign.Spacing.page).padding(.top, PisyaDesign.Spacing.page)
+        }.padding([.top, .horizontal], PisyaDesign.Spacing.page)
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
         .onChange(of: canToggleAudio) { _, enabled in
@@ -321,7 +326,6 @@ struct MeetingView: View {
                 transcriptTools(showsDetailsButton: showsDetailsButton)
             } else {
                 transcriptStatus(hasAudio: hasAudio, interruptedProgress: interruptedProgress)
-                    .padding(.top, PisyaDesign.Spacing.content)
                     .padding(.bottom, PisyaDesign.Spacing.related)
                 if !showsAutomaticPlayer && !audioSources.isEmpty {
                     SavedAudioPlayer(sources: audioSources, isInline: true)
@@ -332,7 +336,6 @@ struct MeetingView: View {
                 SavedAudioPlayer(sources: audioSources)
             } else {
                 Divider()
-                    .padding(.top, isRecording && !showsTranscriptStatus ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.none)
             }
             if meeting.segments.isEmpty {
                 VStack(spacing: PisyaDesign.Spacing.section) {
