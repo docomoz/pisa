@@ -277,7 +277,9 @@ struct MeetingView: View {
         }
         .sheet(item: $editing) { segment in
             SegmentEditor(segment: segment) { text in
-                state.editSegmentText(text, from: segment, meetingID: meeting.id)
+                if text != segment.displayText {
+                    state.editSegmentText(text, from: segment, meetingID: meeting.id)
+                }
                 editing = nil
             }
         }
@@ -717,7 +719,7 @@ private struct SegmentEditor: View {
 
     init(segment: TranscriptSegment, save: @escaping (String) -> Void) {
         speaker = segment.speaker
-        _text = State(initialValue: segment.text)
+        _text = State(initialValue: segment.displayText)
         self.save = save
     }
 
