@@ -241,7 +241,6 @@ struct MeetingView: View {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.none) {
                     if showsTranscriptTools && !visibleAudioSources.isEmpty {
                         SavedAudioPlayer(sources: visibleAudioSources, isInline: true)
-                            .padding(.trailing, showsColumn ? detailsWidth + PisyaDesign.Spacing.section : PisyaDesign.Spacing.none)
                             .padding(.bottom, PisyaDesign.Spacing.related)
                     }
                     HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
