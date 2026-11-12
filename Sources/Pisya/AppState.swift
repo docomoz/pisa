@@ -254,6 +254,21 @@ final class AppState: ObservableObject {
             move(latest, to: folderID)
         }
     }
+    func reorderFolder(_ id: UUID, relativeTo targetID: UUID, after: Bool) {
+        guard !demo, id != targetID,
+              let source = folders.firstIndex(where: { $0.id == id }) else { return }
+        var updated = folders
+        let folder = updated.remove(at: source)
+        guard let target = updated.firstIndex(where: { $0.id == targetID }) else { return }
+        updated.insert(folder, at: after ? target + 1 : target)
+        guard updated != folders else { return }
+        do {
+            try library.saveFolders(updated)
+            folders = updated
+        } catch {
+            message = error.localizedDescription
+        }
+    }
     func removeFolder(_ folder: MeetingFolder) {
         guard !demo else { return }
         do {

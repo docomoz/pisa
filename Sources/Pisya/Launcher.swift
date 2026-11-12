@@ -270,6 +270,17 @@ enum Launcher {
                     let folder = state.folders[0]
                     state.move(state.meetings[0], to: folder.id)
                     try check(state.meetings[0].folderID == folder.id, "Move failed")
+                    let second = state.saveFolder("Second")!
+                    let third = state.saveFolder("Third")!
+                    state.openFolder(folder.id)
+                    state.reorderFolder(folder.id, relativeTo: third, after: true)
+                    try check(state.folders.map(\.id) == [second, third, folder.id], "Could not move a folder to the end")
+                    state.reorderFolder(third, relativeTo: second, after: false)
+                    state.reorderFolder(third, relativeTo: third, after: true)
+                    state.reorderFolder(third, relativeTo: UUID(), after: false)
+                    try check(state.folders.map(\.id) == [third, second, folder.id], "Invalid drop changed folder order")
+                    try check(AppState(rootURL: root).folders == state.folders, "Folder order was not restored")
+                    try check(state.folderFilter == folder.id && state.selection == m.id, "Folder reordering changed selection")
                     state.trash(state.meetings[0])
                     try check(try state.library.all().isEmpty, "Trash leaked into library")
                     state.trash(state.meetings[0], restore: true)
@@ -303,7 +314,7 @@ enum Launcher {
                     let renamed = state.meetings.first { $0.id == automaticMeeting.id }!
                     try check(renamed.segments.map(\.speaker) == ["Only this reply", "Automatic"], "Naming without a usable sample failed")
                     try check(try state.library.voices().contains { $0.name == "Automatic" }, "Automatic voice was not persisted")
-                    print("LIBRARY_SELF_TEST_OK voice_clip correction source_track folders trash restore echo_reference automatic_sample centered_clip track_offset single_reply")
+                    print("LIBRARY_SELF_TEST_OK voice_clip correction source_track folders folder_order trash restore echo_reference automatic_sample centered_clip track_offset single_reply")
                     exit(0)
                 } catch { print("LIBRARY_SELF_TEST_FAILED \(error.localizedDescription)"); exit(1) }
             }

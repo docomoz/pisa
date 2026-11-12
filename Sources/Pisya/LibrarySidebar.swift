@@ -8,6 +8,12 @@ struct LibrarySidebar: View {
     @State private var folderName = ""
     @State private var deletingFolder: MeetingFolder?
     @State private var confirmEmptyTrash = false
+    @State private var folderRowFrames: [UUID: CGRect] = [:]
+    @State private var folderDrag: FolderDrag?
+    @GestureState private var folderDragActive = false
+    @State private var folderScrollPosition = ScrollPosition()
+    @State private var folderScrollGeometry: ScrollGeometry?
+    private static let folderViewport = "folder-sidebar"
     @FocusState private var recordingsFocused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
@@ -15,18 +21,19 @@ struct LibrarySidebar: View {
             ScrollView { VStack(spacing: PisyaDesign.Spacing.hairline) {
                 scope("Все записи", icon: "tray", selected: !state.showingTrash && state.folderFilter == nil && !state.unfiledOnly) { state.openFolder() }
                 scope("Без папки", icon: "doc", selected: state.unfiledOnly && !state.showingTrash) { state.openFolder(unfiled: true) }
-                ForEach(state.folders) { folder in
-                    scope(folder.name, icon: folder.iconName, selected: state.folderFilter == folder.id && !state.showingTrash) { state.openFolder(folder.id) }
-                        .popupContextMenu {
-                            [NativeActionMenuItem("Изменить папку…") { editingFolder = folder; folderName = folder.name; folderEditor = true },
-                             NativeActionMenuItem("Удалить папку") { deletingFolder = folder }]
-                        }
-                }
+                if !state.folders.isEmpty { folderRows }
                 scope("Новая папка…", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
                     .disabled(state.demo)
                 scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
                     .popupContextMenu { [NativeActionMenuItem("Очистить корзину", enabled: state.canEmptyTrash) { confirmEmptyTrash = true }] }
-            }.textStyle(PisyaDesign.Typography.footnote) }.frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
+            }.textStyle(PisyaDesign.Typography.footnote) }
+            .frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
+            .coordinateSpace(name: Self.folderViewport)
+            .scrollPosition($folderScrollPosition)
+            .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
+                folderScrollGeometry = geometry
+            }
+            .task(id: folderScrollDirection) { await scrollDuringFolderDrag() }
             HStack(spacing: PisyaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.textStyle(PisyaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
             ScrollViewReader { proxy in
               ScrollView {
@@ -99,6 +106,136 @@ struct LibrarySidebar: View {
             ) { state.removeFolder(folder) }
         }
     }
+    private struct FolderDrag {
+        let id: UUID
+        let grabOffsetY: CGFloat
+        var location: CGPoint
+        var isCancelled = false
+    }
+
+    private var folderRows: some View {
+        VStack(spacing: PisyaDesign.Spacing.hairline) {
+            ForEach(state.folders) { folder in
+                scope(folder.name, icon: folder.iconName, selected: state.folderFilter == folder.id && !state.showingTrash) {
+                    state.openFolder(folder.id)
+                }
+                .popupContextMenu {
+                    [NativeActionMenuItem("Изменить папку…") { editingFolder = folder; folderName = folder.name; folderEditor = true },
+                     NativeActionMenuItem("Удалить папку") { deletingFolder = folder }]
+                }
+                .opacity(activeFolderDrag?.id == folder.id ? 0.45 : 1)
+                .onGeometryChange(for: CGRect.self) { geometry in
+                    geometry.frame(in: .named(Self.folderViewport))
+                } action: { frame in
+                    folderRowFrames[folder.id] = frame
+                }
+                .onDisappear { folderRowFrames[folder.id] = nil }
+            }
+        }
+        .contentShape(Rectangle())
+        .simultaneousGesture(folderDragGesture)
+        .onChange(of: folderDragActive) { _, active in
+            if !active { folderDrag = nil }
+        }
+        .onExitCommand {
+            folderDrag?.isCancelled = true
+        }
+        .overlay(alignment: .top) {
+            if let drag = activeFolderDrag, isInFolderViewport(drag.location),
+               let first = state.folders.first, let origin = folderRowFrames[first.id]?.minY {
+                ZStack(alignment: .top) {
+                    folderDragPreview(drag, origin: origin)
+                }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var activeFolderDrag: FolderDrag? {
+        guard let folderDrag, !folderDrag.isCancelled else { return nil }
+        return folderDrag
+    }
+
+    private var folderDragGesture: some Gesture {
+        DragGesture(minimumDistance: PisyaDesign.Spacing.compact, coordinateSpace: .named(Self.folderViewport))
+            .updating($folderDragActive) { _, active, _ in active = true }
+            .onChanged { value in
+                if folderDrag != nil {
+                    folderDrag?.location = value.location
+                } else if !state.demo, state.folders.count > 1,
+                          let folder = state.folders.first(where: { folderRowFrames[$0.id]?.contains(value.startLocation) == true }),
+                          let frame = folderRowFrames[folder.id] {
+                    folderDrag = FolderDrag(id: folder.id, grabOffsetY: value.startLocation.y - frame.minY, location: value.location)
+                }
+            }
+            .onEnded { value in
+                defer { folderDrag = nil }
+                guard let drag = activeFolderDrag, let insertion = folderInsertion(at: value.location) else { return }
+                state.reorderFolder(drag.id, relativeTo: insertion.id, after: insertion.after)
+            }
+    }
+
+    @ViewBuilder
+    private func folderDragPreview(_ drag: FolderDrag, origin: CGFloat) -> some View {
+        if let folder = state.folders.first(where: { $0.id == drag.id }) {
+            navigationLabel(folder.name, icon: folder.iconName)
+                .padding(PisyaDesign.Spacing.inline)
+                .background(Color.paper, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.navigationRadius))
+                .shadow(color: .black.opacity(0.15), radius: PisyaDesign.Spacing.compact, y: PisyaDesign.Spacing.hairline)
+                .opacity(0.88)
+                .padding(.horizontal, PisyaDesign.Spacing.compact)
+                .offset(y: drag.location.y - drag.grabOffsetY - origin)
+        }
+        if let insertion = folderInsertion(at: drag.location) {
+            Capsule().fill(Color.moss)
+                .frame(height: PisyaDesign.Spacing.hairline)
+                .padding(.horizontal, PisyaDesign.Spacing.inline)
+                .offset(y: insertion.lineY - origin - PisyaDesign.Spacing.hairline / 2)
+        }
+    }
+
+    private func folderInsertion(at point: CGPoint) -> (id: UUID, after: Bool, lineY: CGFloat)? {
+        let halfGap = PisyaDesign.Spacing.hairline / 2
+        guard isInFolderViewport(point),
+              let first = state.folders.first, let start = folderRowFrames[first.id],
+              let last = state.folders.last, let end = folderRowFrames[last.id],
+              point.x >= start.minX, point.x <= start.maxX,
+              point.y >= start.minY - halfGap, point.y <= end.maxY + halfGap else { return nil }
+        for folder in state.folders {
+            guard let frame = folderRowFrames[folder.id] else { return nil }
+            if point.y < frame.midY { return (folder.id, false, frame.minY - halfGap) }
+        }
+        return (last.id, true, end.maxY + halfGap)
+    }
+
+    private func isInFolderViewport(_ point: CGPoint) -> Bool {
+        guard let geometry = folderScrollGeometry else { return false }
+        return CGRect(origin: .zero, size: geometry.containerSize).contains(point)
+    }
+
+    private var folderScrollDirection: Int {
+        guard let point = activeFolderDrag?.location, let geometry = folderScrollGeometry,
+              isInFolderViewport(point) else { return 0 }
+        let edge = PisyaDesign.Spacing.content
+        if point.y < edge { return -1 }
+        if point.y > geometry.containerSize.height - edge { return 1 }
+        return 0
+    }
+
+    private func scrollDuringFolderDrag() async {
+        let direction = folderScrollDirection
+        guard direction != 0 else { return }
+        while !Task.isCancelled, let geometry = folderScrollGeometry {
+            let offset = geometry.contentOffset.y
+            let limit = max(0, geometry.contentSize.height - geometry.containerSize.height)
+            let next = min(limit, max(0, offset + CGFloat(direction) * PisyaDesign.Spacing.inline))
+            guard abs(next - offset) >= 1 else { return }
+            folderScrollPosition.scrollTo(y: next)
+            try? await Task.sleep(for: .milliseconds(35))
+        }
+    }
+
     private func navigationLabel(_ name: String, icon: String) -> some View {
         HStack(spacing: PisyaDesign.Spacing.related) {
             Image(systemName: icon).frame(width: 20, height: 18)
@@ -109,6 +246,7 @@ struct LibrarySidebar: View {
         Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(PisyaDesign.Spacing.inline).plainSelection(selected, radius: PisyaDesign.Metrics.navigationRadius).contentShape(Rectangle()) }.shapeAwarePlainButton()
     }
 }
+
 @MainActor
 struct MeetingActionSet {
     let state: AppState
