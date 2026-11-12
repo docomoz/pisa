@@ -4,10 +4,13 @@ import SwiftUI
 /// Editable values, persisted transcripts and copyable code/paths stay verbatim.
 func screenText(_ value: String) -> Text { Text(typographicText(value)) }
 func screenText(_ value: String, highlighting query: String) -> Text {
-    let display = typographicText(value)
-    var attributed = AttributedString(display)
-    for match in transcriptSearchRanges(in: display, query: query) {
-        guard let stringRange = Range(match, in: display),
+    screenText(verbatim: typographicText(value), highlighting: query)
+}
+func screenText(verbatim value: String, highlighting query: String) -> Text {
+    guard !query.isEmpty else { return screenText(verbatim: value) }
+    var attributed = AttributedString(value)
+    for match in transcriptSearchRanges(in: value, query: query) {
+        guard let stringRange = Range(match, in: value),
               let range = Range(stringRange, in: attributed) else { continue }
         attributed.applySearchHighlight(to: range)
     }

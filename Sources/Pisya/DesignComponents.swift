@@ -86,6 +86,7 @@ struct FormSection<Content: View>: View {
 
 struct SearchField: View {
     @Environment(\.appTextScale) private var textScale
+    @Environment(\.controlSize) private var controlSize
     @State private var isEditing = false
     let title: String
     @Binding var text: String
@@ -95,8 +96,8 @@ struct SearchField: View {
             Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
             TextField(title, text: $text, onEditingChanged: { isEditing = $0 })
                 .textFieldStyle(.plain)
-                // At the largest text size the native field editor sits one point higher.
-                .offset(y: textScale >= 1.2 && isEditing ? 1 : 0)
+                // The native editor sits one point higher in large controls or at the largest text size.
+                .offset(y: isEditing && (controlSize == .large || textScale >= 1.2) ? 1 : 0)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск")

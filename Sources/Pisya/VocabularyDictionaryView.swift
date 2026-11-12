@@ -43,7 +43,7 @@ struct VocabularyDictionaryView: View {
                 TextField(text: $input, prompt: screenText("Слово или название")) {
                     screenText("Слово или название")
                 }
-                .textFieldStyle(PisyaTextFieldStyle())
+                .textFieldStyle(PisyaTextFieldStyle(isEditing: inputFocused))
                 .focused($inputFocused)
                 .onSubmit { add() }
                 screenButton("Добавить") { add() }
@@ -78,7 +78,7 @@ struct VocabularyDictionaryView: View {
                         }
                         ForEach(filtered) { entry in
                             HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
-                                screenText(verbatim: entry.text).fixedSize(horizontal: false, vertical: true)
+                                screenText(verbatim: entry.text, highlighting: search).fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                                 HStack(spacing: PisyaDesign.Spacing.related) {
                                     screenButton("Изменить…") { editing = entry }.actionButton(size: .small)
