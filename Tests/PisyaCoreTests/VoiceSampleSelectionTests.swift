@@ -2,6 +2,34 @@ import XCTest
 @testable import PisyaCore
 
 final class VoiceSampleSelectionTests: XCTestCase {
+    func testUnidentifiedSpeechDoesNotCreateAVoiceGroup() {
+        let unidentified = TranscriptSegment(start: 0, end: 4, speaker: "Собеседники", text: "Обсудим сроки")
+        let named = TranscriptSegment(start: 5, end: 8, speaker: "Анна", text: "Хорошо")
+        let clustered = TranscriptSegment(start: 9, end: 12, speaker: "Голос 2", text: "Согласен")
+
+        XCTAssertEqual(voiceGroupAnchors(in: [unidentified, named, clustered]).map(\.id), [named.id, clustered.id])
+        XCTAssertTrue(voiceGroupAnchors(in: [unidentified]).isEmpty)
+    }
+
+    func testMeetingParticipantListExcludesFallbackButTranscriptKeepsTheLabel() {
+        let unidentified = TranscriptSegment(start: 0, end: 4, speaker: "Собеседники", text: "Обсудим сроки")
+        let named = TranscriptSegment(start: 5, end: 8, speaker: "Анна", text: "Хорошо")
+        var meeting = Meeting(title: "Встреча", source: "Аудиофайл")
+        meeting.segments = [unidentified, named]
+
+        XCTAssertEqual(meeting.participantNames, ["Анна"])
+        meeting.segments = [unidentified]
+        XCTAssertTrue(meeting.participantNames.isEmpty)
+        XCTAssertTrue(MarkdownExporter.render(meeting).contains("· Собеседники**\n\nОбсудим сроки"))
+    }
+
+    func testUnidentifiedSpeakerIsNotSuggestedAsAVoiceName() {
+        XCTAssertEqual(
+            voiceNameSuggestions(query: "со", meetingNames: ["Собеседники", "Софья"], savedNames: ["Собеседники"]),
+            ["Софья"]
+        )
+    }
+
     func testRenamingAllRepliesKeepsTheVoiceGroupInPlace() {
         let first = TranscriptSegment(start: 0, end: 3, speaker: "Борис", text: "Первая реплика")
         var second = TranscriptSegment(start: 5, end: 8, speaker: "Голос 2", text: "Ответ")

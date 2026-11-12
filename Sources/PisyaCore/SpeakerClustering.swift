@@ -42,7 +42,7 @@ public enum SpeakerClustering {
             if let known = VoiceMatcher.identify(vector, profiles: profiles) { result[i].speaker = known; continue }
             let ranked = clusters.indices.map { ($0, VoiceMatcher.similarity(vector, clusters[$0].sum)) }.sorted { $0.1 > $1.1 }
             guard let best = ranked.first, best.1 >= threshold,
-                  ranked.count == 1 || best.1 - ranked[1].1 >= 0.04 else { result[i].speaker = "Собеседники"; continue }
+                  ranked.count == 1 || best.1 - ranked[1].1 >= 0.04 else { result[i].speaker = TranscriptSegment.unidentifiedSpeaker; continue }
             if names[best.0] == nil { names[best.0] = "Спикер \(names.count + 1)" }
             result[i].speaker = names[best.0]!
         }

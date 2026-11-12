@@ -27,6 +27,14 @@ final class InterfacePreview: NSObject {
             segment.embedding = index.isMultiple(of: 2) ? [1, 0] : [0, 1]
             return segment
         }
+        if CommandLine.arguments.contains("--unidentified-speakers-preview") {
+            fixture.segments[1].speaker = TranscriptSegment.unidentifiedSpeaker
+            var unidentifiedOnly = fixture
+            unidentifiedOnly.id = UUID()
+            unidentifiedOnly.title = "Встреча без различимых голосов"
+            unidentifiedOnly.segments = [fixture.segments[1]]
+            state.update(unidentifiedOnly)
+        }
         if CommandLine.arguments.contains("--audio-saved-preview") {
             fixture.status = .recorded
             fixture.segments = []

@@ -265,7 +265,7 @@ actor Transcriber {
                                 russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic)
                             try await performance.pace(after: inferenceStarted)
                             guard let recognized else { continue }
-                            let speaker = isMic ? "Я" : "Собеседники"
+                            let speaker = isMic ? "Я" : TranscriptSegment.unidentifiedSpeaker
                             var segment = TranscriptSegment(start: speech.lowerBound, end: speech.upperBound, speaker: speaker, text: recognized.text)
                             segment.audioFile = url.lastPathComponent
                             segment.embedding = region.embedding

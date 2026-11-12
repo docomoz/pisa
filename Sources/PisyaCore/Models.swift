@@ -15,6 +15,8 @@ enum MeetingSpeechText {
 }
 
 public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
+    static let unidentifiedSpeaker = "Собеседники"
+
     public var id: UUID = UUID()
     public var start: Double
     public var end: Double
@@ -107,6 +109,7 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     }
     public init(title: String, source: String) { self.title = title; self.source = source }
     public var speakers: [String] { Array(Set(segments.map(\.speaker))).sorted() }
+    var participantNames: [String] { speakers.filter { $0 != TranscriptSegment.unidentifiedSpeaker } }
     public var searchableText: String { ([title, source, notes] + segments.map { "\($0.speaker) \($0.text)" }).joined(separator: " ") }
 }
 public struct Preferences: Codable, Sendable {

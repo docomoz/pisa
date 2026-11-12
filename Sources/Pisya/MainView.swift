@@ -567,6 +567,7 @@ struct MeetingView: View {
     }
     private func meetingDetails(buttonSize: ActionButtonSize) -> some View {
         let folder = state.folders.first { $0.id == meeting.folderID }
+        let participants = meeting.participantNames
         return VStack(alignment: .leading, spacing: buttonSize == .small ? PisyaDesign.Spacing.content : PisyaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                 if buttonSize == .small {
@@ -577,10 +578,10 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         state.voiceMeeting = meeting
                     } label: {
-                        detailsActionLabel("Разметить голоса", systemImage: "person.wave.2")
+                        detailsActionLabel("Разметить голоса…", systemImage: "person.wave.2")
                     }
                     .actionButton(size: buttonSize)
-                    .disabled(meeting.segments.isEmpty || !state.canModify(meeting))
+                    .disabled(participants.isEmpty || !state.canModify(meeting))
 
                     Button {
                         showsMeetingDetails = false
@@ -626,11 +627,11 @@ struct MeetingView: View {
                     .disabled(!state.canModify(meeting))
                 }
             }
-            if !meeting.speakers.isEmpty {
+            if !participants.isEmpty {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
                     SectionHeading("СОБЕСЕДНИКИ", style: .feature).foregroundStyle(Color.mutedInk)
                     VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                        ForEach(meeting.speakers, id: \.self) { speaker in
+                        ForEach(participants, id: \.self) { speaker in
                             screenLabel(speaker, systemImage: "person.crop.circle")
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityElement(children: .combine)

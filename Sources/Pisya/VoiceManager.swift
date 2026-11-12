@@ -39,7 +39,9 @@ struct VoiceManager: View {
     @State private var allMatching = true
     @State private var remember = true
     private var meeting: Meeting? { state.meetings.first { $0.id == meetingID } }
-    private var sample: TranscriptSegment? { meeting?.segments.first { $0.id == selected } }
+    private var sample: TranscriptSegment? {
+        meeting?.segments.first { $0.id == selected && $0.speaker != TranscriptSegment.unidentifiedSpeaker }
+    }
     private var canApplyName: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var suggestions: [String] {
         guard showSuggestions else { return [] }

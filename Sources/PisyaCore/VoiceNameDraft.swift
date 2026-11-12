@@ -15,7 +15,8 @@ func voiceNameSuggestions(query: String, meetingNames: [String], savedNames: [St
     var seen = Set<String>()
     return (savedNames + meetingNames).compactMap { rawName in
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, seen.insert(name.lowercased()).inserted, name != query else { return nil }
+        guard !name.isEmpty, name != TranscriptSegment.unidentifiedSpeaker,
+              seen.insert(name.lowercased()).inserted, name != query else { return nil }
         let nameWords = words(in: name)
         guard prefixes.allSatisfy({ prefix in nameWords.contains { $0.hasPrefix(prefix) } }) else { return nil }
         return name
