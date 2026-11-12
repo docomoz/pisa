@@ -628,7 +628,7 @@ struct MeetingView: View {
     private var meetingMenuItems: [NSMenuItem] {
         let actions = MeetingActionSet(state: state, meeting: meeting)
         var items = meeting.deletedAt == nil
-            ? [actions.rename.nativeItem, .separator(), actions.reprocess.nativeItem, .separator(), actions.trash.nativeItem]
+            ? [actions.rename.nativeItem, .separator(), actions.transcribe.nativeItem, .separator(), actions.trash.nativeItem]
             : [actions.restore.nativeItem]
         if !meeting.audioFiles.isEmpty {
             if meeting.deletedAt != nil { items.append(.separator()) }
