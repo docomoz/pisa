@@ -2,6 +2,16 @@ import XCTest
 @testable import PisyaCore
 
 final class AbbreviationFamiliesTests: XCTestCase {
+    func testTranscriptSpellingSeparatesRecognizedEndingsFromClearAbbreviations() {
+        let source = "У 2ГИСа, с 2ГИСом и с AIем. С Мариной, Куделькой и МИДом. «2ГИСом» и `AIем`."
+        let expected = "У 2ГИС'а, с 2ГИС'ом и с AI'ем. С Мариной, Куделькой и МИДом. «2ГИСом» и `AIем`."
+        XCTAssertEqual(TranscriptOrthography.normalize(source), expected)
+        XCTAssertEqual(TranscriptOrthography.normalize(expected), expected)
+        XCTAssertEqual(TranscriptOrthography.normalize("LLMки", vocabulary: "LLMки"), "LLMки")
+        XCTAssertEqual(TranscriptOrthography.normalize("проект LLMки и другие LLMки", vocabulary: "проект LLMки"),
+                       "проект LLMки и другие LLM'ки")
+    }
+
     func testAllSupportedEndingsKeepTheirOwnFormAndAreIdempotent() {
         for base in ["2ГИС", "7АБВ", "LLM", "AI"] {
             let families = AbbreviationFamilies(base)

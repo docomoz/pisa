@@ -12,9 +12,11 @@ enum TermReviewTests {
         meeting.duration = 360
         let forms = ["2ГИС'а", "2ГИС'е", "2ГИС'ом"]
         meeting.segments = (0..<18).map { index in
-            TranscriptSegment(start: Double(index * 20), end: Double(index * 20 + 18),
-                              speaker: index.isMultiple(of: 2) ? "Анна" : "Борис",
-                              text: "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.")
+            let name = index.isMultiple(of: 2) ? "Куделька" : "куделька"
+            let nameContext = index < 4 ? " Обсудили проект \(name)." : ""
+            return TranscriptSegment(start: Double(index * 20), end: Double(index * 20 + 18),
+                                     speaker: index.isMultiple(of: 2) ? "Анна" : "Борис",
+                                     text: "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.\(nameContext)")
         }
         state.update(meeting)
         return try state.library.read(meeting.id)

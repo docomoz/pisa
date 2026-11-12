@@ -53,6 +53,8 @@ public enum TranscriptOrthography {
     }
 
     public static func normalize(_ text: String, vocabulary: String = "") -> String {
+        let phrases = glossaryRanges(in: text, vocabulary: vocabulary, range: NSRange(text.startIndex..., in: text), minimumWordCount: 2)
+        let text = AbbreviationFamilies(vocabulary).normalize(in: text, includeInferred: true, protecting: phrases)
         let entireText = NSRange(text.startIndex..<text.endIndex, in: text)
         let matches = candidates.matches(in: text, range: entireText).filter { match in
             guard let word = Range(match.range(at: 3), in: text) else { return true }
@@ -158,9 +160,9 @@ public enum TranscriptOrthography {
             || (leading == "," && (trailing == "," || trailing == nil))
     }
 
-    private static func glossaryRanges(in text: String, vocabulary: String, range: NSRange) -> [NSRange] {
+    private static func glossaryRanges(in text: String, vocabulary: String, range: NSRange, minimumWordCount: Int = 1) -> [NSRange] {
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
-            .map(RussianRecognition.words).filter { !$0.isEmpty }
+            .map(RussianRecognition.words).filter { $0.count >= minimumWordCount }
         guard !terms.isEmpty else { return [] }
         let alternatives = terms.map { words in
             words.map { NSRegularExpression.escapedPattern(for: $0).replacingOccurrences(of: "е", with: "[её]") }

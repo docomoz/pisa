@@ -129,20 +129,22 @@ struct AbbreviationFamilies {
         return Self.inferred(token)
     }
 
-    func normalize(in text: String) -> String {
+    func normalize(in text: String, includeInferred: Bool = false, protecting ranges: [NSRange] = []) -> String {
         let output = NSMutableString(string: text)
-        let protected = TranscriptOrthography.literalRanges(in: text)
+        let protected = TranscriptOrthography.literalRanges(in: text) + ranges
         for match in Self.token.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
             guard let range = Range(match.range, in: text),
-                  !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
-                  let form = known(String(text[range])) else { continue }
+                  !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { continue }
+            let token = String(text[range])
+            let spelling = includeInferred ? form(token) : known(token)
+            guard let replacement = spelling?.text, replacement != token else { continue }
             // Do not repair a fragment of an identifier, address or hyphenated name.
             let before = text[..<range.lowerBound].last
             let after = text[range.upperBound...].first
             let attached = "_/@\\-‐‑"
             guard before.map({ attached.contains($0) }) != true,
                   after.map({ attached.contains($0) }) != true else { continue }
-            output.replaceCharacters(in: match.range, with: form.text)
+            output.replaceCharacters(in: match.range, with: replacement)
         }
         return output as String
     }

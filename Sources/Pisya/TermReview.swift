@@ -85,7 +85,7 @@ struct TermReview: View {
                                                 .foregroundStyle(Color.mutedInk)
                                         }
                                         let forms = Array(Set(candidate.occurrences.map(\.text))).sorted()
-                                        if forms.count > 1 {
+                                        if Set(forms.map { $0.lowercased() }).count > 1 {
                                             SupportingText(forms.joined(separator: ", "), style: PisyaDesign.Typography.caption)
                                                 .lineLimit(2)
                                                 .help(forms.joined(separator: ", "))
