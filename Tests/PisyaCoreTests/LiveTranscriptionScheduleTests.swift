@@ -98,6 +98,23 @@ final class LiveTranscriptionScheduleTests: XCTestCase {
         let segment = TranscriptSegment(start: 30.2, end: 30.5, speaker: "Я", text: "done")
         XCTAssertEqual(LiveTranscriptionSchedule.safeBoundary(start: 30, proposed: 30.5, segments: [segment]), 30.5)
     }
+    func testAcousticCutRequiresOneEarlyTurnClearlyCrossingTheBoundary() {
+        var schedule = LiveTranscriptionSchedule(committed: 100)
+        let window = schedule.next(available: 130, stopped: true)!
+        XCTAssertTrue(window.speechBlocksCut(100.03..<116.5))
+        XCTAssertFalse(window.speechBlocksCut(102.0..<116.5))
+        XCTAssertFalse(window.speechBlocksCut(100.03..<115.1))
+        XCTAssertFalse(window.speechBlocksCut(100.03..<114.7))
+        XCTAssertFalse(window.speechBlocksCut(113..<117))
+    }
+    func testShortenedPassMustConfirmSpeechThroughCut() {
+        var schedule = LiveTranscriptionSchedule(committed: 100)
+        let window = schedule.next(available: 130, stopped: true)!
+        let early = TranscriptSegment(start: 100.03, end: 114.8, speaker: "Я", text: "длинная реплика")
+        let endsBeforeCut = TranscriptSegment(start: 100.03, end: 114, speaker: "Я", text: "пауза перед разрезом")
+        XCTAssertTrue(window.confirmedSpeechThroughCut(early))
+        XCTAssertFalse(window.confirmedSpeechThroughCut(endsBeforeCut))
+    }
     func testResumeAndExplicitReprocessingChooseDifferentStartingPoints() {
         XCTAssertEqual(LiveTranscriptionSchedule.processingMode(committed: 30, reprocess: false), .resume(30))
         XCTAssertEqual(LiveTranscriptionSchedule.processingMode(committed: 30, reprocess: true), .fromStart)

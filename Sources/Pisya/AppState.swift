@@ -562,8 +562,27 @@ final class AppState: ObservableObject {
                 do {
                     liveStatus = stopped ? "Завершаю расшифровку" : "Готовлю черновик"
                     let preceding = try library.read(id).segments.filter { $0.end <= window.start && $0.end >= window.start - 300 }
-                    var segments = try await transcribeWindow(tracks, window: window, end: min(available, window.end + 2), model: model, preceding: preceding)
-                    var committedEnd = LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: segments)
+                    let lookaheadEnd = min(available, window.end + 2)
+                    let check: Transcriber.WindowBoundaryCheck? = stopped && lookaheadEnd == window.end + 2 ? .lookahead(window) : nil
+                    var pass = try await transcribeWindow(tracks, window: window, end: lookaheadEnd, model: model,
+                                                          preceding: preceding, boundaryCheck: check)
+                    var usedNominalCut = false
+                    if case .withoutLookahead(let isMic) = pass.retry {
+                        do {
+                            pass = try await transcribeWindow(tracks, window: window, end: window.end, model: model,
+                                                             preceding: preceding, boundaryCheck: .nominal(window, isMic: isMic))
+                        } catch {
+                            try Task.checkCancellation()
+                            if error is CancellationError { throw error }
+                            pass = Transcriber.WindowPass(retry: .withLookahead)
+                        }
+                        if case .withLookahead = pass.retry {
+                            pass = try await transcribeWindow(tracks, window: window, end: lookaheadEnd, model: model, preceding: preceding)
+                        } else { usedNominalCut = true }
+                    }
+                    var segments = pass.segments
+                    var committedEnd = usedNominalCut ? window.end
+                        : LiveTranscriptionSchedule.safeBoundary(start: window.start, proposed: window.end, segments: segments)
                     if committedEnd == window.start {
                         if !stopped {
                             boundaryExhausted = !schedule.deferBoundary(window)
@@ -573,9 +592,9 @@ final class AppState: ObservableObject {
                         }
                         // The safe cut leaves too little progress. Recognize
                         // this uncommitted batch without lookahead after stop.
-                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, preceding: preceding)
+                        segments = try await transcribeWindow(tracks, window: window, end: window.end, model: model, preceding: preceding).segments
                         committedEnd = window.end
-                    } else { segments.removeAll { $0.end > committedEnd } }
+                    } else if !usedNominalCut { segments.removeAll { $0.end > committedEnd } }
                     try Task.checkCancellation()
                     var latest = try library.read(id)
                     latest.segments.append(contentsOf: segments)
@@ -607,16 +626,23 @@ final class AppState: ObservableObject {
         liveTask = nil; liveStatus = ""; liveAudioDuration = nil; processingID = nil; phase = ""; runNext()
     }
 
-    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL, preceding: [TranscriptSegment] = []) async throws -> [TranscriptSegment] {
+    private func transcribeWindow(_ tracks: [CaptureTrackBoundary], window: LiveTranscriptionSchedule.Window, end: Double, model: URL,
+                                  preceding: [TranscriptSegment], boundaryCheck: Transcriber.WindowBoundaryCheck? = nil) async throws -> Transcriber.WindowPass {
+        try Task.checkCancellation()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pisya-window-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
         let files = try await Task.detached(executorPreference: transcriptionPerformance, priority: .utility) {
             try CaptureWindow.copy(tracks, start: window.start, end: end, directory: directory)
         }.value
-        guard !files.isEmpty else { return [] }
-        let result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance, live: true, preceding: preceding) { _, _ in }
-        return try result.map { segment in
+        guard !files.isEmpty else {
+            if case .nominal = boundaryCheck { return Transcriber.WindowPass(retry: .withLookahead) }
+            return Transcriber.WindowPass()
+        }
+        var pass = try await transcriber.transcribeWindow(files: files.map { ($0.url, $0.offset) }, modelDirectory: model,
+            context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"),
+            performance: transcriptionPerformance, preceding: preceding, boundaryCheck: boundaryCheck)
+        pass.segments = try pass.segments.map { segment in
             var mapped = segment
             guard let temporaryName = segment.audioFile,
                   let file = files.first(where: { temporaryName.contains("-mic.") ? $0.original.lastPathComponent.contains("-mic.") : $0.original.lastPathComponent.contains("-remote.") }) else {
@@ -625,6 +651,7 @@ final class AppState: ObservableObject {
             mapped.audioFile = file.original.lastPathComponent
             return mapped
         }
+        return pass
     }
     func enqueue(_ id: UUID, reprocess: Bool = false) {
         guard !demo, id != processingID, !isQueued(id) else { return }

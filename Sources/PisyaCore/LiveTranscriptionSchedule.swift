@@ -16,6 +16,15 @@ public struct LiveTranscriptionSchedule: Sendable {
         public let start: Double
         public let end: Double
         fileprivate let attempt: UUID
+
+        // Leave ambiguous boundaries to the full recognition pass.
+        func speechBlocksCut(_ speech: Range<Double>) -> Bool {
+            speech.lowerBound <= start + 1.5 && speech.upperBound >= end + 0.4
+        }
+
+        func confirmedSpeechThroughCut(_ segment: TranscriptSegment) -> Bool {
+            segment.start <= start + 1.5 && segment.end >= end - 0.4
+        }
     }
     public private(set) var committed: Double
     private let batchDuration: Double

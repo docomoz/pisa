@@ -5,6 +5,20 @@ import MLXAudioSTT
 
 /// All inference stays on one actor. A model is released after each meeting.
 actor Transcriber {
+    enum WindowBoundaryCheck: Sendable {
+        case lookahead(LiveTranscriptionSchedule.Window)
+        case nominal(LiveTranscriptionSchedule.Window, isMic: Bool)
+    }
+
+    struct WindowPass: Sendable {
+        enum Retry: Sendable {
+            case withoutLookahead(isMic: Bool)
+            case withLookahead
+        }
+        var segments: [TranscriptSegment] = []
+        var retry: Retry?
+    }
+
     private var liveModel: Qwen3ASRModel?
     private var liveActivity: SpeechDetector?
     private var liveVoices: SpeakerEngine?
@@ -50,7 +64,25 @@ actor Transcriber {
     }
 
     func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
-        let performance = performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal)
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
+            profiles: profiles, performance: performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal), live: live,
+            russianVerification: russianVerification, contextualVerification: contextualVerification, preceding: preceding,
+            collectDiagnostics: collectDiagnostics, progress: progress).segments
+    }
+
+    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
+                          performance: TranscriptionPerformance, preceding: [TranscriptSegment],
+                          boundaryCheck: WindowBoundaryCheck?) async throws -> WindowPass {
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
+            performance: performance, live: true, preceding: preceding, boundaryCheck: boundaryCheck) { _, _ in }
+    }
+
+    private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
+                                 profiles: [VoiceProfile]? = nil, performance: TranscriptionPerformance, live: Bool,
+                                 russianVerification: Bool = true, contextualVerification: Bool = true,
+                                 preceding: [TranscriptSegment], collectDiagnostics: Bool = false,
+                                 boundaryCheck: WindowBoundaryCheck? = nil,
+                                 progress: @escaping @Sendable (Double, String) async -> Void) async throws -> WindowPass {
         contextDiagnostics = []
         guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path), FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("model.safetensors").path) else { throw PisyaError.message("Выберите папку модели Qwen3-ASR с config.json и model.safetensors") }
         let previousCacheLimit = Memory.cacheLimit
@@ -92,6 +124,7 @@ actor Transcriber {
         var backchannels: [UUID: String] = [:]
         var acousticHypotheses: [UUID: RecognitionAcousticResult] = [:]
         var audioBounds: [UUID: Range<Double>] = [:]
+        var startedRecognition = false
         for (fileIndex, item) in preparedFiles.sorted(by: { !$0.0.lastPathComponent.contains("-mic.") && $1.0.lastPathComponent.contains("-mic.") }).enumerated() {
             try Task.checkCancellation()
             let (url, offset) = item
@@ -209,6 +242,13 @@ actor Transcriber {
                             // Confirm speech within the recovered gap itself so
                             // the language model never decodes a padded silence.
                             if region.recoveredSpeech, activity.regions(regionSamples).isEmpty { continue }
+                            let speech = (offset + start + region.start)..<(offset + start + region.end)
+                            if !startedRecognition, case .lookahead(let window) = boundaryCheck, window.speechBlocksCut(speech) {
+                                // A single early turn leaves no useful pause before
+                                // the cut. Try the same input as the stopped fallback.
+                                return WindowPass(retry: .withoutLookahead(isMic: isMic))
+                            }
+                            startedRecognition = true
                             let expandedSamples: [Float]?
                             let overlap = max(0, previous - region.start) + max(0, region.end - next)
                             if region.end - region.start < 2, !region.recoveredSpeech, overlap <= 0.15 {
@@ -226,7 +266,7 @@ actor Transcriber {
                             try await performance.pace(after: inferenceStarted)
                             guard let recognized else { continue }
                             let speaker = isMic ? "Я" : "Собеседники"
-                            var segment = TranscriptSegment(start: offset + start + region.start, end: offset + start + region.end, speaker: speaker, text: recognized.text)
+                            var segment = TranscriptSegment(start: speech.lowerBound, end: speech.upperBound, speaker: speaker, text: recognized.text)
                             segment.audioFile = url.lastPathComponent
                             segment.embedding = region.embedding
                             backchannels[segment.id] = recognized.russianBackchannel
@@ -241,6 +281,11 @@ actor Transcriber {
                 let fraction = (Double(fileIndex) + Double(position) / Double(max(1, total))) / Double(preparedFiles.count)
                 await progress(0.12 + fraction * (contextualVerification ? 0.73 : 0.88), "Распознаю · \(timecode(start + duration))")
             }
+        }
+        if case .nominal(let window, let isMic) = boundaryCheck,
+           !segments.contains(where: { $0.audioFile?.contains("-mic.") == isMic && window.confirmedSpeechThroughCut($0) }) {
+            // Restore the full path before this trial can update live language history.
+            return WindowPass(retry: .withLookahead)
         }
         var sorted = segments.sorted { $0.start < $1.start }
         if contextualVerification {
@@ -261,8 +306,8 @@ actor Transcriber {
         }
         try Task.checkCancellation()
         keepGenerated = generated.map { url in localized.contains { $0.audioFile == url.lastPathComponent } } ?? false
-        guard !live, let profiles else { return localized }
-        return SpeakerClustering.assign(localized, profiles: profiles)
+        guard !live, let profiles else { return WindowPass(segments: localized) }
+        return WindowPass(segments: SpeakerClustering.assign(localized, profiles: profiles))
     }
 
     private func prepareVocabulary(_ vocabulary: String) {
