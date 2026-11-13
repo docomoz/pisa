@@ -232,15 +232,15 @@ final class InterfacePreview: NSObject {
         state.openFolder(trash: true); state.select(deleted.id)
         let items = MeetingActionSet(state: state, meeting: deleted).contextMenuItems
         guard items.map(\.title) == ["Восстановить", "Удалить"], items.allSatisfy(\.isEnabled) else {
-            throw PisyaError.message("Неверное меню удалённой записи")
+            throw PisaError.message("Неверное меню удалённой записи")
         }
         state.deletePermanently(active)
-        guard state.meetings.contains(where: { $0.id == active.id }) else { throw PisyaError.message("Удалена запись вне корзины") }
+        guard state.meetings.contains(where: { $0.id == active.id }) else { throw PisaError.message("Удалена запись вне корзины") }
         state.deletePermanently(deleted)
         guard !state.meetings.contains(where: { $0.id == deleted.id }), state.selection != deleted.id else {
-            throw PisyaError.message("Удалённая запись осталась в библиотеке")
+            throw PisaError.message("Удалённая запись осталась в библиотеке")
         }
-        guard (try? state.library.read(deleted.id)) == nil else { throw PisyaError.message("Запись осталась на диске") }
+        guard (try? state.library.read(deleted.id)) == nil else { throw PisaError.message("Запись осталась на диске") }
     }
 
     static func testQueue() throws {
