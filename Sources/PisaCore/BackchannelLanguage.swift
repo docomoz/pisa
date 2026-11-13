@@ -35,6 +35,11 @@ enum BackchannelLanguage {
         }
     }
 
+    /// A short lead-in can stabilize decoding without cutting or changing speech.
+    static func retryAudio(_ samples: [Float]) -> [Float] {
+        Array(repeating: 0, count: 2_000) + samples
+    }
+
     private static func isAmbiguous(_ words: [String]) -> Bool {
         words.contains(where: englishVocalizations.contains) && words.allSatisfy {
             englishVocalizations.contains($0) || englishAffirmatives.contains($0)

@@ -234,4 +234,27 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertNil(BackchannelLanguage.alternative(original: "Hmm.", russian: "Хм.", corroboration: "Хм.", vocabulary: "Hmm"))
         XCTAssertEqual(BackchannelLanguage.alternative(original: "Uh huh.", russian: "Угу.", corroboration: "Нет.", vocabulary: "Confluence"), "Угу.")
     }
+    func testUnresolvedShortReplyRetriesWithLeadingSilenceWithoutChangingAudio() {
+        let samples: [Float] = [0.2, -0.4, 0.1]
+        let retry = BackchannelLanguage.retryAudio(samples)
+        XCTAssertEqual(retry.count, samples.count + 2_000)
+        XCTAssertTrue(retry.prefix(2_000).allSatisfy { $0 == 0 })
+        XCTAssertEqual(Array(retry.suffix(samples.count)), samples)
+    }
+
+    func testRetriedLexicalReplyRequiresAgreementAndRussianContext() {
+        let original = "Yeah, right."
+        let candidate = "Давай, давай."
+        XCTAssertNil(BackchannelLanguage.alternative(original: original, russian: candidate, corroboration: "Давай."))
+        let alternative = BackchannelLanguage.alternative(original: original, russian: candidate, corroboration: "Давай давай.")
+        XCTAssertEqual(alternative, candidate)
+        let short = segment(30, original, mic: false)
+        let russian = segment(25, "Теперь обсудим следующий вопрос проекта", mic: false)
+        let english = segment(25, "Let us discuss the next question", mic: false)
+        let alternatives = [short.id: candidate]
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [russian])[0].text, candidate)
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [english])[0].text, original)
+        XCTAssertEqual(BackchannelLanguage.resolve([short], alternatives: alternatives, preceding: [])[0].text, original)
+    }
+
 }
