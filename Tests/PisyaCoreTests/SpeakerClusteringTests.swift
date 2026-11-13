@@ -33,6 +33,38 @@ final class SpeakerClusteringTests: XCTestCase {
         XCTAssertNotEqual(assigned[4].speaker, assigned[5].speaker)
     }
 
+    func testShortVariableTurnDoesNotSplitCoherentLongVoice() {
+        let angles = [-20.0, 20.0, 45.0]
+        let durations = [10.0, 8.0, 3.0]
+        let turns = angles.indices.map { index in
+            let radians = angles[index] * .pi / 180
+            return turn(start: Double(index * 12), duration: durations[index],
+                embedding: [Float(cos(radians)), Float(sin(radians))])
+        }
+
+        let assigned = SpeakerClustering.assign(turns, profiles: [])
+
+        XCTAssertNotEqual(assigned[0].speaker, TranscriptSegment.unidentifiedSpeaker)
+        XCTAssertEqual(assigned[0].speaker, assigned[1].speaker)
+        XCTAssertEqual(assigned[0].speaker, assigned[2].speaker)
+    }
+
+    func testLongDistinctVoicesKeepTheirStrongerContradictionGuard() {
+        let angles = [30.0, 0.0, 60.0]
+        let durations = [10.0, 8.0, 7.0]
+        let turns = angles.indices.map { index in
+            let radians = angles[index] * .pi / 180
+            return turn(start: Double(index * 12), duration: durations[index],
+                embedding: [Float(cos(radians)), Float(sin(radians))])
+        }
+
+        let assigned = SpeakerClustering.assign(turns, profiles: [])
+
+        XCTAssertNotEqual(assigned[1].speaker, TranscriptSegment.unidentifiedSpeaker)
+        XCTAssertNotEqual(assigned[2].speaker, TranscriptSegment.unidentifiedSpeaker)
+        XCTAssertNotEqual(assigned[1].speaker, assigned[2].speaker)
+    }
+
     private func turn(start: Double, duration: Double, embedding: [Float]) -> TranscriptSegment {
         var segment = TranscriptSegment(start: start, end: start + duration, speaker: "Собеседники", text: "Реплика")
         segment.embedding = embedding

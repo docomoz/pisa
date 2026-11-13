@@ -1,14 +1,22 @@
 import Foundation
 
-/// Reliable turns establish meeting-wide voices. Short turns only match them.
+/// Reliable turns establish meeting-wide voices; weaker evidence cannot bridge distinct voices.
 public enum SpeakerClustering {
     public static func assign(_ input: [TranscriptSegment], profiles: [VoiceProfile], threshold: Float = 0.55) -> [TranscriptSegment] {
         struct Cluster {
             var sum: [Float]
-            var anchors: [[Float]]
+            var anchors: [(vector: [Float], duration: Double)]
 
-            func supports(_ vector: [Float], threshold: Float) -> Bool {
-                anchors.allSatisfy { VoiceMatcher.similarity(vector, $0) >= threshold }
+            func supports(_ vector: [Float], duration: Double, threshold: Float) -> Bool {
+                anchors.allSatisfy { anchor in
+                    // Short turns produce noisier vectors. Keep their strong
+                    // contradictions, without giving every variation a veto.
+                    // Turn duration is a conservative proxy: overlap exclusion
+                    // can shorten the actual audio used for an embedding.
+                    let floor: Float = duration >= 4.5 && anchor.duration >= 4.5
+                        ? threshold : min(threshold, 0.35)
+                    return VoiceMatcher.similarity(vector, anchor.vector) >= floor
+                }
             }
         }
         func normalized(_ vector: [Float]?) -> [Float]? {
@@ -31,17 +39,17 @@ public enum SpeakerClustering {
                 guard score >= bestScore else { continue }
                 // A mixed turn can be close to two clean voices. Compare their
                 // individual evidence before allowing it to join those voices.
-                guard clusters[cluster].supports(vector, threshold: threshold) else { continue }
+                guard clusters[cluster].supports(vector, duration: durations[index], threshold: threshold) else { continue }
                 best = cluster
                 bestScore = score
             }
             if let best {
                 for i in vector.indices { clusters[best].sum[i] += vector[i] * weight }
-                clusters[best].anchors.append(vector)
+                clusters[best].anchors.append((vector, durations[index]))
                 membership[index] = best
             } else {
                 membership[index] = clusters.count
-                clusters.append(Cluster(sum: vector.map { $0 * weight }, anchors: [vector]))
+                clusters.append(Cluster(sum: vector.map { $0 * weight }, anchors: [(vector, durations[index])]))
             }
         }
         let matcher = VoiceMatcher(profiles: profiles)
@@ -51,7 +59,7 @@ public enum SpeakerClustering {
             if let known = matcher.identify(vector) { result[i].speaker = known; continue }
             let ranked = clusters.indices.compactMap { cluster -> (Int, Float)? in
                 let score = VoiceMatcher.similarity(vector, clusters[cluster].sum)
-                guard score >= threshold, clusters[cluster].supports(vector, threshold: threshold) else { return nil }
+                guard score >= threshold, clusters[cluster].supports(vector, duration: durations[i], threshold: threshold) else { return nil }
                 return (cluster, score)
             }.sorted { $0.1 > $1.1 }
             guard let best = ranked.first,
