@@ -122,7 +122,7 @@ enum Launcher {
         }
         if CommandLine.arguments.contains("--voice-profiles-self-test") {
             Task { @MainActor in
-                do { try VoiceProfileTests.run(); exit(0) }
+                do { try await VoiceProfileTests.run(); exit(0) }
                 catch { print("VOICE_PROFILES_TEST_FAILED", error.localizedDescription); exit(1) }
             }
             dispatchMain()
@@ -270,9 +270,11 @@ enum Launcher {
                     m.audioFiles = [filename]
                     var segment = TranscriptSegment(start: 0, end: 4, speaker: "Я", text: "Fixture")
                     segment.embedding = [1, 0]; m.segments = [segment]; state.update(m)
-                    state.assignVoice(meetingID: m.id, segmentID: segment.id, name: "First", allMatching: true, remember: true)
+                    await state.assignVoice(meetingID: m.id, segmentID: segment.id, name: "First",
+                                      allMatching: true, remember: true, extractEmbedding: { _ in [1, 0] })
                     try check(state.meetings[0].segments[0].audioFile == filename, "Source track lost")
-                    state.assignVoice(meetingID: m.id, segmentID: segment.id, name: "Corrected", allMatching: false, remember: true)
+                    await state.assignVoice(meetingID: m.id, segmentID: segment.id, name: "Corrected",
+                                      allMatching: false, remember: true, extractEmbedding: { _ in [1, 0] })
                     try check(VoiceMatcher.identify([1, 0], profiles: state.voiceProfiles) == "Corrected", "Old profile retained wrong sample")
                     let example = state.voiceProfiles.first { $0.name == "Corrected" }!.examples!.first!
                     let clipURL = root.appendingPathComponent("VoiceSamples").appendingPathComponent(example.file)
@@ -296,7 +298,7 @@ enum Launcher {
                     try check(state.message == nil, "Moving with a copied bookmark triggered auto-export: \(state.message ?? "")")
 
                     for name in ["New speaker", "Corrected speaker"] {
-                        state.assignVoice(meetingID: m.id, segmentID: segment.id, name: name, allMatching: false, remember: false)
+                        await state.assignVoice(meetingID: m.id, segmentID: segment.id, name: name, allMatching: false, remember: false)
                         try check(try state.library.read(m.id).segments.first?.speaker == name, "Voice correction was not saved")
                         try check(state.message == nil, "A copied export bookmark interrupted voice correction")
                     }
@@ -305,7 +307,7 @@ enum Launcher {
                     try state.setExportFolder(exportFolder)
                     state = AppState(rootURL: root)
                     try check(!state.exportFolderUnavailable, "Selecting a folder did not restore auto-export after reopening")
-                    state.assignVoice(meetingID: m.id, segmentID: segment.id, name: "Exported speaker", allMatching: false, remember: false)
+                    await state.assignVoice(meetingID: m.id, segmentID: segment.id, name: "Exported speaker", allMatching: false, remember: false)
                     try check(state.message == nil, "Voice correction failed with a working export folder")
                     let exports = try FileManager.default.subpathsOfDirectory(atPath: exportFolder.path).filter { $0.hasSuffix(".md") }
                     try check(exports.count == 1, "Expected a Markdown file after restoring auto-export")
@@ -341,23 +343,31 @@ enum Launcher {
                     do { let file = try AVAudioFile(forWriting: state.library.audioURL(automaticFile), settings: format.settings); try file.write(from: longBuffer); file.close() }
                     automaticMeeting.audioFiles = [automaticFile]; automaticMeeting.audioOffsets = [automaticFile: 10]
                     let short = TranscriptSegment(start: 10, end: 11, speaker: "Участник", text: "Да")
-                    var long = TranscriptSegment(start: 10, end: 22, speaker: "Участник", text: "Длинный образец для автоматического выбора")
+                    var long = TranscriptSegment(start: 11, end: 22, speaker: "Участник", text: "Длинный образец")
                     long.embedding = [0, 1]; automaticMeeting.segments = [short, long]; state.update(automaticMeeting)
-                    state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Automatic", allMatching: true, remember: true)
-                    guard let automaticExample = state.voiceProfiles.first(where: { $0.name == "Automatic" })?.examples?.last else { throw PisyaError.message("Automatic sample was not saved from another reply") }
-                    try check(automaticExample.segmentID == long.id, "Saved the clicked reply instead of the automatic sample")
+                    await state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Automatic", allMatching: true, remember: true)
+                    try check(!state.voiceProfiles.contains { $0.name == "Automatic" }, "All-replies correction enrolled an unselected reply")
+                    try check(state.meetings.first { $0.id == automaticMeeting.id }?.segments.map(\.speaker) == ["Участник", "Участник"], "Failed enrollment partially changed the transcript")
+                    await state.assignVoice(meetingID: automaticMeeting.id, segmentID: long.id, name: "Automatic", allMatching: true, remember: true) { samples in
+                        try check(samples.count == 128000, "Extractor did not receive eight seconds")
+                        try check(abs(samples[0] - Float(16000) / 192000 * 0.2) < 0.00001, "Extractor received audio outside the preview")
+                        return [0, -1]
+                    }
+                    guard let automaticExample = state.voiceProfiles.first(where: { $0.name == "Automatic" })?.examples?.last else { throw PisyaError.message("Selected reply was not saved") }
+                    try check(automaticExample.segmentID == long.id, "Saved a different reply from the one selected")
+                    try check(automaticExample.embedding == [0, -1] && !automaticExample.needsEmbeddingRefresh, "Saved the transcript embedding instead of the clip embedding")
                     let automaticClip = try AVAudioFile(forReading: root.appendingPathComponent("VoiceSamples").appendingPathComponent(automaticExample.file))
                     try check(automaticClip.length == 128000, "Automatic sample must contain eight seconds")
                     let automaticPCM = try PCMRead.exact(automaticClip, frames: 128000)
-                    try check(abs(automaticPCM.floatChannelData![0][0] - Float(32000) / 192000 * 0.2) < 0.00001, "Automatic clip ignored its centered range or track offset")
-                    state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Must not save", allMatching: false, remember: true)
+                    try check(abs(automaticPCM.floatChannelData![0][0] - Float(16000) / 192000 * 0.2) < 0.00001, "Saved clip ignored the preview range or track offset")
+                    await state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Must not save", allMatching: false, remember: true)
                     try check(state.meetings.first { $0.id == automaticMeeting.id }?.segments.first?.speaker == "Automatic", "Missing sample partially changed the speaker")
                     try check(!state.voiceProfiles.contains { $0.name == "Must not save" }, "Single-reply correction learned another reply")
-                    state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Only this reply", allMatching: false, remember: false)
+                    await state.assignVoice(meetingID: automaticMeeting.id, segmentID: short.id, name: "Only this reply", allMatching: false, remember: false)
                     let renamed = state.meetings.first { $0.id == automaticMeeting.id }!
                     try check(renamed.segments.map(\.speaker) == ["Only this reply", "Automatic"], "Naming without a usable sample failed")
                     try check(try state.library.voices().contains { $0.name == "Automatic" }, "Automatic voice was not persisted")
-                    print("LIBRARY_SELF_TEST_OK voice_clip correction source_track folders folder_order trash restore echo_reference automatic_sample centered_clip track_offset single_reply")
+                    print("LIBRARY_SELF_TEST_OK voice_clip correction source_track folders folder_order trash restore echo_reference selected_sample clip_embedding track_offset single_reply")
                     exit(0)
                 } catch { print("LIBRARY_SELF_TEST_FAILED \(error.localizedDescription)"); exit(1) }
             }

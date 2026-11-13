@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 enum VoiceProfileTests {
-    static func run() throws {
+    static func run() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Voice-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let state = AppState(rootURL: root)
@@ -142,11 +142,120 @@ enum VoiceProfileTests {
         let selfSegments = try restarted.library.read(selfMeeting.id).segments
         try check(selfSegments.map(\.speaker) == ["Ведущий", "Я", "Ведущий"], "Rename did not distinguish a voice from a generic microphone label")
         try check(selfSegments[0].audioFile == "test-mic.caf", "Rename changed the selected audio track")
-        try checkMergeAndExampleRemoval()
-        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label merge remove_sample")
+        try await checkMergeAndExampleRemoval()
+        try await checkEnrollmentFailures()
+        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label merge remove_sample enrollment_cancel enrollment_stale enrollment_save_failure")
     }
 
-    private static func checkMergeAndExampleRemoval() throws {
+    private static func checkEnrollmentFailures() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Voice-Enrollment-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        try seed(state, count: 2)
+        let sampleFolder = root.appendingPathComponent("VoiceSamples", isDirectory: true)
+        let voicesURL = root.appendingPathComponent("voices.json")
+        let savedFiles = try Set(FileManager.default.contentsOfDirectory(atPath: sampleFolder.path))
+        var meeting = Meeting(title: "Встреча", source: "Проверка")
+        meeting.status = .ready
+        meeting.audioFiles = ["meeting.caf"]
+        let segment = TranscriptSegment(start: 0, end: 3, speaker: "Спикер 1", text: "Первая реплика")
+        state.voiceProfiles[0].examples?[0].meetingID = meeting.id
+        state.voiceProfiles[0].examples?[0].segmentID = segment.id
+        try state.library.saveVoices(state.voiceProfiles)
+        let savedVoices = try Data(contentsOf: voicesURL)
+        let savedExample = state.voiceProfiles[0].examples![0]
+        try FileManager.default.copyItem(at: sampleFolder.appendingPathComponent(savedExample.file),
+                                        to: state.library.audioURL(meeting.audioFiles[0]))
+        meeting.segments = [segment]
+        state.update(meeting)
+        let meetingID = meeting.id
+        let segmentID = segment.id
+        let name = state.voiceProfiles[0].name
+
+        func check(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+            if try !condition() { throw PisyaError.message(message) }
+        }
+        func checkUnchanged(expected: Meeting) throws {
+            try check(state.meetings.first { $0.id == meetingID } == expected, "Enrollment changed the open meeting")
+            try check(try state.library.read(meetingID) == expected, "Enrollment changed the persisted meeting")
+            try check(state.voiceProfiles.first?.examples?.map(\.id).contains(savedExample.id) == true &&
+                      Set(state.voiceProfiles.flatMap { ($0.examples ?? []).map(\.file) }) == savedFiles,
+                      "Enrollment changed the open voice profiles")
+            try check(try Data(contentsOf: voicesURL) == savedVoices, "Enrollment changed the persisted voice profiles")
+            try check(try Set(FileManager.default.contentsOfDirectory(atPath: sampleFolder.path)) == savedFiles,
+                      "Enrollment left a staged clip behind")
+        }
+        func withStagedSample(_ action: (Task<Void, Never>) async throws -> Void) async throws {
+            let started = DispatchSemaphore(value: 0)
+            let finish = DispatchSemaphore(value: 0)
+            let task = Task {
+                await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: name,
+                                        allMatching: false, remember: true) { _ in
+                    started.signal()
+                    guard finish.wait(timeout: .now() + 10) == .success else {
+                        throw PisyaError.message("Enrollment fixture did not release the extractor")
+                    }
+                    return [1, 0]
+                }
+            }
+            do {
+                let reachedExtractor = await Task.detached {
+                    started.wait(timeout: .now() + 5) == .success
+                }.value
+                try check(reachedExtractor, "Enrollment did not reach the extractor")
+                let staged = try Set(FileManager.default.contentsOfDirectory(atPath: sampleFolder.path))
+                try check(staged.subtracting(savedFiles).count == 1 && savedFiles.isSubset(of: staged),
+                          "Enrollment did not stage a separate clip")
+                try await action(task)
+            } catch {
+                task.cancel()
+                finish.signal()
+                await task.value
+                throw error
+            }
+            finish.signal()
+            await task.value
+        }
+
+        try await withStagedSample { task in task.cancel() }
+        try checkUnchanged(expected: meeting)
+
+        try await withStagedSample { _ in
+            state.editSegmentText("Исправленная реплика", from: segment, meetingID: meetingID)
+        }
+        var edited = meeting
+        edited.segments[0].text = "Исправленная реплика"
+        edited.segments[0].audioFile = meeting.audioFiles[0]
+        try checkUnchanged(expected: edited)
+
+        try await withStagedSample { _ in
+            await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: "Новое имя",
+                                    allMatching: false, remember: false)
+        }
+        edited.segments[0].speaker = "Новое имя"
+        try checkUnchanged(expected: edited)
+
+        let meetingURL = state.library.meetingsDirectory.appendingPathComponent(meetingID.uuidString + ".json")
+        for destination in [meetingURL, voicesURL] {
+            let backup = destination.appendingPathExtension("backup")
+            try FileManager.default.moveItem(at: destination, to: backup)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+            state.message = nil
+            await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: name,
+                                    allMatching: false, remember: true, extractEmbedding: { _ in [1, 0] })
+            try check(state.message != nil, "Enrollment did not report its save failure")
+            if destination == meetingURL {
+                try check(try Data(contentsOf: voicesURL) == savedVoices, "Meeting write failure still saved a new profile")
+            } else {
+                try check(try state.library.read(meetingID) == edited, "Profile write failure did not roll back the meeting")
+            }
+            try FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: backup, to: destination)
+            try checkUnchanged(expected: edited)
+        }
+    }
+
+    private static func checkMergeAndExampleRemoval() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Voice-Merge-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let state = AppState(rootURL: root)
@@ -214,7 +323,8 @@ enum VoiceProfileTests {
         try expect(try state.library.read(trashed.id).segments[0].speaker == target.name, "Merge did not update a trashed meeting")
         try expect(state.meetings.first { $0.id == meeting.id }?.segments[0].speaker == target.name, "Merge did not update the open library")
 
-        state.assignVoice(meetingID: meeting.id, segmentID: meeting.segments[0].id, name: target.name, allMatching: false, remember: true)
+        await state.assignVoice(meetingID: meeting.id, segmentID: meeting.segments[0].id, name: target.name,
+                          allMatching: false, remember: true, extractEmbedding: { _ in [1, 1] })
         let afterRemembering = Set(state.voiceProfiles[0].examples?.map(\.id) ?? [])
         try expect(afterRemembering.count == mergedIDs.count + 1 && mergedIDs.isSubset(of: afterRemembering), "Remembering a sample discarded merged clips")
 

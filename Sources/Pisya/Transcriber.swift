@@ -217,9 +217,13 @@ actor Transcriber {
                             let lower = max(0, Int(region.start * 16000))
                             let upper = min(samples.count, Int(region.end * 16000))
                             guard upper > lower else { return [] }
-                            return SpeechChunking.ranges(in: samples, range: lower..<upper).map {
-                                VoiceRegion(start: Double($0.lowerBound) / 16000, end: Double($0.upperBound) / 16000,
-                                    embedding: region.embedding, recoveredSpeech: region.recoveredSpeech)
+                            let chunks = SpeechChunking.ranges(in: samples, range: lower..<upper)
+                            return chunks.map { chunk in
+                                let embedding = !isMic && !region.recoveredSpeech && chunks.count > 1
+                                    ? voices?.vector(samples, in: chunk, excluding: region.embeddingExclusions)
+                                    : region.embedding
+                                return VoiceRegion(start: Double(chunk.lowerBound) / 16000, end: Double(chunk.upperBound) / 16000,
+                                    embedding: embedding, recoveredSpeech: region.recoveredSpeech)
                             }
                         }
                         for (index, region) in regions.enumerated() {

@@ -203,26 +203,165 @@ public struct CallDetector: Sendable {
     }
 }
 
-public struct VoiceProfile: Codable, Identifiable, Sendable {
+public struct VoiceProfile: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID = UUID()
     public var name: String
     public var samples: [[Float]]
     public var model = "titanet-large-v1"
     public var examples: [VoiceExample]?
     public init(name: String, samples: [[Float]]) { self.name = name; self.samples = samples }
+
+    /// The corrected name may resolve an identity conflict on the next audio assessment.
+    mutating func requestIdentityRevalidation() {
+        guard var examples else { return }
+        for index in examples.indices where examples[index].exclusionReason == .identityConflict {
+            examples[index].embeddingRevision = nil
+        }
+        self.examples = examples
+    }
+
+    /// Apply completed work to the current examples, which can change while the audio is read.
+    mutating func refreshExampleEmbeddings(_ refreshed: [UUID: VoiceExample]) -> Bool {
+        guard var examples, !refreshed.isEmpty else { return false }
+        var sampleIndices: [[Float]: [Int]] = [:]
+        for index in samples.indices.reversed() { sampleIndices[samples[index], default: []].append(index) }
+        var changed = false
+        for index in examples.indices {
+            let current = examples[index]
+            let sampleIndex = sampleIndices[current.embedding]?.popLast()
+            guard current.needsEmbeddingRefresh, let replacement = refreshed[current.id],
+                  replacement.file == current.file, replacement.meetingID == current.meetingID,
+                  replacement.segmentID == current.segmentID,
+                  replacement.embeddingRevision == VoiceExample.currentEmbeddingRevision,
+                  VoiceMatcher.similarity(replacement.embedding, replacement.embedding) > 0 else { continue }
+            examples[index] = replacement
+            if let sampleIndex {
+                samples[sampleIndex] = replacement.embedding
+            } else {
+                samples.append(replacement.embedding)
+            }
+            changed = true
+        }
+        if changed { self.examples = examples }
+        return changed
+    }
 }
-public enum VoiceMatcher {
+public struct VoiceMatcher {
+    private struct Sample {
+        var vector: [Float]
+        var example: VoiceExample?
+        var competitorSimilarity: Float = -1
+    }
+    private struct Candidate {
+        let name: String
+        var samples: [Sample]
+        var corroborators: [[Int]]
+    }
+    private let candidates: [Candidate]
+
+    public init(profiles: [VoiceProfile]) {
+        self.init(profiles: profiles, legacyEvidenceForExclusion: false)
+    }
+    /// Legacy evidence may conservatively reject enrollment, but never lowers
+    /// the confidence required to assign a name during recognition.
+    static func enrollmentConflict(_ embedding: [Float], name: String, profiles: [VoiceProfile]) -> String? {
+        VoiceMatcher(profiles: profiles.filter { $0.name != name }, legacyEvidenceForExclusion: true)
+            .identify(embedding, requiringCorroboration: true)
+    }
+    private init(profiles: [VoiceProfile], legacyEvidenceForExclusion: Bool) {
+        var candidates: [Candidate] = []
+        for (name, voices) in Dictionary(grouping: profiles, by: \.name) {
+            var samples: [Sample] = []
+            for voice in voices {
+                var examplesByEmbedding: [[Float]: [VoiceExample]] = [:]
+                for example in (voice.examples ?? []).reversed() {
+                    examplesByEmbedding[example.embedding, default: []].append(example)
+                }
+                for vector in voice.samples where Self.similarity(vector, vector) > 0 {
+                    let example = examplesByEmbedding[vector]?.popLast()
+                    // Consume excluded examples too, so their paired vectors
+                    // cannot reenter matching as unpaired legacy training.
+                    guard example?.excludedFromRecognition != true else { continue }
+                    let verified = legacyEvidenceForExclusion || example?.embeddingRevision == VoiceExample.currentEmbeddingRevision ? example : nil
+                    samples.append(Sample(vector: vector, example: verified))
+                }
+            }
+            guard !samples.isEmpty else { continue }
+            let verified = samples.indices.filter { samples[$0].example != nil }
+            let corroborated = verified.contains { index in
+                verified.contains { Self.independent(samples[index], samples[$0]) &&
+                    Self.similarity(samples[index].vector, samples[$0].vector) >= 0.55 }
+            }
+            if corroborated {
+                // A coherent pair can protect its profile from a disconnected clip.
+                // Preserve all clips in storage and keep legacy vectors eligible.
+                samples = samples.indices.filter { index in
+                    samples[index].example == nil || verified.contains { peer in
+                        index != peer && Self.similarity(samples[index].vector, samples[peer].vector) >= 0.45
+                    }
+                }.map { samples[$0] }
+            }
+            let corroborators = samples.indices.map { index in
+                samples.indices.filter { other in
+                    Self.independent(samples[index], samples[other]) &&
+                        Self.similarity(samples[index].vector, samples[other].vector) >= 0.55
+                }
+            }
+            candidates.append(Candidate(name: name, samples: samples, corroborators: corroborators))
+        }
+        for candidate in candidates.indices {
+            let competitors = candidates.indices.filter { $0 != candidate }.flatMap { candidates[$0].samples }
+            for index in candidates[candidate].samples.indices where candidates[candidate].samples[index].example != nil {
+                let vector = candidates[candidate].samples[index].vector
+                candidates[candidate].samples[index].competitorSimilarity = competitors.map { Self.similarity(vector, $0.vector) }.max() ?? -1
+            }
+        }
+        self.candidates = candidates
+    }
+
+    private static func independent(_ first: Sample, _ second: Sample) -> Bool {
+        guard let first = first.example, let second = second.example else { return false }
+        return first.meetingID != second.meetingID && first.file != second.file && first.embedding != second.embedding
+    }
+
     public static func similarity(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return -1 }
         var dot: Float = 0, aa: Float = 0, bb: Float = 0
         for i in a.indices { dot += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i] }
-        guard aa > 0, bb > 0 else { return -1 }
-        return dot / (aa * bb).squareRoot()
+        let product = aa * bb
+        guard dot.isFinite, product.isFinite, product > 0 else { return -1 }
+        return dot / product.squareRoot()
     }
     public static func identify(_ embedding: [Float], profiles: [VoiceProfile]) -> String? {
-        let ranked = profiles.map { p in (p.name, p.samples.map { similarity(embedding, $0) }.max() ?? -1) }.sorted { $0.1 > $1.1 }
-        guard let first = ranked.first, first.1 >= 0.78, ranked.count == 1 || first.1 - ranked[1].1 >= 0.06 else { return nil }
-        return first.0
+        VoiceMatcher(profiles: profiles).identify(embedding)
+    }
+    public func identify(_ embedding: [Float]) -> String? {
+        identify(embedding, requiringCorroboration: false)
+    }
+    func identify(_ embedding: [Float], requiringCorroboration: Bool) -> String? {
+        let scores = candidates.map { $0.samples.map { Self.similarity(embedding, $0.vector) } }
+        let bestByCandidate = scores.map { $0.max() ?? -1 }
+        guard let winner = candidates.indices.max(by: { bestByCandidate[$0] < bestByCandidate[$1] }) else { return nil }
+        let best = bestByCandidate[winner]
+        let competing = candidates.indices.filter { $0 != winner }.map { bestByCandidate[$0] }.max() ?? -1
+        guard best >= 0.60, best - competing >= 0.06 else { return nil }
+
+        let candidate = candidates[winner]
+        for index in candidate.samples.indices where scores[winner][index] == best {
+            let sample = candidate.samples[index]
+            // A close match to an enrollment shared acoustically with another
+            // identity still needs a distinctive second sample.
+            if !requiringCorroboration && best >= 0.78 && sample.competitorSimilarity < 0.70 { return candidate.name }
+            guard best - competing >= 0.10, best - sample.competitorSimilarity >= 0.03 else { continue }
+            if candidate.corroborators[index].contains(where: { other in
+                let support = scores[winner][other]
+                return support >= 0.50 && support - competing >= 0.04 &&
+                    support - candidate.samples[other].competitorSimilarity >= 0.01
+            }) {
+                return candidate.name
+            }
+        }
+        return nil
     }
 }
 
@@ -303,14 +442,30 @@ public struct MeetingFolder: Codable, Identifiable, Equatable, Sendable {
     public var iconName: String { symbol ?? "folder" }
     public init(name: String, symbol: String? = nil) { self.name = name; self.symbol = symbol }
 }
-public struct VoiceExample: Codable, Identifiable, Sendable {
+public struct VoiceExample: Codable, Identifiable, Equatable, Sendable {
+    enum ExclusionReason: String, Codable, Sendable {
+        case overlappingSpeech, identityConflict
+    }
+
+    static let currentEmbeddingRevision = 2
     public var id = UUID()
     public var file: String
     public var meetingID: UUID
     public var segmentID: UUID
     public var embedding: [Float]
+    var embeddingRevision: Int?
+    var excludedFromRecognition: Bool?
+    var exclusionReason: ExclusionReason?
+    var needsEmbeddingRefresh: Bool { (embeddingRevision ?? 0) < Self.currentEmbeddingRevision }
+
     public init(file: String, meetingID: UUID, segmentID: UUID, embedding: [Float]) {
         self.file = file; self.meetingID = meetingID; self.segmentID = segmentID; self.embedding = embedding
+    }
+    func withCurrentEmbedding(_ embedding: [Float]) -> Self {
+        var updated = self
+        updated.embedding = embedding
+        updated.embeddingRevision = Self.currentEmbeddingRevision
+        return updated
     }
 }
 

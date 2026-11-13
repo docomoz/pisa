@@ -57,6 +57,7 @@ final class AppState: ObservableObject {
     let source = "Системный звук"
     @Published var demo = false
     @Published var voiceProfiles: [VoiceProfile] = []
+    private var voiceAssignmentRequests: [UUID: UUID] = [:]
     let library: MeetingLibrary
     struct SourceReveal: Equatable {
         let meetingID: UUID
@@ -591,6 +592,7 @@ final class AppState: ObservableObject {
                     if stopped {
                         liveStatus = "Собираю расшифровку"
                         await transcriber.finishLive()
+                        await refreshSavedVoiceEmbeddings()
                         try Task.checkCancellation()
                         let availableNames = Set(tracks.map { $0.url.lastPathComponent })
                         let latest = try await saveLiveMeeting(id) { meeting in
@@ -811,6 +813,7 @@ final class AppState: ObservableObject {
                 let generated = try Set(result.compactMap(\.audioFile)).filter { $0.contains(".clean.") && !m.audioFiles.contains($0) }.map { try library.audioURL($0) }
                 var persisted = false
                 defer { if !persisted { for url in generated { try? FileManager.default.removeItem(at: url) } } }
+                await refreshSavedVoiceEmbeddings()
                 try Task.checkCancellation()
                 var latest = try await ProtectedFileRead.waitForAccess(read: {
                     try library.read(id)
@@ -895,9 +898,7 @@ final class AppState: ObservableObject {
         if toggle && playingSegmentID == segment.id { stopPlayback(); return true }
         let name = segment.audioFile ?? meeting.audioFiles.first { segment.speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") } ?? meeting.audioFiles.first
         guard let name, meeting.audioFiles.contains(name), let url = try? library.audioURL(name),
-              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType == .typeRegular,
-              url.resolvingSymlinksInPath().deletingLastPathComponent() == library.audioDirectory.resolvingSymlinksInPath(),
+              SavedVoiceAudio.isRegularAudio(url, in: library.audioDirectory),
               let candidate = try? AVAudioPlayer(contentsOf: url) else { stopPlayback(); return false }
         let offset = meeting.audioOffsets[name] ?? 0
         let start = segment.start - offset, end = segment.end - offset
@@ -949,67 +950,114 @@ final class AppState: ObservableObject {
             playbackEnd = candidate.duration; candidate.play(); playingSegmentID = example.id; schedulePlaybackStop()
         } catch { message = "Образец голоса недоступен" }
     }
-    func voiceSample(for segmentID: UUID, in meeting: Meeting, allMatching: Bool) -> TranscriptSegment? {
-        var durations: [String: Double] = [:]
-        for filename in meeting.audioFiles {
-            guard let url = try? library.audioURL(filename), let file = try? AVAudioFile(forReading: url) else { continue }
-            durations[filename] = Double(file.length) / file.processingFormat.sampleRate
-        }
-        return automaticVoiceSample(for: segmentID, in: meeting, allMatching: allMatching, audioDurations: durations)
+    func voiceSample(for segmentID: UUID, in meeting: Meeting) -> TranscriptSegment? {
+        guard let candidate = automaticVoiceSample(for: segmentID, in: meeting), let filename = candidate.audioFile,
+              let url = try? library.audioURL(filename), SavedVoiceAudio.isRegularAudio(url, in: library.audioDirectory),
+              let file = try? AVAudioFile(forReading: url) else { return nil }
+        let duration = Double(file.length) / file.processingFormat.sampleRate
+        return automaticVoiceSample(for: segmentID, in: meeting, audioDurations: [filename: duration])
     }
-    func assignVoice(meetingID: UUID, segmentID: UUID, name: String, allMatching: Bool, remember: Bool) {
+    func assignVoice(meetingID: UUID, segmentID: UUID, name: String, allMatching: Bool, remember: Bool,
+                     extractEmbedding: (@Sendable ([Float]) throws -> [Float]?)? = nil) async {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, var m = meetings.first(where: { $0.id == meetingID }), canModify(m),
+        guard !clean.isEmpty, let m = meetings.first(where: { $0.id == meetingID }), canModify(m),
               let sample = m.segments.first(where: { $0.id == segmentID }) else { return }
+        func applyingName(to original: Meeting) -> Meeting {
+            var meeting = original
+            for index in meeting.segments.indices
+                where meeting.segments[index].id == segmentID || (allMatching && meeting.segments[index].speaker == sample.speaker) {
+                // Preserve the original track when a microphone label is renamed.
+                if meeting.segments[index].audioFile == nil {
+                    meeting.segments[index].audioFile = meeting.audioFiles.first {
+                        meeting.segments[index].speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.")
+                    } ?? meeting.audioFiles.first
+                }
+                meeting.segments[index].speaker = clean
+            }
+            return meeting
+        }
+        let request = UUID()
+        voiceAssignmentRequests[meetingID] = request
+        defer { if voiceAssignmentRequests[meetingID] == request { voiceAssignmentRequests[meetingID] = nil } }
         if remember {
             do {
-                guard let automatic = voiceSample(for: sample.id, in: m, allMatching: allMatching) else {
+                guard let automatic = voiceSample(for: sample.id, in: m), let filename = automatic.audioFile else {
                     throw PisyaError.message("Не найден подходящий образец голоса от 2 секунд без отмеченных наложений. Можно применить имя без запоминания голоса")
                 }
-                try storeVoiceSample(automatic, name: clean, meeting: m)
+                let profileID = voiceProfiles.first(where: { $0.name == clean })?.id
+                let source = try library.audioURL(filename)
+                let offset = m.audioOffsets[filename] ?? 0
+                let model = speakerEmbeddingModel
+                let knownProfiles = voiceProfiles
+                let clipName = UUID().uuidString + ".caf"
+                let destination = library.root.appendingPathComponent("VoiceSamples").appendingPathComponent(clipName)
+                var saved = false
+                defer { if !saved { try? FileManager.default.removeItem(at: destination) } }
+                let task = Task.detached(priority: .userInitiated) {
+                    try SavedVoiceAudio.saveSample(source: source, start: automatic.start - offset, end: automatic.end - offset,
+                                                  destination: destination, model: model, extractEmbedding: extractEmbedding,
+                                                  profiles: knownProfiles, name: clean)
+                }
+                let embedding = try await withTaskCancellationHandler {
+                    try await task.value
+                } onCancel: {
+                    task.cancel()
+                }
+                try Task.checkCancellation()
+                guard voiceAssignmentRequests[meetingID] == request else { return }
+                guard let latest = meetings.first(where: { $0.id == meetingID }), canModify(latest),
+                      latest.deletedAt == m.deletedAt, latest.segments == m.segments,
+                      latest.audioFiles == m.audioFiles, latest.audioOffsets == m.audioOffsets,
+                      voiceProfiles == knownProfiles,
+                      profileID == nil || voiceProfiles.contains(where: { $0.id == profileID && $0.name == clean }) else {
+                    throw PisyaError.message("Запись или голос изменились. Выберите фрагмент заново")
+                }
+                let example = VoiceExample(file: clipName, meetingID: meetingID, segmentID: sample.id, embedding: embedding)
+                    .withCurrentEmbedding(embedding)
+                let updated = preservingAudioFiles(in: applyingName(to: latest))
+                let profiles = voiceProfilesAdding(example, name: clean)
+                try saveVoiceChanges([(before: latest, after: updated)], profiles: profiles)
+                saved = true
+            } catch is CancellationError {
+                return
+            } catch {
+                if voiceAssignmentRequests[meetingID] == request {
+                    message = "Имя не сохранено: \(error.localizedDescription)"
+                }
             }
-            catch { message = "Имя не сохранено: \(error.localizedDescription)"; return }
+        } else {
+            update(applyingName(to: m))
         }
-        for index in m.segments.indices where m.segments[index].id == segmentID || (allMatching && m.segments[index].speaker == sample.speaker) {
-            // Preserve the original track when a microphone label is renamed.
-            if m.segments[index].audioFile == nil {
-                m.segments[index].audioFile = m.audioFiles.first { m.segments[index].speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") } ?? m.audioFiles.first
-            }
-            m.segments[index].speaker = clean
-        }
-        update(m)
     }
-    private func storeVoiceSample(_ segment: TranscriptSegment, name: String, meeting: Meeting) throws {
-        guard let embedding = segment.embedding, segment.end - segment.start >= 2 else { throw PisyaError.message("Выберите фрагмент с голосовым слепком длительностью от 2 секунд") }
-        guard let filename = segment.audioFile ?? meeting.audioFiles.first(where: { segment.speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") }) ?? meeting.audioFiles.first else { throw PisyaError.message("Для сохранения образца нужно аудио встречи") }
-        let file = try AVAudioFile(forReading: library.audioURL(filename))
-        let offset = meeting.audioOffsets[filename] ?? 0
-        let start = AVAudioFramePosition(max(0, segment.start - offset) * file.processingFormat.sampleRate)
-        let available = max(0, file.length - start)
-        let count = AVAudioFrameCount(min(available, Int64(min(8, segment.end - segment.start) * file.processingFormat.sampleRate)))
-        guard count > 0, let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: count) else { throw PisyaError.message("Образец недоступен") }
-        file.framePosition = start
+    private var speakerEmbeddingModel: URL {
+        library.root.appendingPathComponent("Models/Speakers/titanet.onnx")
+    }
+    private func refreshSavedVoiceEmbeddings() async {
+        let examples = voiceProfiles.flatMap { $0.examples ?? [] }.filter(\.needsEmbeddingRefresh)
+        let model = speakerEmbeddingModel
+        guard !examples.isEmpty, !Task.isCancelled, FileManager.default.fileExists(atPath: model.path) else { return }
         let folder = library.root.appendingPathComponent("VoiceSamples", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let clipName = UUID().uuidString + ".caf"
-        let url = folder.appendingPathComponent(clipName)
-        let output = try AVAudioFile(forWriting: url, settings: file.processingFormat.settings)
-        var written: AVAudioFrameCount = 0
-        do {
-            while written < count {
-                try file.read(into: buffer, frameCount: count - written)
-                guard buffer.frameLength > 0 else { break }
-                try output.write(from: buffer)
-                written += buffer.frameLength
-            }
-            output.close()
-            guard Double(written) / file.processingFormat.sampleRate >= 2 else { throw PisyaError.message("В файле осталось меньше 2 секунд для образца") }
-        } catch { output.close(); try? FileManager.default.removeItem(at: url); throw error }
+        let snapshot = voiceProfiles
+        let task = Task.detached(priority: .utility) { SavedVoiceAudio.refreshedExamples(snapshot, folder: folder, model: model) }
+        let refreshed = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        guard !Task.isCancelled, !refreshed.isEmpty, voiceProfiles == snapshot else { return }
+        var profiles = voiceProfiles
+        var changed = false
+        for index in profiles.indices where profiles[index].refreshExampleEmbeddings(refreshed) { changed = true }
+        guard changed else { return }
+        do { try saveVoiceProfiles(profiles) }
+        catch { Self.transcriptionLog.error("Could not refresh voice embeddings: \(error.localizedDescription)") }
+    }
+    private func voiceProfilesAdding(_ example: VoiceExample, name: String) -> [VoiceProfile] {
         var profiles = voiceProfiles
         // A clip belongs to the voice it was most recently assigned to.
         for index in profiles.indices {
             let examples = profiles[index].examples ?? []
-            let retained = examples.filter { $0.meetingID != meeting.id || $0.segmentID != segment.id }
+            let retained = examples.filter { $0.meetingID != example.meetingID || $0.segmentID != example.segmentID }
             if retained.count != examples.count {
                 replaceVoiceExamples(in: &profiles[index], with: retained)
             }
@@ -1021,11 +1069,9 @@ final class AppState: ObservableObject {
             index = profiles.count
             profiles.append(VoiceProfile(name: name, samples: []))
         }
-        let example = VoiceExample(file: clipName, meetingID: meeting.id, segmentID: segment.id, embedding: embedding)
-        profiles[index].samples.append(embedding)
+        profiles[index].samples.append(example.embedding)
         profiles[index].examples = (profiles[index].examples ?? []) + [example]
-        do { try saveVoiceProfiles(profiles) }
-        catch { try? FileManager.default.removeItem(at: url); throw error }
+        return profiles
     }
 
     func cancelProcessing() {
@@ -1083,7 +1129,7 @@ final class AppState: ObservableObject {
         try library.savePreferences(updated)
         preferences = updated
     }
-    func update(_ value: Meeting) {
+    private func preservingAudioFiles(in value: Meeting) -> Meeting {
         var meeting = value
         if let previous = meetings.first(where: { $0.id == meeting.id }) {
             let originals = Dictionary(uniqueKeysWithValues: previous.segments.map { ($0.id, $0) })
@@ -1092,6 +1138,10 @@ final class AppState: ObservableObject {
                 meeting.segments[i].audioFile = original.audioFile ?? meeting.audioFiles.first { original.speaker == "Я" ? $0.contains("-mic.") : $0.contains("-remote.") } ?? meeting.audioFiles.first
             }
         }
+        return meeting
+    }
+    func update(_ value: Meeting) {
+        let meeting = preservingAudioFiles(in: value)
         guard !demo else { upsert(meeting); return }
         do { try library.save(meeting); upsert(meeting); if meeting.status == .ready { exportIfConfigured(meeting) } } catch { message = error.localizedDescription }
     }
@@ -1113,6 +1163,7 @@ final class AppState: ObservableObject {
         guard profile.name != clean else { return }
         var updated = voiceProfiles
         updated[index].name = clean
+        updated[index].requestIdentityRevalidation()
         try saveVoiceNameChange(from: profile, to: clean, profiles: updated)
     }
     func mergeVoice(_ sourceID: UUID, into targetID: UUID) throws {
@@ -1129,6 +1180,7 @@ final class AppState: ObservableObject {
         let examples = targetExamples + sourceExamples
         merged.samples += examples.map(\.embedding)
         if !examples.isEmpty { merged.examples = examples }
+        merged.requestIdentityRevalidation()
         updated[targetIndex] = merged
         updated.removeAll { $0.id == sourceID }
         try saveVoiceNameChange(from: source, to: merged.name, profiles: updated)
@@ -1142,6 +1194,7 @@ final class AppState: ObservableObject {
         let isDefaultLabel = oldName == "Я" || oldName == "Собеседники" ||
             (oldName.hasPrefix("Спикер ") && Int(oldName.dropFirst("Спикер ".count)) != nil)
         let examples = Dictionary(grouping: profile.examples ?? [], by: \.meetingID)
+        let matcher = isDefaultLabel ? VoiceMatcher(profiles: voiceProfiles) : nil
         let changes = try library.all(includeDeleted: true).compactMap { original -> (before: Meeting, after: Meeting)? in
             var meeting = original
             let sampleIDs = Set(examples[original.id, default: []].map(\.segmentID))
@@ -1152,7 +1205,7 @@ final class AppState: ObservableObject {
                     // Generic labels are shared by unrelated voices.
                     let isRemote = segment.audioFile.map { !$0.contains("-mic.") } ?? false
                     guard oldName != "Я" || isRemote, let embedding = segment.embedding,
-                          VoiceMatcher.identify(embedding, profiles: voiceProfiles) == oldName else { continue }
+                          matcher?.identify(embedding) == oldName else { continue }
                 }
                 if segment.audioFile == nil, (oldName == "Я") != (newName == "Я") {
                     meeting.segments[index].audioFile = meeting.audioFiles.first {
@@ -1164,6 +1217,9 @@ final class AppState: ObservableObject {
             }
             return changed ? (original, meeting) : nil
         }
+        try saveVoiceChanges(changes, profiles: profiles)
+    }
+    private func saveVoiceChanges(_ changes: [(before: Meeting, after: Meeting)], profiles: [VoiceProfile]) throws {
         var saved: [Meeting] = []
         do {
             for change in changes {

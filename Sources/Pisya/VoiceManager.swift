@@ -38,6 +38,7 @@ struct VoiceManager: View {
     @State private var lastChosenName: String?
     @State private var allMatching = true
     @State private var remember = true
+    @State private var assignment: Task<Void, Never>?
     private var meeting: Meeting? { state.meetings.first { $0.id == meetingID } }
     private var sample: TranscriptSegment? {
         meeting?.segments.first { $0.id == selected && $0.speaker != TranscriptSegment.unidentifiedSpeaker }
@@ -49,7 +50,7 @@ struct VoiceManager: View {
     }
     private var automaticSample: TranscriptSegment? {
         guard let meeting, let selected else { return nil }
-        return state.voiceSample(for: selected, in: meeting, allMatching: allMatching)
+        return state.voiceSample(for: selected, in: meeting)
     }
     private func select(_ segment: TranscriptSegment) {
         showSuggestions = false
@@ -75,10 +76,17 @@ struct VoiceManager: View {
     }
 
     private func applyName() {
-        guard canApplyName, let selected else { return }
+        guard assignment == nil, canApplyName, let selected else { return }
         showSuggestions = false
         selectedSuggestion = nil
-        state.assignVoice(meetingID: meetingID, segmentID: selected, name: name, allMatching: allMatching, remember: remember && automaticSample != nil)
+        let name = name
+        let allMatching = allMatching
+        let remember = remember && automaticSample != nil
+        assignment = Task {
+            await state.assignVoice(meetingID: meetingID, segmentID: selected, name: name,
+                                    allMatching: allMatching, remember: remember)
+            assignment = nil
+        }
     }
 
     var body: some View {
@@ -115,12 +123,12 @@ struct VoiceManager: View {
                                     screenButton("Послушать образец · \(timecode(automaticSample.start))–\(timecode(automaticSample.end))") {
                                         state.preview(automaticSample, in: meeting)
                                     }.actionButton().disabled(state.recording || state.demo)
-                                    screenText("Образец до 8 секунд выбирается автоматически, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                                    screenText("Образец берётся из выбранного фрагмента, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 } else if automaticSample == nil {
-                                    screenText("Нет подходящего образца от 2 секунд с голосовым слепком и доступным аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                                    screenText("В выбранном фрагменте нет 2 секунд доступного аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").textStyle(PisyaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 }
-                                screenButton("Применить имя", action: applyName)
-                                    .actionButton(.primary).disabled(!canApplyName)
+                                screenButton(assignment == nil ? "Применить имя" : "Сохраняем…", action: applyName)
+                                    .actionButton(.primary).disabled(!canApplyName || assignment != nil)
                             }
                         } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -128,7 +136,7 @@ struct VoiceManager: View {
             }
         }.dialogContent().frame(width: 940, height: 660)
             .background(ClickToUnfocus(onEscape: dismissSuggestions))
-            .onDisappear { state.stopPlayback() }
+            .onDisappear { assignment?.cancel(); state.stopPlayback() }
     }
 
     private var nameEditor: some View {
