@@ -57,4 +57,5 @@ test('migration guide serves the verified source and destination paths', async (
   assert.match(page, /com\.docomoz\.pisya/);
   assert.match(page, /com\.domocoz\.pisa/);
   assert.match(page, /Pisa-before-migration/);
+  assert.match(page, /href="\/#install-guide"/);
 });
