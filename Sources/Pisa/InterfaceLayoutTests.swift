@@ -53,6 +53,55 @@ private struct InterfaceMeasurement: ViewModifier {
 
 @MainActor
 enum InterfaceLayoutTests {
+    private struct WebsiteFixture: Decodable {
+        struct Line: Decodable { let speaker: String; let text: String }
+        let title: String
+        let otherTitles: [String]
+        let dialogue: [Line]
+    }
+
+    // Render production views from a disposable library, without reading screen pixels.
+    static func renderWebsiteScreenshots(fixtureURL: URL, output: URL) throws {
+        guard NSScreen.main != nil else { throw PisaError.message("Снимкам нужен сеанс WindowServer") }
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        app.finishLaunching()
+        let fixture = try JSONDecoder().decode(WebsiteFixture.self, from: Data(contentsOf: fixtureURL))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Website-Render-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let state = AppState(rootURL: root)
+        state.modelSetup.phase = .ready
+        let host = LayoutHost(MainView().environmentObject(state), size: CGSize(width: 1400, height: 850), scale: 1)
+        defer { host.close() }
+        guard host.wait(for: { host.frames[.welcomeTitle]?.isEmpty == false }) else {
+            throw PisaError.message("Главный экран не отобразился")
+        }
+        try host.savePNG(to: output.appendingPathComponent("welcome.png"))
+
+        var meeting = Meeting(title: fixture.title, source: "Zoom")
+        meeting.status = .ready
+        meeting.duration = 180
+        meeting.date = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 7, hour: 22, minute: 10)) ?? Date()
+        meeting.segments = fixture.dialogue.enumerated().map { index, line in
+            TranscriptSegment(start: Double(index * 8), end: Double(index * 8 + 3), speaker: line.speaker, text: line.text)
+        }
+        for (index, title) in fixture.otherTitles.reversed().enumerated() {
+            var other = Meeting(title: title, source: "Zoom")
+            other.status = .ready
+            other.duration = 2400
+            other.date = Calendar.current.date(byAdding: .day, value: -(index + 1), to: meeting.date) ?? meeting.date
+            state.update(other)
+        }
+        state.update(meeting)
+        state.select(meeting.id)
+        guard host.wait(for: { host.frames[.transcriptSearch]?.isEmpty == false && host.frames[.meetingTitle]?.isEmpty == false }) else {
+            throw PisaError.message("Расшифровка не отобразилась")
+        }
+        try host.savePNG(to: output.appendingPathComponent("transcript.png"))
+    }
+
     static func run() -> Int32 {
         let app = NSApplication.shared
         guard NSScreen.main != nil else {
@@ -647,6 +696,14 @@ private final class LayoutHost {
         }
         guard minX < right, minY < bottom else { return nil }
         return (CGPoint(x: CGFloat(minX) / sx, y: CGFloat(minY) / sy), min(0.5, 1 / max(sx, sy)))
+    }
+
+    func savePNG(to url: URL) throws {
+        settle()
+        guard let image = renderedHost(), let data = image.representation(using: .png, properties: [:]) else {
+            throw PisaError.message("Не удалось создать изображение интерфейса")
+        }
+        try data.write(to: url, options: .atomic)
     }
 
     // Read only pixels from the synthetic host, in memory. No desktop capture.

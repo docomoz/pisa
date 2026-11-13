@@ -96,6 +96,23 @@ enum Launcher {
             }
             dispatchMain()
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--website-screenshots") {
+            MainActor.assumeIsolated {
+                guard CommandLine.arguments.count > index + 2 else {
+                    fputs("Usage: --website-screenshots FIXTURE_JSON OUTPUT_DIRECTORY\n", stderr)
+                    exit(2)
+                }
+                do {
+                    try InterfaceLayoutTests.renderWebsiteScreenshots(
+                        fixtureURL: URL(fileURLWithPath: CommandLine.arguments[index + 1]),
+                        output: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true))
+                    exit(0)
+                } catch {
+                    fputs("WEBSITE_SCREENSHOTS_FAILED: \(error)\n", stderr)
+                    exit(1)
+                }
+            }
+        }
         if CommandLine.arguments.contains("--interface-layout-self-test") {
             MainActor.assumeIsolated { exit(InterfaceLayoutTests.run()) }
         }
