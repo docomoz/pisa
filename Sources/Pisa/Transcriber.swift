@@ -722,8 +722,17 @@ actor Transcriber {
         try Task.checkCancellation()
         if BackchannelLanguage.shouldRecheck(text, duration: duration) {
             let decoded = try generate(language: "Russian", context: "")
-            let alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
+            var alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
                 corroboration: acousticRecognition(samples, using: russian)?.text, vocabulary: vocabulary)
+            if alternative == nil, let russian {
+                let retry = BackchannelLanguage.retryAudio(samples)
+                let independent = acousticRecognition(retry, using: russian)?.text
+                if independent != nil {
+                    let checked = try generate(language: "Russian", context: "", audioSamples: retry)
+                    alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: checked.text),
+                        corroboration: independent, vocabulary: vocabulary)
+                }
+            }
             return RecognizedSpeech(text: text, russianBackchannel: alternative)
         }
         // Diarization can leave a complete lexical reply shorter than two
