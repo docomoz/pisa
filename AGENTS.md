@@ -36,7 +36,7 @@
 
 ## Регулярная проверка проекта
 
-После каждого нового функционала и каждого исправления запускайте `python3 scripts/pretest.py` на окончательном снимке исходников. Это обязательный автоматический Pretest: полный набор core tests, проверки дизайн-системы, сайта, версий и нативных контролов. `scripts/build.sh` выполняет его до сборки; CI выполняет ту же команду на macOS. При `FAIL` или `BLOCKED` не называйте изменение проверенным и не выпускайте сборку. В среде без macOS `--portable` проверяет только переносимую часть и не заменяет полный прогон.
+Подбирайте проверки по масштабу правки и риску регрессии. Для небольшой локальной правки запускайте только тесты затронутого поведения. Для изменения отступа проверьте геометрию и внешний вид затронутого экрана. Для правки текста проверьте изменённые строки, их переносы и отображение. Полный локальный прогон оставляйте для крупных или сквозных изменений, подготовки выпуска и прямого запроса пользователя. Для сборки, которую готовите к выпуску, используйте `scripts/build.sh` с полным Pretest. Состав проверок описан в [docs/pretest.md](docs/pretest.md).
 
 Для UI/UX-фикса добавляйте проверку воспроизведённого поведения в существующий набор и связывайте её с причиной регрессии. Проверяйте тест на возвращённом дефекте или отрицательном контроле; тест, проверяющий только наличие строки в исходнике, не подтверждает поведение интерфейса. После изменения общего контрола включайте все его варианты, обычный и увеличенный текст, focus/blur, Tab/Shift+Tab, пустое и длинное содержимое. Автоматический Pretest дополняет обязательную визуальную проверку окончательного приложения; физический ввод, системные диалоги, реальные устройства и полноэкранные маршруты подтверждайте отдельно. Покрытие и ограничения: [docs/pretest.md](docs/pretest.md).
 
@@ -44,10 +44,7 @@
 
 Матрица объединяет исторические регрессии интерфейса, записи, распознавания, библиотеки, интеграций и поставки. Проверка выполняется несколькими агентами на недорогих моделях; интерфейсом управляет один исполнитель. Отчёт различает пройденные, ошибочные, заблокированные и незапущенные пункты. Запуск не подразумевает установку, публикацию или изменение пользовательских встреч.
 
-Для изменений интерфейса запускайте `Tests/Native/run-interface-controls-test.sh`
-и `Tests/Native/run-interface-layout-test.sh` на исходниках и сборке задачи.
-Добавляйте регрессионную проверку там, где исправление можно проверить
-по измерению отрисованного экрана или по результату действия.
+Выбирайте нативный тест по правке. Для общих контролов используйте `Tests/Native/run-interface-controls-test.sh`, для геометрии экранов в сборке задачи используйте `Tests/Native/run-interface-layout-test.sh`. Добавляйте регрессионную проверку там, где исправление можно проверить по измерению отрисованного экрана или результату действия.
 
 ## Скриншоты
 
@@ -65,7 +62,7 @@
 - Apply the shared `typographicText` presentation rules to human-readable interface text. Use `screenText`, `screenButton`, `screenLabel`, `screenToggle`, `screenMenu` and `screenHelp` rather than adding an unformatted string label.
 - Bind Russian short prepositions, conjunctions and particles to the following word with a nonbreaking space. Bind numbers to units, percentages and month names. Preserve deliberate paragraph breaks.
 - Editable values and stored transcripts remain unchanged. Show copyable paths and executable configuration with `screenText(verbatim:)`.
-- For every interface change, run the typography regression tests and visually inspect every affected screen, popup and state at the supported window sizes. Check wrapping, truncation, clipping, alignment, spacing and contrast after the last edit. A successful build is not a layout check.
+- Run the relevant typography regression tests when changing text or typography. For every interface change, visually inspect the affected screens, popups and states at the supported window sizes. Check wrapping, truncation, clipping, alignment, spacing and contrast after the last edit. A successful build is not a layout check.
 - Preserve the two-line maximum for sidebar items and readable control sizes. Avoid fixing wrapping by shrinking text.
 - Round completed sidebar durations up to minutes, then display hours and remaining minutes. Keep live counters and transcript timestamps precise.
 

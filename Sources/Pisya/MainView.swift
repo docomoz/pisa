@@ -51,6 +51,7 @@ struct MainView: View {
             topbarControls(compact: state.recording && geometry.size.width < 740)
         }
         .frame(height: panelHeight + 2 * PisyaDesign.Spacing.inline)
+        .measuredForInterfaceTest(.mainToolbar)
     }
     private func topbarControls(compact: Bool) -> some View {
         let spacing = compact ? PisyaDesign.Spacing.inline : PisyaDesign.Spacing.related
@@ -232,6 +233,7 @@ struct MeetingView: View {
             .lineLimit(1)
             .textStyle(PisyaDesign.Typography.detail)
             .foregroundStyle(Color.mutedInk)
+            .measuredForInterfaceTest(.meetingMetadata)
             .padding(.bottom, PisyaDesign.Spacing.related)
             TextField("Название встречи", text: titleInput).textFieldStyle(.plain)
                 .textStyle(PisyaDesign.Typography.pageTitle).focused($titleFocused)
@@ -274,7 +276,9 @@ struct MeetingView: View {
             }
             .padding(.top, PisyaDesign.Spacing.content)
             HStack(spacing: PisyaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisyaDesign.Spacing.content)
-        }.padding([.top, .horizontal], PisyaDesign.Spacing.page)
+        }
+        .padding(.top, PisyaDesign.Spacing.related)
+        .padding(.horizontal, PisyaDesign.Spacing.page)
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
         .onChange(of: canToggleAudio) { _, enabled in

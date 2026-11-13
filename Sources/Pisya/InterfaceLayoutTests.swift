@@ -5,7 +5,7 @@ import SwiftUI
 // Attach passive measurements only when a test host supplies the named space.
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
-    case meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
+    case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
@@ -202,6 +202,9 @@ private final class LayoutSuite {
     }
 
     private func checkMeetingHeader(in host: LayoutHost) -> CGRect? {
+        if let header = frames([.mainToolbar, .meetingMetadata], in: host) {
+            equal(header[1].minY - header[0].maxY, 12, "meeting metadata starts just below the main toolbar")
+        }
         guard let measured = frames([.meetingTitle, .meetingContent], in: host) else { return nil }
         equal(measured[1].minY - measured[0].maxY, 16, "single gap below the meeting title")
         equal(measured[0].minX, measured[1].minX, "title and meeting content have the same left edge")
