@@ -33,3 +33,33 @@ test('works when the hosting runtime supplies environment and context', async ()
     globalThis.fetch = original;
   }
 });
+
+test('retries one stale latest redirect with a unique cache buster on 404', async () => {
+  const retries = [];
+  for (let i = 0; i < 2; i++) {
+    const calls = [];
+    const result = await handleRequest(new Request('https://pisa.example/download'), async (url, options) => {
+      calls.push(url);
+      assert.equal(options.cache, 'no-store');
+      return calls.length === 1 ? new Response('', { status: 404 }) : new Response(feed(dmg));
+    });
+    assert.equal(result.status, 302);
+    assert.equal(result.headers.get('location'), dmg);
+    assert.equal(calls.length, 2);
+    const retry = new URL(calls[1]);
+    assert.equal(retry.origin + retry.pathname, calls[0]);
+    retries.push(retry.searchParams.get('site_retry'));
+  }
+  assert.ok(retries[0]);
+  assert.notEqual(retries[0], retries[1]);
+});
+
+test('a second 404 stops retrying and returns an error', async () => {
+  let calls = 0;
+  const result = await handleRequest(new Request('https://pisa.example/download'), async () => {
+    calls++;
+    return new Response('', { status: 404 });
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.status, 503);
+});

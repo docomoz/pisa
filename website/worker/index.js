@@ -15,7 +15,13 @@ export async function handleRequest(request, fetchFeed = fetch) {
   if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   if (pathname === '/download') {
     try {
-      const upstream = await fetchFeed(APPCAST_URL, { redirect: 'follow', signal: AbortSignal.timeout(10000) });
+      let upstream = await fetchFeed(APPCAST_URL, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      // Some GitHub edges briefly cache the old latest-release redirect after publishing.
+      if (upstream.status === 404) {
+        const retryUrl = new URL(APPCAST_URL);
+        retryUrl.searchParams.set('site_retry', crypto.randomUUID());
+        upstream = await fetchFeed(retryUrl.href, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      }
       if (!upstream.ok) throw new Error('Feed unavailable');
       const length = Number(upstream.headers.get('content-length') || 0);
       if (length > 262144) throw new Error('Feed too large');
