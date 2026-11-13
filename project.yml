@@ -85,7 +85,7 @@ targets:
         HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/Sherpa/include $(SRCROOT)/Vendor/WebRTCAEC/include
         GCC_PREPROCESSOR_DEFINITIONS: $(inherited) FLOATING_POINT USE_KISS_FFT EXPORT=
         LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/../Frameworks
-        PRODUCT_BUNDLE_IDENTIFIER: com.domocoz.pisa
+        PRODUCT_BUNDLE_IDENTIFIER: com.docomoz.pisa
         PRODUCT_NAME: Pisa
         INFOPLIST_FILE: Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Resources/Pisa.entitlements
@@ -100,7 +100,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: pisa-mcp
-        PRODUCT_BUNDLE_IDENTIFIER: com.domocoz.pisa.mcp
+        PRODUCT_BUNDLE_IDENTIFIER: com.docomoz.pisa.mcp
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: XCODE_BUILD
 schemes:
   Pisa:

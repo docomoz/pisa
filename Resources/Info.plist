@@ -22,7 +22,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.domocoz.pisa.transcript</string>
+			<string>com.docomoz.pisa.transcript</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>pisa</string>
@@ -32,9 +32,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.225</string>
+	<string>0.4.226</string>
 	<key>CFBundleVersion</key>
-	<string>265</string>
+	<string>266</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -46,7 +46,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://github.com/docomoz/pisa/releases/latest/download/pisa-appcast.xml</string>
+	<string>https://github.com/docomoz/pisa/releases/latest/download/pisa-updates.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>g9qlO8D7mHG5qkvX0v9ZpnQb+0JZNfKXknt6no+XDrw=</string>
 	<key>SUEnableInstallerLauncherService</key>

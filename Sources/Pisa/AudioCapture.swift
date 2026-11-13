@@ -14,8 +14,8 @@ final class AudioCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
     private var systemAudio: SystemAudioTap?
     private var microphoneSession: AVCaptureSession?
     private var microphoneErrorObserver: NSObjectProtocol?
-    private let sessionQueue = DispatchQueue(label: "com.domocoz.pisa.microphone", qos: .userInitiated)
-    private let queue = DispatchQueue(label: "com.domocoz.pisa.audio", qos: .userInitiated)
+    private let sessionQueue = DispatchQueue(label: "com.docomoz.pisa.microphone", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.docomoz.pisa.audio", qos: .userInitiated)
     private var writers: [CaptureTrack: AVAudioFile] = [:]
     private var paths: [CaptureTrack: URL] = [:]
     private var firstTimes: [CaptureTrack: Double] = [:]
@@ -259,7 +259,7 @@ enum CallAudioProbe {
             var bundle: CFString = "" as CFString
             var bundleSize = UInt32(MemoryLayout<CFString>.size)
             var property = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyBundleID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-            guard AudioObjectGetPropertyData(process, &property, 0, nil, &bundleSize, &bundle) == noErr, !(bundle as String).isEmpty, !(bundle as String).hasPrefix(Bundle.main.bundleIdentifier ?? "com.domocoz.pisa") else { continue }
+            guard AudioObjectGetPropertyData(process, &property, 0, nil, &bundleSize, &bundle) == noErr, !(bundle as String).isEmpty, !(bundle as String).hasPrefix(Bundle.main.bundleIdentifier ?? "com.docomoz.pisa") else { continue }
             // Microphone use is a heuristic for calls, including browser calls. Playback alone must not start recording.
             for selector in [kAudioProcessPropertyIsRunningInput] {
                 property.mSelector = selector; var running: UInt32 = 0; var count = UInt32(MemoryLayout<UInt32>.size)

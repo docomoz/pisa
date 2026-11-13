@@ -6,7 +6,7 @@ const dmg = 'https://github.com/docomoz/pisa/releases/download/v1.2.3/Pisa-1.2.3
 const feed = url => `<rss><channel><item><enclosure url="${url}" /></item></channel></rss>`;
 test('redirects to the current DMG from the update feed without GitHub API', async () => {
   const result = await handleRequest(new Request('https://pisa.example/download'), async url => {
-    assert.equal(url, 'https://github.com/docomoz/pisa/releases/latest/download/pisa-appcast.xml');
+    assert.equal(url, 'https://github.com/docomoz/pisa/releases/latest/download/pisa-updates.xml');
     return new Response(feed(dmg));
   });
   assert.equal(result.status, 302);

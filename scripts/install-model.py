@@ -7,7 +7,7 @@ def digest(path):
         for chunk in iter(lambda: f.read(1024 * 1024), b''): value.update(chunk)
     return value.hexdigest()
 
-root = pathlib.Path.home() / 'Library/Containers/com.domocoz.pisa/Data/Library/Application Support/Pisa/Models'
+root = pathlib.Path.home() / 'Library/Containers/com.docomoz.pisa/Data/Library/Application Support/Pisa/Models'
 manifest = json.loads((pathlib.Path(__file__).parent / 'models.json').read_text())
 for item in manifest:
     destination = root / item['path']

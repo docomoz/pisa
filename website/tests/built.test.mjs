@@ -55,7 +55,7 @@ test('migration guide serves the verified source and destination paths', async (
   assert.equal(response.status, 200);
   const page = await response.text();
   assert.match(page, /com\.docomoz\.pisya/);
-  assert.match(page, /com\.domocoz\.pisa/);
+  assert.match(page, /com\.docomoz\.pisa/);
   assert.match(page, /Pisa-before-migration/);
   assert.match(page, /href="\/#install-guide"/);
   assert.match(page, /выполните только шаги 1 и 2/);

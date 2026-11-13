@@ -3,7 +3,7 @@ import Foundation
 import PisaCore
 #endif
 let home = FileManager.default.homeDirectoryForCurrentUser
-let root = home.appendingPathComponent("Library/Containers/com.domocoz.pisa/Data/Library/Application Support/Pisa")
+let root = home.appendingPathComponent("Library/Containers/com.docomoz.pisa/Data/Library/Application Support/Pisa")
 do {
     let library = try MeetingLibrary(root: root)
     let handler = MCPHandler(library: library)

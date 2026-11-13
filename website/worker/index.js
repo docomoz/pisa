@@ -1,4 +1,4 @@
-const APPCAST_URL = 'https://github.com/docomoz/pisa/releases/latest/download/pisa-appcast.xml';
+const APPCAST_URL = 'https://github.com/docomoz/pisa/releases/latest/download/pisa-updates.xml';
 const RELEASE_PAGE = 'https://github.com/docomoz/pisa/releases/latest';
 
 export function downloadFromAppcast(xml) {

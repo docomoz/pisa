@@ -82,7 +82,7 @@ final class AppState: ObservableObject {
     private var meterTask: Task<Void, Never>?
     private var offsetTask: Task<Void, Never>?
     private let transcriber = Transcriber()
-    private static let transcriptionLog = Logger(subsystem: "com.domocoz.pisa", category: "transcription")
+    private static let transcriptionLog = Logger(subsystem: "com.docomoz.pisa", category: "transcription")
     private let transcriptionPerformance = TranscriptionPerformance(mode: .quiet)
     private var turboActivity: NSObjectProtocol?
     private let titleModel = MeetingTitleModel()

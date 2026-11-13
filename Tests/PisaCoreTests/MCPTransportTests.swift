@@ -36,7 +36,7 @@ final class MCPTransportTests: XCTestCase {
         guard let initialize = try request("initialize") else { return }
         let result = try XCTUnwrap(initialize["result"] as? [String: Any])
         XCTAssertNotNil(result["protocolVersion"])
-        let meetings = home.appendingPathComponent("Library/Containers/com.domocoz.pisa/Data/Library/Application Support/Pisa/Meetings")
+        let meetings = home.appendingPathComponent("Library/Containers/com.docomoz.pisa/Data/Library/Application Support/Pisa/Meetings")
         guard FileManager.default.fileExists(atPath: meetings.path) else { return XCTFail("Server did not use the test library") }
         guard let list = try request("tools/list") else { return }
         let tools = (list["result"] as? [String: Any])?["tools"] as? [[String: Any]]

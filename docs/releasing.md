@@ -13,24 +13,24 @@ DMG для Apple Silicon, подписанный список обновлен�
    ./scripts/prepare-release.sh build/Pisa-0.4.4-arm64.dmg /path/to/release-notes.md
    ```
 
-   В `build/release-v0.4.4/` появятся готовый DMG, два подписанных файла `pisa-appcast.xml` и `appcast.xml`, `SHA256SUMS` и описание Homebrew `pisa.rb`. Загружайте эту копию образа. Подпись и контрольная сумма вычислены для её байтов.
+   В `build/release-v0.4.4/` появятся готовый DMG, три подписанных файла `pisa-updates.xml`, `pisa-appcast.xml` и `appcast.xml`, `SHA256SUMS` и описание Homebrew `pisa.rb`. Загружайте эту копию образа. Подпись и контрольная сумма вычислены для её байтов.
 
 Для подписи нужен закрытый ключ Sparkle из локальной связки ключей с именем аккаунта `pisya`. Скрипт сверяет его открытый ключ с ключом внутри DMG. Для резервной копии используйте `generate_keys --account pisya -x /path/to/private-backup` из `build/SourcePackages/artifacts/sparkle/Sparkle/bin/`. Храните копию в защищённом месте. Ключ из резервной копии можно импортировать через `generate_keys --account pisya -f /path/to/private-backup`. Сохранение того же ключа позволяет установленным копиям получать следующие версии.
 
 ## Публикация
 
-1. Загрузите коммит в GitHub и создайте черновик релиза. Укажите точный коммит сборки и добавьте четыре файла.
+1. Загрузите коммит в GitHub и создайте черновик релиза. Укажите точный коммит сборки и добавьте пять файлов.
 
    ```sh
    gh release create v0.4.4 --draft --target COMMIT --title "Pisa 0.4.4" \
      --notes-file /path/to/release-notes.md \
      build/release-v0.4.4/Pisa-0.4.4-arm64.dmg \
      build/release-v0.4.4/pisa-appcast.xml build/release-v0.4.4/appcast.xml \
-     build/release-v0.4.4/SHA256SUMS
+     build/release-v0.4.4/pisa-updates.xml build/release-v0.4.4/SHA256SUMS
    ```
 
-2. Когда релиз готов, опубликуйте его как обычный релиз и отметьте как **Latest**. По адресу `releases/latest/download/pisa-appcast.xml` Pisa получает список обновлений текущего релиза. Предрелизы можно распространять через их собственные страницы.
-3. Проверьте загрузку DMG из GitHub и «Проверить обновления…» в предыдущей версии с поддержкой Sparkle. Старый `appcast.xml` открывает [инструкцию по переносу](migration.md) для Pisya. У двух приложений разные системные идентификаторы, поэтому переход выполняется вручную.
+2. Когда релиз готов, опубликуйте его как обычный релиз и отметьте как **Latest**. По адресу `releases/latest/download/pisa-updates.xml` Pisa получает список обновлений текущего релиза. Предрелизы можно распространять через их собственные страницы.
+3. Проверьте загрузку DMG из GitHub и «Проверить обновления…» в предыдущей версии с поддержкой Sparkle. Каналы `appcast.xml` для Pisya и `pisa-appcast.xml` для Pisa 0.4.222 ведут на [инструкцию по переносу](migration.md).
 4. Скопируйте сгенерированный `pisa.rb` в `Casks/` репозитория tap, проверьте `brew audit --cask --strict --online docomoz/tap/pisa` и опубликуйте изменение. Строка `auto_updates true` сообщает Homebrew, что Pisa сама устанавливает новые версии. Для принудительного обновления через Homebrew используйте `brew upgrade --cask --greedy docomoz/tap/pisa`.
 
 ## Автоматическая версия коммитов

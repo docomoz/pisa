@@ -20,7 +20,7 @@ cask "pisa" do
 
   app "Pisa.app"
 
-  uninstall quit: "com.domocoz.pisa"
+  uninstall quit: "com.docomoz.pisa"
 
   caveats <<~EOS
     This build has not been notarized by Apple. Before the first launch, run:
