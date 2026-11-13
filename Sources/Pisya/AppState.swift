@@ -998,21 +998,28 @@ final class AppState: ObservableObject {
             guard Double(written) / file.processingFormat.sampleRate >= 2 else { throw PisyaError.message("В файле осталось меньше 2 секунд для образца") }
         } catch { output.close(); try? FileManager.default.removeItem(at: url); throw error }
         var profiles = voiceProfiles
-        // Correcting a previously saved sample must remove its old training assignment.
-        for i in profiles.indices {
-            let previous = profiles[i].examples?.filter { $0.meetingID == meeting.id && $0.segmentID == segment.id } ?? []
-            for old in previous { profiles[i].samples.removeAll { $0 == old.embedding } }
-            profiles[i].examples?.removeAll { $0.meetingID == meeting.id && $0.segmentID == segment.id }
+        // A clip belongs to the voice it was most recently assigned to.
+        for index in profiles.indices {
+            let examples = profiles[index].examples ?? []
+            let retained = examples.filter { $0.meetingID != meeting.id || $0.segmentID != segment.id }
+            if retained.count != examples.count {
+                replaceVoiceExamples(in: &profiles[index], with: retained)
+            }
         }
-        if !profiles.contains(where: { $0.name == name }) { profiles.append(VoiceProfile(name: name, samples: [])) }
-        let index = profiles.firstIndex(where: { $0.name == name })!
-        profiles[index].samples = Array((profiles[index].samples + [embedding]).suffix(10))
-        var examples = profiles[index].examples ?? []
-        examples.append(VoiceExample(file: clipName, meetingID: meeting.id, segmentID: segment.id, embedding: embedding))
-        profiles[index].examples = Array(examples.suffix(10))
-        do { try library.saveVoices(profiles); let previous = voiceProfiles; voiceProfiles = profiles; cleanupVoiceExamples(previous: previous, current: profiles) }
+        let index: Int
+        if let existing = profiles.firstIndex(where: { $0.name == name }) {
+            index = existing
+        } else {
+            index = profiles.count
+            profiles.append(VoiceProfile(name: name, samples: []))
+        }
+        let example = VoiceExample(file: clipName, meetingID: meeting.id, segmentID: segment.id, embedding: embedding)
+        profiles[index].samples.append(embedding)
+        profiles[index].examples = (profiles[index].examples ?? []) + [example]
+        do { try saveVoiceProfiles(profiles) }
         catch { try? FileManager.default.removeItem(at: url); throw error }
     }
+
     func cancelProcessing() {
         setTurboEnabled(false)
         processingTask?.cancel()
@@ -1098,8 +1105,32 @@ final class AppState: ObservableObject {
         guard profile.name != clean else { return }
         var updated = voiceProfiles
         updated[index].name = clean
-
+        try saveVoiceNameChange(from: profile, to: clean, profiles: updated)
+    }
+    func mergeVoice(_ sourceID: UUID, into targetID: UUID) throws {
+        guard sourceID != targetID else { throw PisyaError.message("Выберите другой голос") }
+        guard let source = voiceProfiles.first(where: { $0.id == sourceID }),
+              let targetIndex = voiceProfiles.firstIndex(where: { $0.id == targetID }) else {
+            throw PisyaError.message("Один из выбранных голосов уже удалён")
+        }
+        var updated = voiceProfiles
+        var merged = updated[targetIndex]
+        let targetExamples = merged.examples ?? []
+        let sourceExamples = source.examples ?? []
+        merged.samples = unpairedVoiceSamples(in: merged) + unpairedVoiceSamples(in: source)
+        let examples = targetExamples + sourceExamples
+        merged.samples += examples.map(\.embedding)
+        if !examples.isEmpty { merged.examples = examples }
+        updated[targetIndex] = merged
+        updated.removeAll { $0.id == sourceID }
+        try saveVoiceNameChange(from: source, to: merged.name, profiles: updated)
+    }
+    private func saveVoiceNameChange(from profile: VoiceProfile, to newName: String, profiles: [VoiceProfile]) throws {
         let oldName = profile.name
+        guard oldName != newName else {
+            try saveVoiceProfiles(profiles)
+            return
+        }
         let isDefaultLabel = oldName == "Я" || oldName == "Собеседники" ||
             (oldName.hasPrefix("Спикер ") && Int(oldName.dropFirst("Спикер ".count)) != nil)
         let examples = Dictionary(grouping: profile.examples ?? [], by: \.meetingID)
@@ -1115,12 +1146,12 @@ final class AppState: ObservableObject {
                     guard oldName != "Я" || isRemote, let embedding = segment.embedding,
                           VoiceMatcher.identify(embedding, profiles: voiceProfiles) == oldName else { continue }
                 }
-                if segment.audioFile == nil, (oldName == "Я") != (clean == "Я") {
+                if segment.audioFile == nil, (oldName == "Я") != (newName == "Я") {
                     meeting.segments[index].audioFile = meeting.audioFiles.first {
                         oldName == "Я" ? $0.contains("-mic.") : $0.contains("-remote.")
                     } ?? meeting.audioFiles.first
                 }
-                meeting.segments[index].speaker = clean
+                meeting.segments[index].speaker = newName
                 changed = true
             }
             return changed ? (original, meeting) : nil
@@ -1131,7 +1162,7 @@ final class AppState: ObservableObject {
                 try library.save(change.after)
                 saved.append(change.before)
             }
-            try library.saveVoices(updated)
+            try saveVoiceProfiles(profiles)
         } catch {
             var rollbackFailed = false
             for meeting in saved.reversed() {
@@ -1139,25 +1170,56 @@ final class AppState: ObservableObject {
                 catch { rollbackFailed = true }
             }
             if rollbackFailed {
-                throw PisyaError.message("Не удалось переименовать голос и восстановить все прежние подписи. Проверьте доступ к библиотеке и повторите переименование")
+                throw PisyaError.message("Не удалось сохранить изменение и восстановить все прежние подписи. Проверьте доступ к библиотеке и повторите действие.")
             }
             throw error
         }
-        voiceProfiles = updated
         if !demo {
             for change in changes { upsert(change.after) }
             for change in changes where change.after.status == .ready { exportIfConfigured(change.after) }
         }
     }
+    func removeVoiceExample(_ exampleID: UUID, from profileID: UUID) throws {
+        guard let index = voiceProfiles.firstIndex(where: { $0.id == profileID }),
+              let examples = voiceProfiles[index].examples,
+              examples.contains(where: { $0.id == exampleID }) else {
+            throw PisyaError.message("Образец уже удалён")
+        }
+        let retained = examples.filter { $0.id != exampleID }
+        guard !retained.isEmpty else {
+            throw PisyaError.message("Последний образец можно удалить вместе с голосом")
+        }
+        var updated = voiceProfiles
+        replaceVoiceExamples(in: &updated[index], with: retained)
+        try saveVoiceProfiles(updated)
+    }
+    private func replaceVoiceExamples(in profile: inout VoiceProfile, with examples: [VoiceExample]) {
+        profile.samples = unpairedVoiceSamples(in: profile) + examples.map(\.embedding)
+        profile.examples = examples
+    }
+    private func unpairedVoiceSamples(in profile: VoiceProfile) -> [[Float]] {
+        // Older profiles may have embeddings without audio, or fewer embeddings than clips.
+        var unpairedSamples = profile.samples
+        for example in profile.examples ?? [] {
+            if let index = unpairedSamples.firstIndex(of: example.embedding) {
+                unpairedSamples.remove(at: index)
+            }
+        }
+        return unpairedSamples
+    }
     func forgetVoice(_ id: UUID) throws {
+        try saveVoiceProfiles(voiceProfiles.filter { $0.id != id })
+    }
+    private func saveVoiceProfiles(_ profiles: [VoiceProfile]) throws {
+        try library.saveVoices(profiles)
         let previous = voiceProfiles
-        let updated = voiceProfiles.filter { $0.id != id }
-        try library.saveVoices(updated)
-        if let playingSegmentID, previous.first(where: { $0.id == id })?.examples?.contains(where: { $0.id == playingSegmentID }) == true {
+        if let playingSegmentID,
+           previous.contains(where: { $0.examples?.contains(where: { $0.id == playingSegmentID }) == true }),
+           !profiles.contains(where: { $0.examples?.contains(where: { $0.id == playingSegmentID }) == true }) {
             stopPlayback()
         }
-        voiceProfiles = updated
-        cleanupVoiceExamples(previous: previous, current: updated)
+        voiceProfiles = profiles
+        cleanupVoiceExamples(previous: previous, current: profiles)
     }
     private func cleanupVoiceExamples(previous: [VoiceProfile], current: [VoiceProfile]) {
         let retained = Set(current.flatMap { $0.examples ?? [] }.map(\.file))

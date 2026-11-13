@@ -142,7 +142,92 @@ enum VoiceProfileTests {
         let selfSegments = try restarted.library.read(selfMeeting.id).segments
         try check(selfSegments.map(\.speaker) == ["Ведущий", "Я", "Ведущий"], "Rename did not distinguish a voice from a generic microphone label")
         try check(selfSegments[0].audioFile == "test-mic.caf", "Rename changed the selected audio track")
-        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label")
+        try checkMergeAndExampleRemoval()
+        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label merge remove_sample")
+    }
+
+    private static func checkMergeAndExampleRemoval() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Voice-Merge-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        try seed(state, count: 2)
+        // Legacy profiles can have a clip without a matching training vector and vice versa.
+        state.voiceProfiles[0].samples.removeLast()
+        state.voiceProfiles[0].samples.append([-1, 0])
+        state.voiceProfiles[1].samples.append([1, 0])
+        try state.library.saveVoices(state.voiceProfiles)
+        let source = state.voiceProfiles[0]
+        let target = state.voiceProfiles[1]
+        let sourceExamples = source.examples ?? []
+        let targetExamples = target.examples ?? []
+        let sampleFolder = root.appendingPathComponent("VoiceSamples")
+        let first = sourceExamples[0]
+        let last = targetExamples[0]
+
+        var meeting = Meeting(title: "Встреча", source: "Проверка")
+        meeting.status = .ready
+        meeting.audioFiles = ["meeting.caf"]
+        let audioURL = try state.library.audioURL(meeting.audioFiles[0])
+        try FileManager.default.copyItem(at: sampleFolder.appendingPathComponent(first.file), to: audioURL)
+        meeting.segments = [
+            TranscriptSegment(start: 0, end: 3, speaker: source.name, text: "Анна говорит"),
+            TranscriptSegment(start: 0, end: 3, speaker: target.name, text: "Борис отвечает"),
+        ]
+        meeting.segments[0].embedding = [1, 1]
+        state.update(meeting)
+        var trashed = Meeting(title: "Корзина", source: "Проверка")
+        trashed.deletedAt = Date()
+        trashed.segments = [TranscriptSegment(start: 0, end: 2, speaker: source.name, text: "Готово")]
+        state.update(trashed)
+
+        func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+            if try !condition() { throw PisyaError.message(message) }
+        }
+        func expectFailure(_ action: () throws -> Void, _ message: String) throws {
+            do { try action() } catch { return }
+            throw PisyaError.message(message)
+        }
+
+        try expectFailure({ try state.mergeVoice(source.id, into: source.id) }, "Merged a voice into itself")
+        try expectFailure({ try state.removeVoiceExample(last.id, from: target.id) }, "Removed the only audio example")
+        let voicesURL = root.appendingPathComponent("voices.json")
+        let backupURL = root.appendingPathComponent("voices-backup.json")
+        try FileManager.default.moveItem(at: voicesURL, to: backupURL)
+        try FileManager.default.createDirectory(at: voicesURL, withIntermediateDirectories: false)
+        state.playExample(first)
+        try expectFailure({ try state.mergeVoice(source.id, into: target.id) }, "Merge succeeded with a blocked profile store")
+        try expectFailure({ try state.removeVoiceExample(first.id, from: source.id) }, "Removal succeeded with a blocked profile store")
+        try expect(try state.library.read(meeting.id).segments[0].speaker == source.name, "Failed merge changed a saved meeting")
+        try expect(try state.library.read(trashed.id).segments[0].speaker == source.name, "Failed merge changed a trashed meeting")
+        try expect(state.voiceProfiles.count == 2 && state.playingSegmentID == first.id, "Failed save changed voices or playback")
+        try expect(FileManager.default.fileExists(atPath: sampleFolder.appendingPathComponent(first.file).path), "Failed save removed audio")
+        try FileManager.default.removeItem(at: voicesURL)
+        try FileManager.default.moveItem(at: backupURL, to: voicesURL)
+
+        try state.mergeVoice(source.id, into: target.id)
+        let mergedIDs = Set((sourceExamples + targetExamples).map(\.id))
+        try expect(state.voiceProfiles.map(\.id) == [target.id], "Merge did not keep the chosen voice")
+        try expect(Set(state.voiceProfiles[0].examples?.map(\.id) ?? []) == mergedIDs, "Merge lost audio examples")
+        try expect(state.voiceProfiles[0].samples.count == source.samples.count + target.samples.count + 1, "Merge lost a legacy vector or failed to restore training from a saved clip")
+        try expect(VoiceMatcher.identify([1, 0], profiles: state.voiceProfiles) == target.name, "Source samples still use the old name")
+        try expect(try state.library.read(meeting.id).segments.map(\.speaker) == [target.name, target.name], "Merge did not update a saved meeting")
+        try expect(try state.library.read(trashed.id).segments[0].speaker == target.name, "Merge did not update a trashed meeting")
+        try expect(state.meetings.first { $0.id == meeting.id }?.segments[0].speaker == target.name, "Merge did not update the open library")
+
+        state.assignVoice(meetingID: meeting.id, segmentID: meeting.segments[0].id, name: target.name, allMatching: false, remember: true)
+        let afterRemembering = Set(state.voiceProfiles[0].examples?.map(\.id) ?? [])
+        try expect(afterRemembering.count == mergedIDs.count + 1 && mergedIDs.isSubset(of: afterRemembering), "Remembering a sample discarded merged clips")
+
+        try state.removeVoiceExample(first.id, from: target.id)
+        try expect(state.playingSegmentID == nil, "Removing the playing example did not stop playback")
+        try expect(!FileManager.default.fileExists(atPath: sampleFolder.appendingPathComponent(first.file).path), "Removed audio example remains on disk")
+        try expect(state.voiceProfiles[0].samples.filter { $0 == first.embedding }.count == sourceExamples.count, "Removal erased recognition for matching retained samples")
+        try state.removeVoiceExample(last.id, from: target.id)
+        try expect(VoiceMatcher.identify(last.embedding, profiles: state.voiceProfiles) == nil, "Deleted example still trains recognition")
+        try expect(state.voiceProfiles[0].samples.contains([-1, 0]), "Removal erased a legacy embedding")
+        let restarted = AppState(rootURL: root)
+        try expect(restarted.voiceProfiles[0].samples == state.voiceProfiles[0].samples, "Edited recognition data did not survive restart")
+        try expect(Set(restarted.voiceProfiles[0].examples?.map(\.id) ?? []) == afterRemembering.subtracting([first.id, last.id]), "Edited audio list did not survive restart")
     }
 
     static func seed(_ state: AppState, count: Int) throws {
@@ -164,6 +249,7 @@ enum VoiceProfileTests {
                 examples.append(VoiceExample(file: filename, meetingID: UUID(), segmentID: UUID(), embedding: embedding))
             }
             profile.examples = examples
+            if !examples.isEmpty { profile.samples = examples.map(\.embedding) }
             profiles.append(profile)
         }
         try state.library.saveVoices(profiles); state.voiceProfiles = profiles
@@ -175,7 +261,14 @@ enum VoiceProfileTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Voices-Preview-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let state = AppState(rootURL: root)
-        if !CommandLine.arguments.contains("--empty") { try seed(state, count: 12) }
+        if !CommandLine.arguments.contains("--empty") {
+            try seed(state, count: 12)
+            if let example = state.voiceProfiles.first?.examples?.first {
+                var meeting = Meeting(title: "Обсуждение планов команды на следующую неделю", source: "Проверка")
+                meeting.id = example.meetingID
+                state.update(meeting)
+            }
+        }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Pisya · Голоса"
         window.contentView = NSHostingView(rootView: SettingsView(initialSection: "Голоса").environmentObject(state).preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU"))

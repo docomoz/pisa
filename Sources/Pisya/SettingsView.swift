@@ -14,7 +14,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             HStack(spacing: PisyaDesign.Spacing.inline) { SectionHeading("Настройки", style: .window); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(PisyaDesign.Typography.Icon.close).foregroundStyle(Color.mutedInk) }.shapeAwarePlainButton(Circle()).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
             SettingsSectionPicker(selection: $section)
-            ScrollViewReader { proxy in
+            if section == "Голоса" {
+                SavedVoicesSettings()
+            } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
                     switch section {
@@ -45,8 +47,6 @@ struct SettingsView: View {
 
                             }
                         }
-                    case "Голоса":
-                        SavedVoicesSettings(scrollTo: { id in proxy.scrollTo(id) })
                     case "Экспорт":
                         columns {
                         block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
