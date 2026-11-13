@@ -1,3 +1,4 @@
+import NaturalLanguage
 import XCTest
 @testable import PisyaCore
 
@@ -65,8 +66,19 @@ final class RecognitionConsensusTests: XCTestCase {
         let original = "Наташке ну сказал да."
         let candidate = "Наташа кивнула и сказала да."
         let corroboration = "Наташа кивнула, сказала: «Да»."
+        // Some macOS installations do not provide Russian verb lemmas.
+        // The production fallback preserves the original when either is missing.
+        let tagger = NLTagger(tagSchemes: [.lemma])
+        tagger.string = candidate
+        tagger.setLanguage(.russian, range: candidate.startIndex..<candidate.endIndex)
+        let hasVerbLemmas = ["кивнула", "сказала"].allSatisfy { word in
+            guard let start = candidate.range(of: word)?.lowerBound,
+                  let lemma = tagger.tag(at: start, unit: .word, scheme: .lemma).0?.rawValue else { return false }
+            return lemma.hasSuffix("ть")
+        }
         XCTAssertEqual(RecognitionConsensus.revisedText(original: original, candidate: candidate,
-            corroboration: corroboration, vocabulary: "Наташа", allowShortTurn: true), corroboration)
+            corroboration: corroboration, vocabulary: "Наташа", allowShortTurn: true),
+            hasVerbLemmas ? corroboration : nil)
         for unsafe in ["Наташа кивнула или сказала да.", "Наташа кивнула и не сказала да.",
                        "Наташа кивнула и сказала нет.", "Наташа кивнула и всё сказала да."] {
             XCTAssertNil(RecognitionConsensus.revisedText(original: original, candidate: unsafe,

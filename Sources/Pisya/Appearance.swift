@@ -339,7 +339,7 @@ private final class StationaryPlaceholderField: NSTextField {
         style.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.placeholderTextColor,
+            .foregroundColor: NSColor(PisyaDesign.Colors.mutedInk),
             .paragraphStyle: style,
         ]
         let content = cell.titleRect(forBounds: bounds)
