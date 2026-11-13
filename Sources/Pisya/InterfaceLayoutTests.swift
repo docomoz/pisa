@@ -6,12 +6,13 @@ import SwiftUI
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
     case meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
-    case transcriptSearch, firstMeetingAction, detailsButton
+    case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String)
-    case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult
-    case termSearch, termFind
+    case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit
+    case termSearch, termFind, termReplacement
+    case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
 }
 
 private struct InterfaceFrames: PreferenceKey {
@@ -173,10 +174,19 @@ private final class LayoutSuite {
                 }
             }
         }
-        for scale in [1.0, 1.2] {
-            checkSetup(state.modelSetup, scale: scale)
-            checkRecordingLevels(state.recordingMonitor, scale: scale)
+        var voiceMeeting = ready
+        voiceMeeting.id = UUID()
+        voiceMeeting.audioFiles = []
+        state.update(voiceMeeting)
+        let savedVoice = VoiceProfile(name: "ПППППП", samples: [[1, 0]])
+        state.voiceProfiles = [savedVoice]
+        for scale in [1.0, 1.1, 1.2] {
+            if scale != 1.1 {
+                checkSetup(state.modelSetup, scale: scale)
+                checkRecordingLevels(state.recordingMonitor, scale: scale)
+            }
             checkForms(state: state, meeting: ready, scale: scale)
+            checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
         }
     }
 
@@ -263,6 +273,12 @@ private final class LayoutSuite {
             }
             if let measured = frames([.dictionarySearch, .dictionaryEntry, .dictionaryAdd, .dictionaryResult], in: host) {
                 checkFormRow(measured.prefix(3))
+                checkField(.dictionarySearch, placeholder: true, value: "ПППППП", in: host)
+                checkField(.dictionaryEntry, placeholder: true, value: "ПППППП", in: host)
+                if let field = host.field(in: measured[0]) {
+                    check(host.type("", into: field), "dictionary search query can be cleared")
+                    host.blur()
+                }
                 let result = measured[3]
                 check(!host.hasYellowHighlight(in: result), "an empty query does not highlight the dictionary entry")
                 if let search = host.field(in: measured[0]) {
@@ -283,7 +299,159 @@ private final class LayoutSuite {
         defer { host.close() }
         if let measured = frames([.termSearch, .termFind], in: host) {
             checkFormRow(measured[...])
+            checkField(.termSearch, placeholder: true, value: "Писая", nativePlaceholder: "Слово или фраза", in: host)
+            if let search = host.field(in: measured[0], placeholder: "Слово или фраза") {
+                check(host.focus(search), "term search is focused before submitting the query")
+                host.pressReturn()
+                checkField(.termReplacement, placeholder: false, nativePlaceholder: "Термин", in: host)
+                checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
+            }
         }
+    }
+
+    private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,
+                                   savedVoice: VoiceProfile, scale: CGFloat) {
+        let percent = Int((scale * 100).rounded())
+        for size in [CGSize(width: 980, height: 660), CGSize(width: 1200, height: 800)] {
+            scenario = "main window focus, \(Int(size.width))×\(Int(size.height)), \(percent)%"
+            state.select(meeting.id)
+            state.search = ""
+            let host = LayoutHost(MainView().environmentObject(state), size: size, scale: scale)
+            defer {
+                host.close()
+                state.search = ""
+            }
+            checkField(.meetingTitle, placeholder: false, in: host)
+            checkField(.transcriptSearch, placeholder: true, value: "ПППППП", in: host)
+            checkField(.librarySearch, placeholder: true, value: "ПППППП", in: host)
+        }
+
+        scenario = "dictionary edit, \(percent)%"
+        if let entry = VocabularyDictionary.entries(in: state.preferences.vocabulary).first {
+            let host = LayoutHost(VocabularyEditForm(entry: entry).environmentObject(state),
+                                  size: CGSize(width: 500, height: 260), scale: scale)
+            defer { host.close() }
+            checkField(.dictionaryEdit, placeholder: false, in: host)
+            checkField(.dictionaryEdit, placeholder: true, clear: true, in: host)
+        } else {
+            check(false, "dictionary edit fixture has an entry")
+        }
+
+        scenario = "rename recording, \(percent)%"
+        do {
+            let host = LayoutHost(NameEditor(title: "Переименовать запись", initial: "ПППППП") { _ in },
+                                  size: CGSize(width: 450, height: 240), scale: scale)
+            defer { host.close() }
+            checkInitialFocus(.renameField, in: host)
+            checkField(.renameField, placeholder: false, in: host)
+        }
+
+        scenario = "new folder, \(percent)%"
+        do {
+            let host = LayoutHost(FolderEditor(folder: nil) { _, _ in },
+                                  size: CGSize(width: 420, height: 500), scale: scale)
+            defer { host.close() }
+            checkInitialFocus(.folderName, in: host)
+            checkField(.folderName, placeholder: true, value: "ПППППП", in: host)
+        }
+
+        scenario = "voice labeling, \(percent)%"
+        do {
+            let host = LayoutHost(VoiceManager(meetingID: voiceMeeting.id).environmentObject(state),
+                                  size: CGSize(width: 940, height: 660), scale: scale)
+            defer { host.close() }
+            if let segment = voiceMeeting.segments.first, let sample = frames([.voiceSample(segment.id)], in: host)?.first {
+                host.click(sample.center)
+                checkField(.voiceName, placeholder: false, nativePlaceholder: "Имя участника", in: host)
+                checkField(.voiceName, placeholder: true, clear: true, nativePlaceholder: "Имя участника", in: host)
+                if let frame = host.frames[.voiceName], let name = host.field(in: frame, placeholder: "Имя участника") {
+                    check(host.type(String(savedVoice.name.prefix(3)), into: name), "voice name accepts a suggestion prefix")
+                    host.pressKey("\u{f701}", keyCode: 125)
+                    host.pressReturn()
+                    check(host.wait { name.currentEditor()?.string == savedVoice.name }, "Down then Return fills the highlighted saved name")
+                    check(host.isEditing(name), "selecting a suggestion keeps the name field focused")
+                    check(state.meetings.first(where: { $0.id == voiceMeeting.id })?.segments.first?.speaker == segment.speaker,
+                          "choosing a suggestion leaves the transcript speaker unchanged until applying the name")
+                } else {
+                    check(false, "voice name is available for keyboard suggestion selection")
+                }
+            }
+        }
+
+        scenario = "saved voice search, \(percent)%"
+        do {
+            let host = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state),
+                                  size: CGSize(width: 900, height: 700), scale: scale)
+            defer { host.close() }
+            checkField(.savedVoiceSearch, placeholder: true, value: "ПППППП", in: host)
+        }
+
+        scenario = "voice merge search, \(percent)%"
+        do {
+            let host = LayoutHost(SavedVoiceMergeEditor(profile: savedVoice) { _ in }.environmentObject(state),
+                                  size: CGSize(width: 540, height: 420), scale: scale)
+            defer { host.close() }
+            checkField(.voiceMergeSearch, placeholder: true, value: "ПППППП", in: host)
+        }
+
+        scenario = "saved voice rename, \(percent)%"
+        let host = LayoutHost(SavedVoiceNameEditor(profile: savedVoice) { _ in }.environmentObject(state),
+                              size: CGSize(width: 540, height: 300), scale: scale)
+        defer { host.close() }
+        checkInitialFocus(.savedVoiceName, in: host)
+        checkField(.savedVoiceName, placeholder: false, in: host)
+        checkField(.savedVoiceName, placeholder: true, clear: true, in: host)
+    }
+
+    private func checkInitialFocus(_ element: InterfaceLayoutElement, in host: LayoutHost) {
+        guard let frame = frames([element], in: host)?.first, let field = host.field(in: frame) else {
+            check(false, "\(element): rename or creation dialog exposes its input field")
+            return
+        }
+        check(host.wait { host.isEditing(field) }, "\(element): opening the dialog focuses the field")
+    }
+
+    private func checkField(_ element: InterfaceLayoutElement, placeholder: Bool, value: String? = nil,
+                            clear: Bool = false, nativePlaceholder: String? = nil, in host: LayoutHost) {
+        guard let frame = frames([element], in: host)?.first,
+              let field = host.field(in: frame, placeholder: nativePlaceholder) else {
+            check(false, "\(element): the production screen exposes an editable field")
+            return
+        }
+        if clear { check(host.type("", into: field), "\(element): native editing clears the field") }
+        checkFieldOrigin(element, placeholder: placeholder, field: field, host: host)
+        if let value {
+            check(host.type(value, into: field), "\(element): native editing sets the fixture text")
+            checkFieldOrigin(element, placeholder: false, field: field, host: host)
+        }
+    }
+
+    private func checkFieldOrigin(_ element: InterfaceLayoutElement, placeholder: Bool, field: NSTextField, host: LayoutHost) {
+        let label = "\(element) \(placeholder ? "placeholder" : "value")"
+        host.blur()
+        let hasExpectedText = placeholder == field.stringValue.isEmpty
+        check(hasExpectedText, "\(label): field is in the expected state")
+        guard hasExpectedText else { return }
+        guard let region = host.glyphRegion(for: field), let blurred = host.textInk(in: region) else {
+            check(false, "\(label): text is rendered before focus")
+            return
+        }
+        check(host.focus(field), "\(label): native field editor receives focus")
+        guard let focused = host.textInk(in: region) else {
+            check(false, "\(label): text remains visible when focused")
+            return
+        }
+        let difference = CGPoint(x: focused.origin.x - blurred.origin.x, y: focused.origin.y - blurred.origin.y)
+        check(abs(difference.x) <= blurred.tolerance && abs(difference.y) <= blurred.tolerance,
+              "\(label): focusing keeps the text in place (delta x=\(difference.x), y=\(difference.y) pt)")
+        host.blur()
+        guard let restored = host.textInk(in: region) else {
+            check(false, "\(label): text remains visible after blur")
+            return
+        }
+        check(abs(restored.origin.x - blurred.origin.x) <= blurred.tolerance &&
+              abs(restored.origin.y - blurred.origin.y) <= blurred.tolerance,
+              "\(label): blurring restores the original text position")
     }
 
     private func checkFormRow(_ row: ArraySlice<CGRect>) {
@@ -357,29 +525,112 @@ private final class LayoutHost {
         settle()
     }
 
-    func field(in frame: CGRect) -> NSTextField? {
+    func field(in frame: CGRect, placeholder: String? = nil) -> NSTextField? {
         func find(_ node: NSView) -> NSTextField? {
             if let field = node as? NSTextField, field.isEditable {
-                let rect = field.convert(field.bounds, to: view)
-                let point = CGPoint(x: rect.midX, y: view.isFlipped ? rect.midY : view.bounds.height - rect.midY)
-                if frame.contains(point) { return field }
+                // HSplitView hosts its panes in distinct SwiftUI coordinate
+                // spaces. Match their unique field labels in the native tree.
+                if let placeholder {
+                    let actual = field.placeholderString ?? field.placeholderAttributedString?.string
+                    if actual == placeholder || actual == typographicText(placeholder) { return field }
+                } else {
+                    let rect = field.convert(field.bounds, to: view)
+                    let point = CGPoint(x: rect.midX, y: view.isFlipped ? rect.midY : view.bounds.height - rect.midY)
+                    if frame.contains(point) { return field }
+                }
             }
             return node.subviews.lazy.compactMap { find($0) }.first
         }
         return find(view)
     }
 
+    func pressReturn() { pressKey("\r", keyCode: 36) }
+
+    func pressKey(_ character: String, keyCode: UInt16) {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
+                                            timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: character,
+                                            charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode) {
+                window.sendEvent(event)
+            }
+        }
+        settle()
+    }
+
+    func isEditing(_ field: NSTextField) -> Bool {
+        guard let editor = field.currentEditor() else { return false }
+        return window.firstResponder === editor
+    }
+
+    func focus(_ field: NSTextField) -> Bool {
+        guard window.makeFirstResponder(field) else { return false }
+        field.selectText(nil)
+        settle()
+        guard let editor = field.currentEditor() as? NSTextView, window.firstResponder === editor else { return false }
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        settle()
+        return true
+    }
+
+    func blur() {
+        window.makeFirstResponder(nil)
+        settle()
+    }
+
     func type(_ text: String, into field: NSTextField) -> Bool {
-        guard window.makeFirstResponder(field), let editor = field.currentEditor() else { return false }
+        guard focus(field), let editor = field.currentEditor() else { return false }
+        editor.selectAll(nil)
         editor.insertText(text)
         settle()
         return field.stringValue == text || editor.string == text
     }
 
+    func glyphRegion(for field: NSTextField) -> CGRect? {
+        guard let font = field.font else { return nil }
+        let rect = field.convert(field.bounds, to: view)
+        let y = view.isFlipped ? rect.minY : view.bounds.height - rect.maxY
+        let sample = field.stringValue.isEmpty ?
+            (field.placeholderString ?? field.placeholderAttributedString?.string ?? "") : field.stringValue
+        let textWidth = (sample as NSString).size(withAttributes: [.font: font]).width
+        // The fixed crop omits the caret and the surrounding control chrome.
+        let width = min(textWidth, rect.width, 180) - 8
+        guard width > 0 else { return nil }
+        return CGRect(x: rect.minX + 4, y: y - 3, width: width, height: rect.height + 6)
+    }
+
+    func textInk(in region: CGRect) -> (origin: CGPoint, tolerance: CGFloat)? {
+        guard let image = renderedHost() else { return nil }
+        let sx = CGFloat(image.pixelsWide) / view.bounds.width
+        let sy = CGFloat(image.pixelsHigh) / view.bounds.height
+        let left = max(0, Int(floor(region.minX * sx)))
+        let right = min(image.pixelsWide, Int(ceil(region.maxX * sx)))
+        let top = max(0, Int(floor(region.minY * sy)))
+        let bottom = min(image.pixelsHigh, Int(ceil(region.maxY * sy)))
+        guard left < right, top < bottom else { return nil }
+        var minX = right, minY = bottom
+        for y in top..<bottom {
+            for x in left..<right {
+                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      color.alphaComponent > 0.8,
+                      max(color.redComponent, color.greenComponent, color.blueComponent) < 0.74 else { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+            }
+        }
+        guard minX < right, minY < bottom else { return nil }
+        return (CGPoint(x: CGFloat(minX) / sx, y: CGFloat(minY) / sy), min(0.5, 1 / max(sx, sy)))
+    }
+
     // Read only pixels from the synthetic host, in memory. No desktop capture.
-    func hasYellowHighlight(in frame: CGRect) -> Bool {
-        guard let image = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+    private func renderedHost() -> NSBitmapImageRep? {
+        guard let image = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: image)
+        return image
+    }
+
+    func hasYellowHighlight(in frame: CGRect) -> Bool {
+        guard let image = renderedHost() else { return false }
         let scale = CGFloat(image.pixelsWide) / view.bounds.width
         let x = Int(frame.minX * scale)..<min(image.pixelsWide, Int(frame.maxX * scale))
         let y = Int(frame.minY * scale)..<min(image.pixelsHigh, Int(frame.maxY * scale))

@@ -38,6 +38,7 @@ struct SavedVoicesSettings: View {
                 emptyState
             } else {
                 SearchField(title: "Найти голос по имени", text: $query)
+                    .measuredForInterfaceTest(.savedVoiceSearch)
                 ScrollViewReader { proxy in
                     ScrollView { voiceList }
                         .onChange(of: focusedControl) { _, control in
@@ -297,15 +298,14 @@ private func voiceMergeDetail(from source: VoiceProfile, into target: VoiceProfi
     "Образцы обоих голосов сохранятся. В прежних расшифровках вместо «\(source.name)» будет «\(target.name)»."
 }
 
-private struct SavedVoiceNameEditor: View {
+struct SavedVoiceNameEditor: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appTextScale) private var textScale
     let profile: VoiceProfile
     let onMerge: (UUID) -> Void
     @State private var name = ""
     @State private var saveError: String?
-    @FocusState private var nameFocused: Bool
+    @State private var nameFocused = false
 
     private var cleanName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var matchingVoices: [VoiceProfile] {
@@ -327,11 +327,10 @@ private struct SavedVoiceNameEditor: View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading("Переименовать голос", subtitle: "Имя обновится в прежних расшифровках и на новых встречах", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
-                TextField("Имя участника", text: $name)
-                    .textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused && textScale != AppTextSize.factor(for: 110)))
-                    .accessibilityLabel("Имя сохранённого голоса")
-                    .focused($nameFocused)
-                    .onSubmit { if matchingVoices.isEmpty { save() } }
+                FormTextField(title: "Имя участника", text: $name, isFocused: $nameFocused,
+                              accessibilityTitle: "Имя сохранённого голоса",
+                              onSubmit: { if matchingVoices.isEmpty { save() } })
+                    .measuredForInterfaceTest(.savedVoiceName)
                 if let match {
                     SupportingText(voiceMergeDetail(from: profile, into: match))
                 } else if ambiguous {
@@ -368,7 +367,7 @@ private struct SavedVoiceNameEditor: View {
     }
 }
 
-private struct SavedVoiceMergeEditor: View {
+struct SavedVoiceMergeEditor: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
     let profile: VoiceProfile
@@ -386,6 +385,7 @@ private struct SavedVoiceMergeEditor: View {
             SectionHeading("Объединить голоса", subtitle: "Выберите, какое имя оставить для голоса «\(profile.name)»", style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                 SearchField(title: "Найти голос по имени", text: $query)
+                    .measuredForInterfaceTest(.voiceMergeSearch)
                 ScrollViewReader { proxy in
                     ScrollView {
                         if candidates.isEmpty {

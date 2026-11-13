@@ -197,22 +197,120 @@ private struct ActionButtonContent<Label: View>: View {
     }
 }
 
-struct PisyaTextFieldStyle: TextFieldStyle {
+struct FormTextField: View {
     @Environment(\.isEnabled) private var enabled
-    var isEditing = false
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration.textFieldStyle(.plain)
-            .textStyle(PisyaDesign.Typography.body)
-            .foregroundStyle(enabled ? PisyaDesign.Colors.ink : PisyaDesign.Colors.disabledInk)
-            // Opt in only where the native field editor needs a baseline correction.
-            .offset(y: isEditing ? 1 : 0)
-            // Center the native editor at its intrinsic height inside the field background.
-            .fixedSize(horizontal: false, vertical: true)
+    let title: String
+    @Binding var text: String
+    var isFocused: Binding<Bool>?
+    var accessibilityTitle: String?
+    var onSubmit: (() -> Void)?
+    var onCommand: ((Selector) -> Bool)?
+
+    var body: some View {
+        SingleLineTextField(title: title, text: $text, isFocused: isFocused, accessibilityTitle: accessibilityTitle,
+                            onSubmit: onSubmit, onCommand: onCommand)
             .padding(.horizontal, PisyaDesign.Spacing.related)
             .frame(minHeight: PisyaDesign.Metrics.regularHeight)
             .background(enabled ? PisyaDesign.Colors.secondary : PisyaDesign.Colors.disabledSurface,
                         in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
-            .contentShape(.focusEffect, RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
+    }
+}
+
+/// A borderless AppKit field uses the same text inset for its cell and its
+/// field editor. SwiftUI's plain field can round those baselines differently.
+struct SingleLineTextField: NSViewRepresentable {
+    @Environment(\.appTextScale) private var scale
+    @Environment(\.isEnabled) private var enabled
+    let title: String
+    @Binding var text: String
+    var compact = false
+    var isFocused: Binding<Bool>?
+    var accessibilityTitle: String?
+    var onSubmit: (() -> Void)?
+    var onCommand: ((Selector) -> Bool)?
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: text)
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.cell?.usesSingleLineMode = true
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.field = self
+        field.isEnabled = enabled
+        field.font = AppTypography.singleLineField(scale: scale, compact: compact)
+        field.textColor = NSColor(enabled ? Color.ink : Color.disabledInk)
+        field.placeholderString = typographicText(title)
+        field.setAccessibilityLabel(typographicText(accessibilityTitle ?? title))
+
+        if let editor = field.currentEditor() as? NSTextView {
+            if editor.string != text && !editor.hasMarkedText() {
+                let insertion = min(editor.selectedRange().location, (text as NSString).length)
+                editor.string = text
+                editor.setSelectedRange(NSRange(location: insertion, length: 0))
+            }
+        } else if field.stringValue != text {
+            field.stringValue = text
+        }
+
+        let requestedFocus = isFocused?.wrappedValue
+        guard coordinator.requestedFocus != requestedFocus else { return }
+        coordinator.requestedFocus = requestedFocus
+        guard let requestedFocus else { return }
+        // An initial request can arrive before SwiftUI attaches the field.
+        DispatchQueue.main.async { [weak field, weak coordinator] in
+            guard let field, let coordinator, coordinator.requestedFocus == requestedFocus,
+                  let window = field.window else { return }
+            if requestedFocus && field.isEnabled && field.currentEditor() == nil {
+                field.selectText(nil)
+            } else if !requestedFocus, let editor = field.currentEditor(), window.firstResponder === editor {
+                window.makeFirstResponder(nil)
+            }
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
+        let intrinsic = nsView.intrinsicContentSize
+        return CGSize(width: proposal.width ?? intrinsic.width, height: intrinsic.height)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(field: self) }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var field: SingleLineTextField
+        var requestedFocus: Bool?
+
+        init(field: SingleLineTextField) { self.field = field }
+
+        func controlTextDidBeginEditing(_ notification: Notification) { reportFocus(true) }
+        func controlTextDidEndEditing(_ notification: Notification) { reportFocus(false) }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView else { return }
+            reportFocus(true)
+            if field.text != editor.string { field.text = editor.string }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy command: Selector) -> Bool {
+            if field.onCommand?(command) == true { return true }
+            guard command == #selector(NSResponder.insertNewline(_:)), let submit = field.onSubmit else { return false }
+            submit()
+            return true
+        }
+
+        private func reportFocus(_ focused: Bool) {
+            guard let binding = field.isFocused else { return }
+            requestedFocus = focused
+            if binding.wrappedValue != focused { binding.wrappedValue = focused }
+        }
     }
 }
 

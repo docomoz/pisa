@@ -7,7 +7,7 @@ import sys
 def compact_actions_in_form_rows(source):
     markers = re.compile(
         r'(?P<row>\bHStack\s*(?:\([^{}]*\))?\s*(?=\{))'
-        r'|(?P<field>\.textFieldStyle\(\s*PisyaTextFieldStyle\b'
+        r'|(?P<field>\bFormTextField\s*\('
         r'|\bSearchField\s*\((?![^()]*\bcompact:\s*true))'
         r'|(?P<button>\.actionButton\([^()]*\bsize:\s*\.small\b)'
         r'|(?P<brace>[{}])'

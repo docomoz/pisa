@@ -19,6 +19,7 @@ struct LibrarySidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
             SearchField(title: "Название, фраза, участник", text: $state.search, compact: true)
+                .measuredForInterfaceTest(.librarySearch)
             ScrollView { VStack(spacing: PisyaDesign.Spacing.hairline) {
                 scope("Все записи", icon: "tray", selected: !state.showingTrash && state.folderFilter == nil && !state.unfiledOnly) { state.openFolder() }
                 scope("Без папки", icon: "doc", selected: state.unfiledOnly && !state.showingTrash) { state.openFolder(unfiled: true) }
@@ -378,12 +379,13 @@ struct NameEditor: View {
     var save: (String) -> Void
     @State private var name = ""
     @Environment(\.dismiss) private var dismiss
-    @FocusState private var focused: Bool
+    @State private var focused = false
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
             SectionHeading(title, style: .dialog)
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-                TextField("Название", text: $name).textFieldStyle(PisyaTextFieldStyle(isEditing: focused)).focused($focused).onSubmit { submit() }
+                FormTextField(title: "Название", text: $name, isFocused: $focused, onSubmit: submit)
+                    .measuredForInterfaceTest(.renameField)
             }
             HStack(spacing: PisyaDesign.Spacing.related) { screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction); Spacer(); screenButton("Сохранить") { submit() }.actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
         }.dialogContent().frame(width: 420).onAppear { name = initial; focused = true }
@@ -397,7 +399,7 @@ struct FolderEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var symbol = "folder"
-    @FocusState private var nameFocused: Bool
+    @State private var nameFocused = false
     private let icons: [(String, String)] = [
         ("folder", "Папка"), ("briefcase", "Проекты"), ("person", "Встречи один на один"), ("person.2", "Команда"),
         ("person.3", "Общие собрания"), ("bubble.left.and.bubble.right", "Обсуждения"), ("phone", "Звонки"), ("video", "Видеовстречи"),
@@ -413,7 +415,8 @@ struct FolderEditor: View {
             SectionHeading(folder == nil ? "Новая папка" : "Изменить папку", style: .dialog)
             HStack(spacing: PisyaDesign.Spacing.related) {
                 Image(systemName: symbol).font(PisyaDesign.Typography.Icon.medium).foregroundStyle(Color.ink).frame(width: 32, height: 32)
-                TextField("Название папки", text: $name).textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused)).focused($nameFocused).onSubmit { submit() }
+                FormTextField(title: "Название папки", text: $name, isFocused: $nameFocused, onSubmit: submit)
+                    .measuredForInterfaceTest(.folderName)
             }
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
             screenText("Иконка папки").textStyle(PisyaDesign.Typography.detailMedium).foregroundStyle(Color.mutedInk)

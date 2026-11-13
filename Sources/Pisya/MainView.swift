@@ -178,8 +178,8 @@ struct MeetingView: View {
     @State private var showsSavedAudio = false
     @State private var showsMeetingDetails = false
     @State private var showsDetailsKeyboardFocus = false
-    @FocusState private var focusedField: Field?
-    private enum Field: Hashable { case title, search }
+    @FocusState private var titleFocused: Bool
+    @State private var transcriptSearchFocused = false
     // Keep at least this much space for the transcript and the gap beside it.
     private static let transcriptWidthWithDetails: CGFloat = 529
     private static let detailsColumnWidth: CGFloat = 244
@@ -229,13 +229,13 @@ struct MeetingView: View {
             .foregroundStyle(Color.mutedInk)
             .padding(.bottom, PisyaDesign.Spacing.related)
             TextField("Название встречи", text: titleInput).textFieldStyle(.plain)
-                .textStyle(PisyaDesign.Typography.pageTitle).focused($focusedField, equals: .title)
+                .textStyle(PisyaDesign.Typography.pageTitle).focused($titleFocused)
                 .layoutPriority(1)
                 .disabled(!state.canRename(meeting))
-                .onSubmit { saveTitle(resetIfEmpty: true); focusedField = nil }
-                .onChange(of: focusedField) { old, new in if old == .title && new != .title { saveTitle() } }
+                .onSubmit { saveTitle(resetIfEmpty: true); titleFocused = false }
+                .onChange(of: titleFocused) { _, focused in if !focused { saveTitle() } }
                 .onAppear { title = meeting.headingTitle }.onChange(of: meeting.headingTitle) { old, value in
-                    if focusedField != .title || title == old { title = value }
+                    if !titleFocused || title == old { title = value }
                 }
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
                 .measuredForInterfaceTest(.meetingTitle)
@@ -283,7 +283,8 @@ struct MeetingView: View {
         }
         .onExitCommand {
             showsMeetingDetails = false
-            focusedField = nil
+            titleFocused = false
+            transcriptSearchFocused = false
             NSApp.keyWindow?.makeFirstResponder(nil)
         }
         .sheet(isPresented: $confirmDeleteAudio) {
@@ -419,7 +420,8 @@ struct MeetingView: View {
     private func revealSource(using proxy: ScrollViewProxy) {
         guard let reveal = state.sourceReveal, reveal.meetingID == meeting.id else { return }
         transcriptSearch = ""
-        focusedField = nil
+        titleFocused = false
+        transcriptSearchFocused = false
         // Wait for the cleared search and the newly selected meeting to enter the layout.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             guard state.sourceReveal == reveal else { return }
@@ -432,8 +434,7 @@ struct MeetingView: View {
             if !meeting.segments.isEmpty || showsDetailsButton {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
                     if !meeting.segments.isEmpty {
-                        SearchField(title: "Поиск внутри записи", text: $transcriptSearch)
-                            .focused($focusedField, equals: .search)
+                        SearchField(title: "Поиск внутри записи", text: $transcriptSearch, isFocused: $transcriptSearchFocused)
                             .measuredForInterfaceTest(.transcriptSearch)
                     }
                     if showsDetailsButton { detailsButton }

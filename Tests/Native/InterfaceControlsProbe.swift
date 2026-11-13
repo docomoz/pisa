@@ -35,16 +35,12 @@ private extension View {
 private struct ControlsView: View {
     @ObservedObject var fixture: ControlsFixture
     let scale: CGFloat
-    @State private var editingName = false
-    @State private var editingEmptyName = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
             HStack(spacing: PisyaDesign.Spacing.related) {
-                TextField("Filled name", text: $fixture.name, onEditingChanged: { editingName = $0 })
-                    .textFieldStyle(PisyaTextFieldStyle(isEditing: editingName)).measured("name")
-                TextField("ПППППП", text: $fixture.emptyName, onEditingChanged: { editingEmptyName = $0 })
-                    .textFieldStyle(PisyaTextFieldStyle(isEditing: editingEmptyName)).measured("empty-name")
+                FormTextField(title: "Filled name", text: $fixture.name).measured("name")
+                FormTextField(title: "ПППППП", text: $fixture.emptyName).measured("empty-name")
             }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 SearchField(title: "Filled search", text: $fixture.search).measured("search")
@@ -83,7 +79,6 @@ private struct ControlsView: View {
 private final class Probe {
     private(set) var checks = 0
     private(set) var failures = 0
-    let diagnostics = CommandLine.arguments.contains("--diagnose-field-baselines")
     func check(_ condition: @autoclosure () -> Bool, _ message: String) {
         checks += 1
         if !condition() {
@@ -305,14 +300,7 @@ private final class Probe {
             let expectedSize: CGFloat = id == "compact-search" ? 12 : 16
             check(abs((field.font?.pointSize ?? 0) - expectedSize * scale) < 0.1,
                   "\(prefix)/\(id): field uses its intended text size")
-            // The full focus matrix can diagnose current native raster shifts.
-            // Keep repeatable compact-search and form cases in the default run.
-            let checksName = scale == 1 && controlSize == .regular &&
-                (id == "name" || id == "empty-name")
-            let checksCompactSearch = controlSize == .regular && scale < 1.2 && id == "compact-search"
-            if checksName || checksCompactSearch || diagnostics {
-                checkFocus(field, id: id, fixture: fixture, window: window, host: host, prefix: prefix)
-            }
+            checkFocus(field, id: id, fixture: fixture, window: window, host: host, prefix: prefix)
         }
 
         let regularIDs = ["name", "empty-name", "search", "empty-search", "primary", "secondary", "recording", "disabled"]

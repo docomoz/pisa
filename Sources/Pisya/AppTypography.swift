@@ -86,6 +86,11 @@ extension View {
 }
 
 enum AppTypography {
+    static func singleLineField(scale: CGFloat, compact: Bool) -> NSFont {
+        let style = compact ? PisyaDesign.Typography.footnote : PisyaDesign.Typography.body
+        return .systemFont(ofSize: style.size * scale)
+    }
+
     // AppKit owns the menu's size, matching the other system menus.
     static let menu = NSFont.menuFont(ofSize: 0)
     static let statusCounter = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)

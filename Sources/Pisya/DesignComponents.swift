@@ -85,19 +85,15 @@ struct FormSection<Content: View>: View {
 }
 
 struct SearchField: View {
-    @Environment(\.appTextScale) private var textScale
-    @Environment(\.controlSize) private var controlSize
-    @State private var isEditing = false
     let title: String
     @Binding var text: String
     var compact = false
+    var isFocused: Binding<Bool>?
+
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.inline) {
             Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
-            TextField(title, text: $text, onEditingChanged: { isEditing = $0 })
-                .textFieldStyle(.plain)
-                // The native editor sits one point higher in large controls or at the largest text size.
-                .offset(y: isEditing && (controlSize == .large || textScale >= 1.2) ? 1 : 0)
+            SingleLineTextField(title: title, text: $text, compact: compact, isFocused: isFocused)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск")

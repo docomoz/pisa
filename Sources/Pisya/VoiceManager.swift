@@ -32,7 +32,7 @@ struct VoiceManager: View {
     let meetingID: UUID
     @State private var selected: UUID?
     @State private var name = ""
-    @FocusState private var nameFocused: Bool
+    @State private var nameFocused = false
     @State private var showSuggestions = false
     @State private var selectedSuggestion: Int?
     @State private var lastChosenName: String?
@@ -133,38 +133,44 @@ struct VoiceManager: View {
 
     private var nameEditor: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
-            TextField("Имя участника", text: $name)
-                // The native field editor is already baseline-aligned at 110%.
-                .textFieldStyle(PisyaTextFieldStyle(isEditing: nameFocused && textScale != AppTextSize.factor(for: 110)))
-                .focused($nameFocused)
+            FormTextField(title: "Имя участника", text: $name, isFocused: $nameFocused,
+                          onSubmit: submitName, onCommand: handleNameCommand)
                 .onChange(of: name) { _, newName in
                     showSuggestions = nameFocused && newName != lastChosenName
                     selectedSuggestion = nil
                 }
-                .onKeyPress(.downArrow) {
-                    let count = suggestions.count
-                    guard count > 0 else { return .ignored }
-                    selectedSuggestion = min((selectedSuggestion ?? -1) + 1, count - 1)
-                    return .handled
-                }
-                .onKeyPress(.upArrow) {
-                    guard let index = selectedSuggestion, !suggestions.isEmpty else { return .ignored }
-                    selectedSuggestion = max(index - 1, 0)
-                    return .handled
-                }
-                .onKeyPress(.escape) { dismissSuggestions() ? .handled : .ignored }
-                .onSubmit {
-                    let suggestions = suggestions
-                    if let index = selectedSuggestion, suggestions.indices.contains(index) {
-                        chooseSuggestion(suggestions[index])
-                    } else {
-                        applyName()
-                    }
-                }
+                .measuredForInterfaceTest(.voiceName)
             let matchingNames = suggestions
             if !matchingNames.isEmpty {
                 suggestionList(matchingNames)
             }
+        }
+    }
+
+    private func submitName() {
+        let matches = suggestions
+        if let index = selectedSuggestion, matches.indices.contains(index) {
+            chooseSuggestion(matches[index])
+        } else {
+            applyName()
+        }
+    }
+
+    private func handleNameCommand(_ command: Selector) -> Bool {
+        switch command {
+        case #selector(NSResponder.moveDown(_:)):
+            let count = suggestions.count
+            guard count > 0 else { return false }
+            selectedSuggestion = min((selectedSuggestion ?? -1) + 1, count - 1)
+            return true
+        case #selector(NSResponder.moveUp(_:)):
+            guard let index = selectedSuggestion, !suggestions.isEmpty else { return false }
+            selectedSuggestion = max(index - 1, 0)
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            return dismissSuggestions()
+        default:
+            return false
         }
     }
 
@@ -225,6 +231,7 @@ struct VoiceManager: View {
             .contentShape(shape)
         }
         .shapeAwarePlainButton()
+        .measuredForInterfaceTest(.voiceSample(segment.id))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .screenHelp(canPlay ? (isPlaying ? "Остановить фрагмент" : "Прослушать до 8 секунд") : "Выбрать фрагмент")
     }

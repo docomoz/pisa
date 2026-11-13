@@ -22,7 +22,7 @@ struct VocabularyDictionaryView: View {
     @State private var editing: VocabularyDictionary.Entry?
     @State private var confirmingSpelling = false
     @State private var removal: VocabularyDictionary.Removal?
-    @FocusState private var inputFocused: Bool
+    @State private var inputFocused = false
 
     private var entries: [VocabularyDictionary.Entry] { VocabularyDictionary.entries(in: state.preferences.vocabulary) }
     private var filtered: [VocabularyDictionary.Entry] {
@@ -36,13 +36,8 @@ struct VocabularyDictionaryView: View {
             HStack(spacing: PisyaDesign.Spacing.related) {
                 SearchField(title: typographicText("Поиск по словарю"), text: $search)
                     .measuredForInterfaceTest(.dictionarySearch)
-                TextField(text: $input, prompt: screenText("Слово или название")) {
-                    screenText("Слово или название")
-                }
-                .textFieldStyle(PisyaTextFieldStyle(isEditing: inputFocused))
-                .focused($inputFocused)
-                .onSubmit { add() }
-                .measuredForInterfaceTest(.dictionaryEntry)
+                FormTextField(title: "Слово или название", text: $input, isFocused: $inputFocused, onSubmit: { add() })
+                    .measuredForInterfaceTest(.dictionaryEntry)
                 screenButton("Добавить") { add() }
                     .actionButton(.primary)
                     .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -171,13 +166,12 @@ struct VocabularyDictionaryView: View {
     }
 }
 
-private struct VocabularyEditForm: View {
+struct VocabularyEditForm: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
     let entry: VocabularyDictionary.Entry
     @State private var text: String
     @State private var error: String?
-    @FocusState private var focused: Bool
 
     init(entry: VocabularyDictionary.Entry) {
         self.entry = entry
@@ -192,8 +186,8 @@ private struct VocabularyEditForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
             SectionHeading("Изменить запись", subtitle: "Сохранится именно указанное вами написание", style: .dialog)
-            TextField("Слово или название", text: $text)
-                .textFieldStyle(PisyaTextFieldStyle(isEditing: focused)).focused($focused).onSubmit(save)
+            FormTextField(title: "Слово или название", text: $text, onSubmit: save)
+                .measuredForInterfaceTest(.dictionaryEdit)
             if let error { SupportingText(error).foregroundStyle(.red) }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction)

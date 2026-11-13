@@ -12,8 +12,7 @@ struct TermReview: View {
     @State private var occurrences: [TermOccurrence] = []
     @State private var replacement = ""
     @State private var notice: String?
-    @FocusState private var replacementFocused: Bool
-    @FocusState private var queryFocused: Bool
+    @State private var replacementFocused = false
     @State private var lastReplacement: (source: String, correctedSource: String)?
 
     private var currentMeeting: Meeting? {
@@ -59,10 +58,7 @@ struct TermReview: View {
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                 SectionHeading("Поиск по тексту")
                 HStack(spacing: PisyaDesign.Spacing.inline) {
-                    TextField("Слово или фраза", text: $query)
-                        .textFieldStyle(PisyaTextFieldStyle(isEditing: queryFocused))
-                        .focused($queryFocused)
-                        .onSubmit(search)
+                    FormTextField(title: "Слово или фраза", text: $query, onSubmit: search)
                         .measuredForInterfaceTest(.termSearch)
                     screenButton("Найти", action: search).actionButton().disabled(searchTerm.isEmpty)
                         .measuredForInterfaceTest(.termFind)
@@ -115,10 +111,9 @@ struct TermReview: View {
             if let source {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
                     SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)». При замене основы аббревиатуры окончания сохраняются.")
-                    TextField("Термин", text: $replacement).textFieldStyle(PisyaTextFieldStyle(isEditing: replacementFocused))
-                        .focused($replacementFocused)
-                        .accessibilityLabel("Правильное написание")
-                        .onSubmit(replace)
+                    FormTextField(title: "Термин", text: $replacement, isFocused: $replacementFocused,
+                                  accessibilityTitle: "Правильное написание", onSubmit: replace)
+                        .measuredForInterfaceTest(.termReplacement)
                     HStack(spacing: PisyaDesign.Spacing.inline) {
                         screenButton("Исправить все", action: replace).actionButton(.primary)
                             .disabled(!canReplace)
