@@ -76,6 +76,7 @@ struct SavedAudioPlayer: View {
                 .onEnded { seek(to: time(at: $0.location.x, width: geometry.size.width)) })
         }
         .frame(height: 56)
+        .measuredForInterfaceTest(.waveform)
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.leftArrow) { seek(to: position - 5); return .handled }

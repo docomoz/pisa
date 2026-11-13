@@ -86,6 +86,16 @@ xcodebuild -downloadComponent MetalToolchain
 swift test
 ```
 
+Регрессии интерфейса на macOS с графической сессией:
+
+```sh
+bash Tests/Native/run-interface-controls-test.sh
+bash Tests/Native/run-interface-layout-test.sh /путь/к/Pisya.app
+```
+
+Первый тест использует общие элементы форм. Второй проверяет экраны
+свежей сборки на вымышленных записях. Подробности в [проверках интерфейса](docs/interface-regressions.md).
+
 Проверка словаря на синтезированной речи, тишине, шуме и эхе (после сборки и установки моделей; нужен русский голос Milena в macOS):
 
 ```sh

@@ -40,16 +40,19 @@ struct VocabularyDictionaryView: View {
             SupportingText(search.isEmpty ? "Записей: \(entries.count)" : "Найдено: \(filtered.count) из \(entries.count)")
             HStack(spacing: PisyaDesign.Spacing.related) {
                 SearchField(title: typographicText("Поиск по словарю"), text: $search)
+                    .measuredForInterfaceTest(.dictionarySearch)
                 TextField(text: $input, prompt: screenText("Слово или название")) {
                     screenText("Слово или название")
                 }
                 .textFieldStyle(PisyaTextFieldStyle(isEditing: inputFocused))
                 .focused($inputFocused)
                 .onSubmit { add() }
+                .measuredForInterfaceTest(.dictionaryEntry)
                 screenButton("Добавить") { add() }
                     .actionButton(.primary)
                     .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .fixedSize(horizontal: true, vertical: false)
+                    .measuredForInterfaceTest(.dictionaryAdd)
             }
             if let error { SupportingText(error).foregroundStyle(.red) }
             if let notice {
@@ -80,6 +83,7 @@ struct VocabularyDictionaryView: View {
                             HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
                                 screenText(verbatim: entry.text, highlighting: search).fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                                    .measuredForInterfaceTest(.dictionaryResult)
                                 HStack(spacing: PisyaDesign.Spacing.related) {
                                     screenButton("Изменить…") { editing = entry }.actionButton(size: .small)
                                     screenButton("Удалить") { delete(entry) }.actionButton(size: .small)

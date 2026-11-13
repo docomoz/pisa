@@ -95,6 +95,9 @@ enum Launcher {
             }
             dispatchMain()
         }
+        if CommandLine.arguments.contains("--interface-layout-self-test") {
+            MainActor.assumeIsolated { exit(InterfaceLayoutTests.run()) }
+        }
         if CommandLine.arguments.contains("--interface-preview") {
             MainActor.assumeIsolated {
                 do { try InterfacePreview.run() }

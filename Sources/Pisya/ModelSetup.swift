@@ -135,14 +135,19 @@ struct ModelSetupView: View {
             } else {
                 screenLabel(setup.ready ? "Можно начинать" : "Модели загрузятся из интернета", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
                     .textStyle(PisyaDesign.Typography.detail).foregroundStyle(Color.moss)
+                    .measuredForInterfaceTest(.setupStatus)
             }
             HStack(spacing: PisyaDesign.Spacing.related) {
                 if setup.phase == .downloading { screenButton("Отменить загрузку") { setup.cancel() }.actionButton() }
                 else if !setup.ready { screenButton("Позже") { setup.dismiss() }.actionButton().disabled(setup.busy) }
                 Spacer()
-                if setup.ready { screenButton("Начать работу") { setup.dismiss() }.actionButton(.primary).keyboardShortcut(.defaultAction) }
+                if setup.ready {
+                    screenButton("Начать работу") { setup.dismiss() }.actionButton(.primary).keyboardShortcut(.defaultAction)
+                        .measuredForInterfaceTest(.setupAction)
+                }
                 else if setup.phase != .downloading {
                     screenButton(setup.phase == .failed ? "Повторить загрузку" : "Загрузить модели") { setup.install(onReady: onReady) }.actionButton(.primary).disabled(setup.busy).keyboardShortcut(.defaultAction)
+                        .measuredForInterfaceTest(.setupAction)
                 }
             }.padding(.top, PisyaDesign.Spacing.section)
         }.dialogContent().frame(width: 600).interactiveDismissDisabled(setup.busy)

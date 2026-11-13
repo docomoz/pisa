@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F2EB53C06B7682F0A8A6A79B /* InterfaceLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCA2C612DE8B80255931D70A /* InterfaceLayoutTests.swift */; };
 		00DDF9E8A1C7D681850E38AF /* BrandMoodView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCB04E139346C9651C66548 /* BrandMoodView.swift */; };
 		03530539C07D0500D8033E31 /* VoiceSampleSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A42438A746594B86FB1F148 /* VoiceSampleSelection.swift */; };
 		041A85D5F0FD29F87F4BF60D /* VoiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08350AD7CF259E6666895C75 /* VoiceManager.swift */; };
@@ -177,6 +178,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		DCA2C612DE8B80255931D70A /* InterfaceLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceLayoutTests.swift; sourceTree = "<group>"; };
 		005ECAE683EDCF4151EFF500 /* EchoAlignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoAlignment.swift; sourceTree = "<group>"; };
 		021A6853FA23788D824C09AB /* TranscriptLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptLink.swift; sourceTree = "<group>"; };
 		02730430AA4A692599107B47 /* SpeakerClustering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerClustering.swift; sourceTree = "<group>"; };
@@ -398,6 +400,7 @@
 				6209E71D097B66F41ED17ECE /* EditingFocus.swift */,
 				77FC5B696CF82D53B33A9E7E /* HorizontalWheelScroll.swift */,
 				E8D29E4EB39C41317655BE91 /* InterfacePreview.swift */,
+				DCA2C612DE8B80255931D70A /* InterfaceLayoutTests.swift */,
 				7B93F0BF5AA174BAD09403D6 /* Launcher.swift */,
 				9D0403C059496E9F8503E765 /* LibrarySidebar.swift */,
 				F33D9F3FCE8045B7F83643E3 /* LivePipelineTests.swift */,
@@ -718,6 +721,7 @@
 				7F2E3DB1CFC124C8EB1970A3 /* EditingFocus.swift in Sources */,
 				BA178B3A513D47B1EECD2947 /* HorizontalWheelScroll.swift in Sources */,
 				F4A993E5341533A92DAA73E2 /* InterfacePreview.swift in Sources */,
+				F2EB53C06B7682F0A8A6A79B /* InterfaceLayoutTests.swift in Sources */,
 				4FDCA7D29B0DFCCB1C40DBA6 /* Launcher.swift in Sources */,
 				9D887993F0B0A0014F6426C8 /* Library.swift in Sources */,
 				D1626134BEE0985B1B54AC2F /* LibrarySidebar.swift in Sources */,

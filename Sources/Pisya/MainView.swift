@@ -98,16 +98,20 @@ struct MainView: View {
                     .padding(.bottom, PisyaDesign.Spacing.section)
                 screenText("Вы разговариваете.\nPisya записывает.")
                     .textStyle(PisyaDesign.Typography.hero)
+                    .measuredForInterfaceTest(.welcomeTitle)
                 screenText("Записывайте встречи и находите нужное в расшифровке.\nАудио и распознавание — на вашем Mac.")
                     .textStyle(PisyaDesign.Typography.secondary)
                     .foregroundStyle(Color.mutedInk)
+                    .measuredForInterfaceTest(.welcomeDescription)
                     .padding(.top, PisyaDesign.Spacing.content)
                 screenButton("Настроить") { state.showingSettings = true }
                     .actionButton(.primary)
+                    .measuredForInterfaceTest(.welcomeAction)
                     .padding(.top, PisyaDesign.Spacing.section)
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
+            .measuredForInterfaceTest(.welcomeContent)
             Spacer()
             HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
                 feature("lock", "Локальное распознавание", "Расшифровывайте аудио на своём Mac")
@@ -234,6 +238,7 @@ struct MeetingView: View {
                     if focusedField != .title || title == old { title = value }
                 }
                 .onDisappear { if title != meeting.headingTitle { state.rename(meeting, to: title) } }
+                .measuredForInterfaceTest(.meetingTitle)
             GeometryReader { geometry in
                 let extraWidth = Self.detailsColumnWidth * (max(1, textScale) - 1)
                 let detailsWidth = Self.detailsColumnWidth + extraWidth
@@ -257,6 +262,7 @@ struct MeetingView: View {
                         }
                     }
                 }
+                .measuredForInterfaceTest(.meetingContent)
                 .onChange(of: showsColumn) { _, visible in
                     if visible { showsMeetingDetails = false }
                 }
@@ -320,6 +326,7 @@ struct MeetingView: View {
             .controlKeyboardFocus()
             .fixedSize()
             .accessibilityValue(showsSavedAudio ? "Плеер открыт" : "Плеер закрыт")
+            .measuredForInterfaceTest(.audioToggle)
             .screenHelp(showsSavedAudio ? "Свернуть плеер" : "Показать плеер")
         } else {
             screenLabel(hasAudio ? "Аудио сохранено" : "Без аудио", systemImage: "waveform")
@@ -334,6 +341,7 @@ struct MeetingView: View {
                 transcriptTools(showsDetailsButton: showsDetailsButton)
             } else {
                 transcriptStatus(hasAudio: hasAudio, interruptedProgress: interruptedProgress)
+                    .measuredForInterfaceTest(.meetingStatus)
                     .padding(.bottom, PisyaDesign.Spacing.related)
                 if !showsAutomaticPlayer && !audioSources.isEmpty {
                     SavedAudioPlayer(sources: audioSources, isInline: true)
@@ -426,6 +434,7 @@ struct MeetingView: View {
                     if !meeting.segments.isEmpty {
                         SearchField(title: "Поиск внутри записи", text: $transcriptSearch)
                             .focused($focusedField, equals: .search)
+                            .measuredForInterfaceTest(.transcriptSearch)
                     }
                     if showsDetailsButton { detailsButton }
                 }.frame(maxWidth: .infinity, alignment: .trailing)
@@ -447,6 +456,7 @@ struct MeetingView: View {
         }
         .actionButton()
         .accessibilityValue(showsMeetingDetails ? "Открыто" : "Закрыто")
+        .measuredForInterfaceTest(.detailsButton)
         .popover(isPresented: $showsMeetingDetails, attachmentAnchor: .point(.bottomLeading), arrowEdge: .top) {
             ViewThatFits(in: .vertical) {
                 meetingDetails(buttonSize: .small).fixedSize(horizontal: false, vertical: true)
@@ -578,6 +588,7 @@ struct MeetingView: View {
                     }
                     .actionButton(size: buttonSize)
                     .disabled(participants.isEmpty || !state.canModify(meeting))
+                    .measuredForInterfaceTest(.firstMeetingAction)
 
                     Button {
                         showsMeetingDetails = false
@@ -825,7 +836,7 @@ private struct RecordingIndicator: View {
     }
 }
 
-private struct RecordingWaveformView: View {
+struct RecordingWaveformView: View {
     @ObservedObject var monitor: RecordingMonitor
     @Environment(\.appTextScale) private var textScale
 
@@ -847,8 +858,10 @@ private struct RecordingWaveformView: View {
                     .frame(width: PisyaDesign.Metrics.labelIconWidth)
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.compact) {
                     screenText(title).textStyle(PisyaDesign.Typography.detailMedium)
+                        .measuredForInterfaceTest(icon == "mic" ? .microphoneLabel : .systemAudioLabel)
                     if !status.isEmpty {
                         screenText(status).textStyle(PisyaDesign.Typography.footnote).foregroundStyle(Color.orange)
+                            .measuredForInterfaceTest(icon == "mic" ? .microphoneWarning : .systemAudioWarning)
                     }
                 }
             }.frame(width: 156 * max(1, textScale), alignment: .leading)

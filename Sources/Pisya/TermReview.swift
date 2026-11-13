@@ -63,7 +63,9 @@ struct TermReview: View {
                         .textFieldStyle(PisyaTextFieldStyle(isEditing: queryFocused))
                         .focused($queryFocused)
                         .onSubmit(search)
+                        .measuredForInterfaceTest(.termSearch)
                     screenButton("Найти", action: search).actionButton().disabled(searchTerm.isEmpty)
+                        .measuredForInterfaceTest(.termFind)
                 }
             }
             VStack(alignment: .leading, spacing: PisyaDesign.Spacing.inline) {
