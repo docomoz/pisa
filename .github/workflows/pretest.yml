@@ -45,6 +45,5 @@ jobs:
             build/pretest/ci/**/report.md
             build/pretest/ci/**/summary.json
             build/pretest/ci/**/checks/**/*.log
-            build/pretest/ci/**/renders/**/*.png
           if-no-files-found: warn
           retention-days: 14
