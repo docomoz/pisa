@@ -74,8 +74,10 @@ final class InterfacePreview: NSObject {
             state.update(older)
             fixture.date = Date.now.addingTimeInterval(-10 * 86_400)
         }
+        if CommandLine.arguments.contains("--trash-preview") { fixture.deletedAt = Date() }
         meeting = fixture
         state.update(fixture)
+        if fixture.deletedAt != nil { state.openFolder(trash: true) }
         state.select(fixture.id)
         if interruptedPreview {
             try Self.prepareModelPath(for: state)
@@ -217,6 +219,28 @@ final class InterfacePreview: NSObject {
             setup.error = sender.tag == 9 ? "Не удалось загрузить модель. Проверьте подключение к интернету и повторите попытку. Уже загруженные файлы сохранены." : nil
             setup.presented = true
         }
+    }
+
+    static func testTrashActions() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Trash-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        var deleted = Meeting(title: "Удалённая", source: "Аудио")
+        deleted.deletedAt = Date()
+        let active = Meeting(title: "Сохранённая", source: "Аудио")
+        state.update(deleted); state.update(active)
+        state.openFolder(trash: true); state.select(deleted.id)
+        let items = MeetingActionSet(state: state, meeting: deleted).contextMenuItems
+        guard items.map(\.title) == ["Восстановить", "Удалить"], items.allSatisfy(\.isEnabled) else {
+            throw PisyaError.message("Неверное меню удалённой записи")
+        }
+        state.deletePermanently(active)
+        guard state.meetings.contains(where: { $0.id == active.id }) else { throw PisyaError.message("Удалена запись вне корзины") }
+        state.deletePermanently(deleted)
+        guard !state.meetings.contains(where: { $0.id == deleted.id }), state.selection != deleted.id else {
+            throw PisyaError.message("Удалённая запись осталась в библиотеке")
+        }
+        guard (try? state.library.read(deleted.id)) == nil else { throw PisyaError.message("Запись осталась на диске") }
     }
 
     static func testQueue() throws {

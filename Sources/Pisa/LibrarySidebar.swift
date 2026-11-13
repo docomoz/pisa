@@ -323,9 +323,9 @@ struct MeetingActionSet {
     var contextMenuItems: [NSMenuItem] {
         let canModify = state.canModify(meeting)
         if meeting.deletedAt != nil {
-            let item = restore.nativeItem
-            item.isEnabled = canModify
-            return [item]
+            let items = [restore.nativeItem, deletePermanently.nativeItem]
+            items.forEach { $0.isEnabled = canModify }
+            return items
         }
         let voices = NativeActionMenuItem("Разметить голоса…", enabled: canModify && !meeting.participantNames.isEmpty) { state.voiceMeeting = meeting }
         let move = NSMenuItem(title: "Переместить в папку", action: nil, keyEquivalent: "")
@@ -369,6 +369,7 @@ struct MeetingActionSet {
     }
     var trash: Item { Item(title: "В корзину", role: .destructive, enabled: state.canTrash(meeting)) { state.trash(meeting) } }
     var restore: Item { Item(title: "Восстановить") { state.trash(meeting, restore: true) } }
+    var deletePermanently: Item { Item(title: "Удалить", role: .destructive) { state.permanentDeleteTarget = meeting } }
 }
 
 struct NameEditor: View {

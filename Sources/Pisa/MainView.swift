@@ -37,6 +37,14 @@ struct MainView: View {
             ) { state.enqueue(meeting.id, reprocess: true) }
         }
         .sheet(item: $state.renameTarget) { meeting in NameEditor(title: "Переименовать запись", initial: meeting.title) { state.rename(meeting, to: $0) } }
+        .sheet(item: $state.permanentDeleteTarget) { meeting in
+            ConfirmationSheet(
+                title: "Удалить запись?",
+                message: "Запись и её аудио будут удалены навсегда",
+                actionTitle: "Удалить",
+                role: .destructive
+            ) { state.deletePermanently(meeting) }
+        }
         .sheet(item: $state.voiceMeeting) { meeting in VoiceManager(meetingID: meeting.id).environmentObject(state) }
         .sheet(item: $state.newFolderMeeting) { meeting in
             FolderEditor(folder: nil) { name, symbol in
@@ -664,9 +672,8 @@ struct MeetingView: View {
         let actions = MeetingActionSet(state: state, meeting: meeting)
         var items = meeting.deletedAt == nil
             ? [actions.rename.nativeItem, .separator(), actions.transcribe.nativeItem, .separator(), actions.trash.nativeItem]
-            : [actions.restore.nativeItem]
-        if !meeting.audioFiles.isEmpty {
-            if meeting.deletedAt != nil { items.append(.separator()) }
+            : [actions.restore.nativeItem, actions.deletePermanently.nativeItem]
+        if meeting.deletedAt == nil && !meeting.audioFiles.isEmpty {
             items.append(NativeActionMenuItem("Удалить аудио") {
                 showsMeetingDetails = false
                 confirmDeleteAudio = true

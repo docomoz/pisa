@@ -106,6 +106,12 @@ enum Launcher {
         if CommandLine.arguments.contains("--interface-layout-self-test") {
             MainActor.assumeIsolated { exit(InterfaceLayoutTests.run()) }
         }
+        if CommandLine.arguments.contains("--trash-self-test") {
+            MainActor.assumeIsolated {
+                do { try InterfacePreview.testTrashActions(); print("TRASH_TEST_OK"); exit(0) }
+                catch { print("TRASH_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+        }
         if CommandLine.arguments.contains("--interface-preview") {
             MainActor.assumeIsolated {
                 do { try InterfacePreview.run() }
