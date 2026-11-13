@@ -72,6 +72,133 @@ public final class MeetingLibrary: @unchecked Sendable {
         return audioDirectory.appendingPathComponent(name)
     }
 }
+struct LibraryStorageUsage: Sendable {
+    let audioFiles: [String: Int64]
+    let audioBytes: Int64
+    let meetingBytes: Int64
+    let otherBytes: Int64
+
+    var totalBytes: Int64 { audioBytes + meetingBytes + otherBytes }
+
+    func cleanupPlan(olderThan cutoff: Date, meetings: [Meeting], excluding: Set<UUID>) -> AudioCleanupPlan {
+        var owners: [String: Int] = [:]
+        for meeting in meetings {
+            for name in Set(meeting.audioFiles) { owners[name, default: 0] += 1 }
+        }
+
+        var filesByMeeting: [UUID: [String]] = [:]
+        var bytes: Int64 = 0
+        for meeting in meetings where meeting.date < cutoff && meeting.status == .ready
+            && meeting.liveCommittedUntil == nil && !excluding.contains(meeting.id) {
+            let names = meeting.audioFiles.filter { owners[$0] == 1 && audioFiles[$0] != nil }
+            guard !names.isEmpty, meeting.segments.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { continue }
+            filesByMeeting[meeting.id] = names
+            bytes += Set(names).reduce(0) { $0 + (audioFiles[$1] ?? 0) }
+        }
+        return AudioCleanupPlan(cutoff: cutoff, filesByMeeting: filesByMeeting, bytes: bytes)
+    }
+}
+
+struct AudioCleanupPlan: Identifiable {
+    let cutoff: Date
+    let filesByMeeting: [UUID: [String]]
+    let bytes: Int64
+
+    var id: Date { cutoff }
+}
+
+extension MeetingLibrary {
+    func storageUsage() throws -> LibraryStorageUsage {
+        let manager = FileManager.default
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .totalFileAllocatedSizeKey,
+                                         .fileAllocatedSizeKey, .fileSizeKey]
+        var scanError: Error?
+        guard let files = manager.enumerator(at: root, includingPropertiesForKeys: Array(keys), errorHandler: { _, error in
+            scanError = error
+            return Self.fileIsMissing(error)
+        }) else { throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: root]) }
+
+        let rootDepth = root.standardizedFileURL.pathComponents.count
+        var audioFiles: [String: Int64] = [:]
+        var audioBytes: Int64 = 0
+        var meetingBytes: Int64 = 0
+        var otherBytes: Int64 = 0
+        for case let url as URL in files {
+            try Task.checkCancellation()
+            let values: URLResourceValues
+            do { values = try url.resourceValues(forKeys: keys) }
+            catch where Self.fileIsMissing(error) { continue }
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+            let path = url.standardizedFileURL.pathComponents.dropFirst(rootDepth)
+            let bytes = Self.allocatedBytes(values)
+            switch path.first {
+            case "Audio":
+                audioBytes += bytes
+                if path.count == 2, (try? audioURL(url.lastPathComponent)) != nil {
+                    audioFiles[url.lastPathComponent] = bytes
+                }
+            case "Meetings":
+                meetingBytes += bytes
+            default:
+                otherBytes += bytes
+            }
+        }
+        if let scanError, !Self.fileIsMissing(scanError) { throw scanError }
+        return LibraryStorageUsage(audioFiles: audioFiles, audioBytes: audioBytes, meetingBytes: meetingBytes, otherBytes: otherBytes)
+    }
+
+    func removeAudio(from meeting: Meeting, names: Set<String>, keepingFiles shared: Set<String> = []) throws
+        -> (meeting: Meeting, bytes: Int64, failedFiles: Int) {
+        let latest = try read(meeting.id)
+        guard latest.audioFiles == meeting.audioFiles else {
+            throw PisyaError.message("Список аудиофайлов встречи изменился")
+        }
+        let directory = try audioDirectory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard directory.isDirectory == true, directory.isSymbolicLink != true else {
+            throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSURLErrorKey: audioDirectory])
+        }
+        let requested = names.intersection(latest.audioFiles)
+        var removed = requested.intersection(shared)
+        var bytes: Int64 = 0
+        var failedFiles = 0
+        for name in requested.subtracting(shared) {
+            do {
+                let url = try audioURL(name)
+                let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .totalFileAllocatedSizeKey,
+                                                              .fileAllocatedSizeKey, .fileSizeKey])
+                guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                    failedFiles += 1
+                    continue
+                }
+                try FileManager.default.removeItem(at: url)
+                removed.insert(name)
+                bytes += Self.allocatedBytes(values)
+            } catch where Self.fileIsMissing(error) {
+                removed.insert(name)
+            } catch {
+                failedFiles += 1
+            }
+        }
+        var updated = latest
+        if !removed.isEmpty {
+            updated.audioFiles.removeAll { removed.contains($0) }
+            for name in removed { updated.audioOffsets[name] = nil }
+            try save(updated)
+        }
+        return (updated, bytes, failedFiles)
+    }
+
+    private static func allocatedBytes(_ values: URLResourceValues) -> Int64 {
+        Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0)
+    }
+
+    private static func fileIsMissing(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSCocoaErrorDomain &&
+            (error.code == NSFileNoSuchFileError || error.code == NSFileReadNoSuchFileError)
+    }
+}
+
 public enum MarkdownExporter {
     private static let exportLock = NSLock()
 

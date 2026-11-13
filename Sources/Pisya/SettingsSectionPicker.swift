@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsSectionPicker: View {
     @Binding var selection: String
     @FocusState private var focused: String?
-    private let sections = ["Запись", "Модель", "Голоса", "Словарь", "Экспорт", "MCP", "Обновления"]
+    private let sections = ["Запись", "Модель", "Голоса", "Словарь", "Экспорт", "Хранилище", "MCP", "Обновления"]
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.compact) {
             ForEach(sections, id: \.self) { item in
@@ -18,7 +18,8 @@ struct SettingsSectionPicker: View {
                             .opacity(isSelected ? 1 : 0)
                             .accessibilityHidden(!isSelected)
                     }
-                    .padding(.horizontal, PisyaDesign.Spacing.content).frame(height: 32)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, PisyaDesign.Spacing.related).frame(height: 32)
                     .foregroundStyle(Color.ink)
                     .background(isSelected ? Color.paper : .clear, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                     .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))

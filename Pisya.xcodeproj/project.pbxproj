@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CD5A56427473588D15917BF1 /* SavedVoiceAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2CDCC164CE7A7BE66B8DB2 /* SavedVoiceAudio.swift */; };
 		F2EB53C06B7682F0A8A6A79B /* InterfaceLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCA2C612DE8B80255931D70A /* InterfaceLayoutTests.swift */; };
 		00DDF9E8A1C7D681850E38AF /* BrandMoodView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCB04E139346C9651C66548 /* BrandMoodView.swift */; };
 		03530539C07D0500D8033E31 /* VoiceSampleSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A42438A746594B86FB1F148 /* VoiceSampleSelection.swift */; };
@@ -180,6 +181,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		8D2CDCC164CE7A7BE66B8DB2 /* SavedVoiceAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedVoiceAudio.swift; sourceTree = "<group>"; };
 		DCA2C612DE8B80255931D70A /* InterfaceLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceLayoutTests.swift; sourceTree = "<group>"; };
 		005ECAE683EDCF4151EFF500 /* EchoAlignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoAlignment.swift; sourceTree = "<group>"; };
 		021A6853FA23788D824C09AB /* TranscriptLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptLink.swift; sourceTree = "<group>"; };
@@ -423,6 +425,7 @@
 				C12586443E3A2083AE98B8CE /* RecognitionQualityTests.swift */,
 				DFC3E3635B3F0244989D1CBF /* RussianSpeechRecognizer.swift */,
 				4BB6965A2A2377BFFCF8F696 /* SavedAudioPlayer.swift */,
+				8D2CDCC164CE7A7BE66B8DB2 /* SavedVoiceAudio.swift */,
 				3EE0BDE0998CADB5C051301D /* SavedVoicesSettings.swift */,
 				8E1BA91977928C54281807B8 /* ScreenTypography.swift */,
 				487753AAF89A1138564434AC /* SettingsSectionPicker.swift */,
@@ -764,6 +767,7 @@
 				FDF0A010239DC120D56CD1E0 /* RussianRecognition.swift in Sources */,
 				37C84B7D8DAE56FBCBB20F12 /* RussianSpeechRecognizer.swift in Sources */,
 				8226590A889BC4FEF5609A3F /* SavedAudioPlayer.swift in Sources */,
+				CD5A56427473588D15917BF1 /* SavedVoiceAudio.swift in Sources */,
 				8BCC3A9C1558ECDF652ABFF0 /* SavedVoicesSettings.swift in Sources */,
 				3C9EB3B08457BB0D5DD8132F /* ScreenTypography.swift in Sources */,
 				3C498B46DCD9F0AF1330F4A8 /* SettingsSectionPicker.swift in Sources */,

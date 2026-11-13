@@ -63,6 +63,17 @@ final class InterfacePreview: NSObject {
         } else if CommandLine.arguments.contains("--processing-preview") {
             fixture.status = .processing
         }
+        if CommandLine.arguments.contains("--storage-preview") {
+            var older = fixture
+            older.id = UUID()
+            older.date = Date.now.addingTimeInterval(-20 * 86_400)
+            older.title = "Старая встреча с расшифровкой"
+            let file = "old-preview-mic.caf"
+            try Self.writeAudio(to: state.library.audioURL(file), duration: 30, frequency: 180)
+            older.audioFiles = [file]
+            state.update(older)
+            fixture.date = Date.now.addingTimeInterval(-10 * 86_400)
+        }
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)

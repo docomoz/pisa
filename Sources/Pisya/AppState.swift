@@ -76,6 +76,7 @@ final class AppState: ObservableObject {
     private var player: AVAudioPlayer?
     private var playbackEnd: Double = 0
     private var playbackTimer: Timer?
+    private var audioExports: Set<UUID> = []
     private let capture = AudioCapture()
     let recordingMonitor = RecordingMonitor()
     private var meterTask: Task<Void, Never>?
@@ -1371,16 +1372,58 @@ final class AppState: ObservableObject {
         }
         try action(folder)
     }
-    func deleteAudio(_ meeting: Meeting) {
-        guard !demo, meeting.status == .ready, processingID != meeting.id, activeMeeting?.id != meeting.id else { return }
-        do {
-            stopPlayback()
-            for name in meeting.audioFiles {
-                let url = try library.audioURL(name)
-                if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    private func canDeleteAudio(_ meeting: Meeting) -> Bool {
+        canModify(meeting) && meeting.status == .ready && !audioExports.contains(meeting.id)
+    }
+
+    func audioCleanupPlan(olderThan cutoff: Date, usage: LibraryStorageUsage) -> AudioCleanupPlan {
+        let excluded = Set(meetings.filter { !canDeleteAudio($0) }.map(\.id))
+        return usage.cleanupPlan(olderThan: cutoff, meetings: meetings, excluding: excluded)
+    }
+
+    func cleanUpAudio(_ approved: AudioCleanupPlan, usage: LibraryStorageUsage) -> AudioCleanupResult {
+        let current = audioCleanupPlan(olderThan: approved.cutoff, usage: usage)
+        var result = AudioCleanupResult()
+        for meeting in meetings {
+            guard let approvedNames = approved.filesByMeeting[meeting.id],
+                  let currentNames = current.filesByMeeting[meeting.id] else { continue }
+            let names = Set(approvedNames).intersection(currentNames)
+            guard !names.isEmpty else { continue }
+            do {
+                let removal = try removeAudio(from: meeting, names: names)
+                if removal.meeting.audioFiles != meeting.audioFiles { result.meetings += 1 }
+                result.bytes += removal.bytes
+                if removal.failedFiles > 0 { result.failedMeetings += 1 }
+            } catch {
+                result.failedMeetings += 1
             }
-            var m = meeting; m.audioFiles = []; m.audioOffsets = [:]; update(m)
-        } catch { message = "Не всё аудио удалось удалить: \(error.localizedDescription)" }
+        }
+        return result
+    }
+
+    func deleteAudio(_ meeting: Meeting) {
+        guard let current = meetings.first(where: { $0.id == meeting.id }), canDeleteAudio(current) else { return }
+        let shared = Set(meetings.filter { $0.id != current.id }.flatMap(\.audioFiles))
+        do {
+            let result = try removeAudio(from: current, names: Set(current.audioFiles), keepingFiles: shared)
+            if result.failedFiles > 0 {
+                message = "Не всё аудио удалось удалить"
+            }
+        } catch {
+            message = "Не всё аудио удалось удалить: \(error.localizedDescription)"
+        }
+    }
+
+    private func removeAudio(from meeting: Meeting, names: Set<String>, keepingFiles shared: Set<String> = []) throws
+        -> (meeting: Meeting, bytes: Int64, failedFiles: Int) {
+        if selection == meeting.id || meeting.segments.contains(where: { $0.id == playingSegmentID }) {
+            stopPlayback()
+            player = nil
+            savedAudioPlayer.replaceCurrentItem(with: nil)
+        }
+        let result = try library.removeAudio(from: meeting, names: names, keepingFiles: shared)
+        if result.meeting != meeting { upsert(result.meeting) }
+        return result
     }
     func canExport(_ meeting: Meeting) -> Bool {
         canModify(meeting) && !meeting.segments.isEmpty
@@ -1393,11 +1436,13 @@ final class AppState: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url { do { try MarkdownExporter.render(meeting).write(to: url, atomically: true, encoding: .utf8) } catch { message = error.localizedDescription } }
     }
     func canExportAudio(_ meeting: Meeting) -> Bool {
-        guard canModify(meeting), let sources = try? MeetingAudioExport.sources(for: meeting, in: library) else { return false }
+        guard !audioExports.contains(meeting.id), canModify(meeting), let sources = try? MeetingAudioExport.sources(for: meeting, in: library) else { return false }
         return !sources.isEmpty
     }
     func exportAudio(_ meeting: Meeting) async {
         guard canExportAudio(meeting) else { return }
+        audioExports.insert(meeting.id)
+        defer { audioExports.remove(meeting.id) }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = meeting.title.replacingOccurrences(of: "/", with: "-") + ".m4a"
         panel.allowedContentTypes = [UTType(filenameExtension: "m4a") ?? .mpeg4Audio]
@@ -1431,6 +1476,12 @@ final class AppState: ObservableObject {
     }
 }
 
+
+struct AudioCleanupResult {
+    var meetings = 0
+    var bytes: Int64 = 0
+    var failedMeetings = 0
+}
 
 @MainActor
 final class RecordingMonitor: ObservableObject {

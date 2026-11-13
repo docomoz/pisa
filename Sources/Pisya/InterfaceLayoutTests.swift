@@ -268,7 +268,7 @@ private final class LayoutSuite {
             let host = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state),
                                   size: CGSize(width: 900, height: 700), scale: scale)
             defer { host.close() }
-            let tabs = ["Запись", "Модель", "Голоса", "Словарь", "Экспорт", "MCP", "Обновления"]
+            let tabs = ["Запись", "Модель", "Голоса", "Словарь", "Экспорт", "Хранилище", "MCP", "Обновления"]
             if let tabFrames = frames(tabs.map(InterfaceLayoutElement.settingsTab), in: host) {
                 check(zip(tabFrames, tabFrames.dropFirst()).allSatisfy { left, right in left.maxX <= right.minX },
                       "settings tabs appear in order without overlapping")

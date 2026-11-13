@@ -54,6 +54,8 @@ struct SettingsView: View {
 
                             }
                         }
+                    case "Хранилище":
+                        StorageSettings()
                     case "MCP":
                         columns {
                         block("Доступ к встречам через MCP", "Локальный сервер даёт доступ только для чтения и работает без сетевого порта") {
@@ -195,6 +197,139 @@ struct SettingsView: View {
     }
     private func block<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         FormSection(title, subtitle: subtitle, content: content)
+    }
+}
+
+private struct StorageSettings: View {
+    @EnvironmentObject private var state: AppState
+    @State private var weeks = 2
+    @State private var usage: LibraryStorageUsage?
+    @State private var scanFailed = false
+    @State private var refreshID = 0
+    @State private var confirmation: AudioCleanupPlan?
+    @State private var result: AudioCleanupResult?
+
+    private var cleanupPlan: AudioCleanupPlan? {
+        guard let usage, let cutoff = Calendar.current.date(byAdding: .day, value: -7 * weeks, to: .now) else { return nil }
+        return state.audioCleanupPlan(olderThan: cutoff, usage: usage)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
+            FormSection("Место на Mac") {
+                if let usage {
+                    let recordings = state.meetings.count { meeting in
+                        meeting.audioFiles.contains { usage.audioFiles[$0] != nil }
+                    }
+                    storageRow("Аудиозаписи · \(meetingCount(recordings))", bytes: usage.audioBytes)
+                    storageRow("Расшифровки и данные встреч", bytes: usage.meetingBytes)
+                    storageRow("Модели и другие файлы Pisya", bytes: usage.otherBytes)
+                    Divider()
+                    storageRow("Всего", bytes: usage.totalBytes)
+                } else if scanFailed {
+                    SupportingText("Не удалось посчитать размер файлов")
+                    screenButton("Повторить") { refreshID += 1 }.actionButton()
+                } else {
+                    SupportingText("Считаем размер файлов…")
+                }
+            }
+            FormSection("Очистка аудиозаписей", subtitle: "Удаляется звук обработанных встреч. Расшифровки и заметки остаются.") {
+                let plan = cleanupPlan
+                HStack(spacing: PisyaDesign.Spacing.related) {
+                    NativeActionMenu {
+                        [1, 2, 4, 8, 12].map { value in
+                            NativeActionMenuItem(ageLabel(value)) {
+                                weeks = value
+                                result = nil
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: PisyaDesign.Spacing.inline) {
+                            screenText(ageLabel(weeks))
+                            Image(systemName: "chevron.down").font(PisyaDesign.Typography.Icon.disclosure)
+                        }
+                    }
+                    .actionButton()
+                    .accessibilityLabel("Возраст аудиозаписей")
+                    .accessibilityValue(typographicText(ageLabel(weeks)))
+
+                    screenButton("Освободить место") { confirmation = cleanupPlan }
+                        .actionButton(.primary)
+                        .disabled(plan?.filesByMeeting.isEmpty != false)
+                }
+                if let result {
+                    if result.failedMeetings > 0 {
+                        SupportingText("Не удалось полностью очистить аудио. Встреч с ошибками: \(result.failedMeetings). Освобождено \(storageSize(result.bytes)).")
+                    } else if result.meetings > 0 {
+                        SupportingText("Освобождено \(storageSize(result.bytes)). Встреч очищено: \(result.meetings).")
+                    } else {
+                        SupportingText("Подходящих аудиозаписей больше нет")
+                    }
+                } else if let plan {
+                    if plan.filesByMeeting.isEmpty {
+                        SupportingText("Подходящих аудиозаписей нет")
+                    } else {
+                        SupportingText("К удалению: \(meetingCount(plan.filesByMeeting.count)) · \(storageSize(plan.bytes))")
+                    }
+                }
+            }
+        }
+        .sheet(item: $confirmation) { plan in
+            ConfirmationSheet(
+                title: "Удалить старые аудиозаписи?",
+                message: "К удалению: \(meetingCount(plan.filesByMeeting.count)) · \(storageSize(plan.bytes)). Аудио удалится навсегда. Расшифровки и заметки останутся.",
+                actionTitle: "Удалить аудио",
+                role: .destructive
+            ) {
+                guard let usage else { return }
+                result = state.cleanUpAudio(plan, usage: usage)
+                refreshID += 1
+            }
+        }
+        .task(id: refreshID) { await refreshStorage() }
+    }
+
+    private func storageRow(_ label: String, bytes: Int64) -> some View {
+        HStack(spacing: PisyaDesign.Spacing.related) {
+            screenText(label)
+            Spacer()
+            screenText(storageSize(bytes)).fixedSize()
+        }.textStyle(PisyaDesign.Typography.body)
+    }
+
+    private func refreshStorage() async {
+        usage = nil
+        scanFailed = false
+        let library = state.library
+        let scan = Task.detached(priority: .utility) { try library.storageUsage() }
+        let scanned = try? await withTaskCancellationHandler(operation: { try await scan.value }, onCancel: { scan.cancel() })
+        guard !Task.isCancelled else { return }
+        usage = scanned
+        scanFailed = scanned == nil
+    }
+
+    private func ageLabel(_ weeks: Int) -> String {
+        "Старше \(weeks)\u{00a0}\(weeks == 1 ? "недели" : "недель")"
+    }
+
+    private func meetingCount(_ count: Int) -> String {
+        let noun: String
+        switch (count % 10, count % 100) {
+        case (_, 11...14): noun = "встреч"
+        case (1, _): noun = "встреча"
+        case (2...4, _): noun = "встречи"
+        default: noun = "встреч"
+        }
+        return "\(count)\u{00a0}\(noun)"
+    }
+
+    private func storageSize(_ bytes: Int64) -> String {
+        guard bytes > 0 else { return "0 Б" }
+        let unit = bytes >= 1_000_000_000 ? (1_000_000_000.0, "ГБ")
+            : bytes >= 1_000_000 ? (1_000_000.0, "МБ") : (1_000.0, "КБ")
+        let amount = max(0.1, Double(bytes) / unit.0)
+        let formatted = amount.formatted(.number.precision(.fractionLength(0...1)).locale(Locale(identifier: "ru_RU")))
+        return "\(formatted)\u{00a0}\(unit.1)"
     }
 }
 
