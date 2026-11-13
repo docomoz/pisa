@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -170,6 +170,22 @@ class PretestRunnerTests(unittest.TestCase):
         self.assertTrue(result.timed_out)
         time.sleep(0.8)
         self.assertFalse(marker.exists(), "Timed-out child process survived the check")
+
+    def test_timeout_reports_denied_group_signal_and_terminates_leader(self):
+        logs = self.repo / "denied-signal-logs"
+        logs.mkdir()
+        process = Mock(pid=12345, returncode=-15)
+        process.wait.side_effect = [subprocess.TimeoutExpired("fixture", 0.2), None, None]
+        with patch.object(pretest.subprocess, "Popen", return_value=process), \
+             patch.object(pretest.os, "killpg", side_effect=PermissionError(1, "Operation not permitted")):
+            result = pretest.run_command(pretest.Check("timeout", ("fixture",)), self.repo, logs, 0.2)
+        self.assertTrue(result.timed_out)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(process.send_signal.call_args_list,
+                         [unittest.mock.call(pretest.signal.SIGTERM), unittest.mock.call(pretest.signal.SIGKILL)])
+        error = (logs / "stderr.log").read_text()
+        self.assertIn("Cannot signal process group", error)
+        self.assertIn("Pretest timeout", error)
 
     def test_cli_list_and_import_have_no_run_side_effects(self):
         with patch.object(pretest, "run_suite", side_effect=AssertionError("must not run")):

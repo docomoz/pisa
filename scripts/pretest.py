@@ -200,6 +200,14 @@ def run_command(check: Check, repo: Path, logs: Path, timeout: float) -> Executi
                     os.killpg(process.pid, sig)
                 except ProcessLookupError:
                     pass
+                except PermissionError as error:
+                    # A group signal can be denied after its leader has exited.
+                    # Keep the timeout a failure and record incomplete group cleanup.
+                    stderr.write(f"Cannot signal process group {process.pid} with {sig.name}: {error}\n".encode())
+                    try:
+                        process.send_signal(sig)
+                    except ProcessLookupError:
+                        pass
                 if sig == signal.SIGTERM:
                     try:
                         process.wait(timeout=0.5)
