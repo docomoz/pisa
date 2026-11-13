@@ -39,3 +39,22 @@ final class SpeakerClusteringTests: XCTestCase {
         return segment
     }
 }
+
+final class SpeakerSampleQualityTests: XCTestCase {
+    func testMissingSegmentationDoesNotInventCompetingVoices() {
+        XCTAssertFalse(SpeakerSampleQuality.hasSustainedConflict([]))
+    }
+    func testBriefInterferenceDoesNotDisableTheDominantVoice() {
+        XCTAssertFalse(SpeakerSampleQuality.hasSustainedConflict([
+            (1, 0.03, 7.74), (2, 6.05, 6.80)
+        ]))
+    }
+    func testSustainedOverlapAndSequentialVoicesAreRejected() {
+        XCTAssertTrue(SpeakerSampleQuality.hasSustainedConflict([(1, 0.03, 7.91), (2, 0.03, 7.45)]))
+        XCTAssertTrue(SpeakerSampleQuality.hasSustainedConflict([(1, 0, 4), (2, 4, 8)]))
+        XCTAssertTrue(SpeakerSampleQuality.hasSustainedConflict([(1, 0, 1), (2, 1, 2)]))
+    }
+    func testRepeatedRegionsDoNotDoubleCountCompetingSpeech() {
+        XCTAssertFalse(SpeakerSampleQuality.hasSustainedConflict([(1, 0, 8), (2, 2, 3), (2, 2.2, 2.8)]))
+    }
+}

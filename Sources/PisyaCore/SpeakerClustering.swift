@@ -63,3 +63,26 @@ public enum SpeakerClustering {
         return result
     }
 }
+
+/// Enrollment rejects sustained competing speech, not brief interference or
+/// missing diarization evidence. The latter is an abstention by the model.
+enum SpeakerSampleQuality {
+    static func hasSustainedConflict(_ activity: [(speaker: Int, start: Double, end: Double)]) -> Bool {
+        var durations: [Int: Double] = [:]
+        for (speaker, turns) in Dictionary(grouping: activity, by: \.speaker) {
+            let ranges = turns.filter { $0.start.isFinite && $0.end.isFinite && $0.end > $0.start }
+                .sorted { $0.start < $1.start }
+            var end = -Double.infinity
+            for turn in ranges {
+                durations[speaker, default: 0] += max(0, turn.end - max(turn.start, end))
+                end = max(end, turn.end)
+            }
+        }
+        guard let dominant = durations.values.max(), dominant > 0 else { return false }
+        let competing = durations.values.reduce(0, +) - dominant
+        // A short interjection/noise event must not disable an otherwise useful
+        // voice. Bound tolerance both relatively and in absolute time.
+        let tolerance = min(1.5, dominant * 0.20)
+        return competing > tolerance
+    }
+}

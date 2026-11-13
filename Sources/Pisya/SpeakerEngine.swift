@@ -68,25 +68,20 @@ final class SpeakerEngine {
         }
     }
 
-    /// A saved example must not contain a detected second speaker. One local
-    /// ID is not proof of purity; profile evidence is checked separately.
+    /// Missing segmentation is not evidence of multiple voices. Only positive,
+    /// sustained competing activity excludes an otherwise extractable sample.
     func hasConflictingSpeakerActivity(_ samples: [Float]) -> Bool {
         guard let diarizer, samples.count >= 16000,
-              let result = SherpaOnnxOfflineSpeakerDiarizationProcess(diarizer, samples, Int32(samples.count)) else { return true }
+              let result = SherpaOnnxOfflineSpeakerDiarizationProcess(diarizer, samples, Int32(samples.count)) else { return false }
         defer { SherpaOnnxOfflineSpeakerDiarizationDestroyResult(result) }
         let count = Int(SherpaOnnxOfflineSpeakerDiarizationResultGetNumSegments(result))
-        guard count > 0, let sorted = SherpaOnnxOfflineSpeakerDiarizationResultSortByStartTime(result) else { return true }
+        guard count > 0, let sorted = SherpaOnnxOfflineSpeakerDiarizationResultSortByStartTime(result) else { return false }
         defer { SherpaOnnxOfflineSpeakerDiarizationDestroySegment(sorted) }
-        var speechBySpeaker: [Int32: Double] = [:]
-        for index in 0..<count {
-            let turn = sorted[index]
-            speechBySpeaker[turn.speaker, default: 0] += Double(max(0, turn.end - turn.start))
-            for otherIndex in 0..<index where sorted[otherIndex].speaker != turn.speaker {
-                let other = sorted[otherIndex]
-                if min(turn.end, other.end) - max(turn.start, other.start) >= 0.3 { return true }
-            }
+        let duration = Double(samples.count) / 16000
+        let activity = (0..<count).map { index in
+            (speaker: Int(sorted[index].speaker), start: max(0, Double(sorted[index].start)), end: min(duration, Double(sorted[index].end)))
         }
-        return speechBySpeaker.values.filter { $0 >= 1 }.count > 1
+        return SpeakerSampleQuality.hasSustainedConflict(activity)
     }
 
     func vector(_ samples: [Float], in range: Range<Int>, excluding overlaps: [Range<Int>]) -> [Float]? {
