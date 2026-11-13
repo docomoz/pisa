@@ -22,10 +22,6 @@ final class AppState: ObservableObject {
     private var searchIndex: [UUID: String] = [:]
     @Published var preferences = Preferences() {
         didSet {
-            if !preferences.vocabulary.utf8.elementsEqual(oldValue.vocabulary.utf8) {
-                meetingPhrasePreparation?.cancel()
-                meetingPhrases.updateVocabulary(preferences.vocabulary)
-            }
             if preferences.usesQuietProcessing != oldValue.usesQuietProcessing {
                 setTurboEnabled(false)
                 for index in pending.indices where pending[index].turbo {
@@ -87,8 +83,6 @@ final class AppState: ObservableObject {
     private let transcriptionPerformance = TranscriptionPerformance(mode: .quiet)
     private var turboActivity: NSObjectProtocol?
     private let titleModel = MeetingTitleModel()
-    private var meetingPhrases = MeetingPhraseGenerator()
-    private var meetingPhrasePreparation: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var liveTask: Task<Void, Never>?
     private var liveStopped = false
@@ -407,43 +401,11 @@ final class AppState: ObservableObject {
         case .none: break
         }
     }
-    func nextMeetingPhrase() -> String {
-        let phrase = meetingPhrases.next(vocabulary: demo ? "" : preferences.vocabulary)
-        prepareMeetingPhrases()
-        return phrase
-    }
-
-    private func prepareMeetingPhrases() {
-        guard meetingPhrasePreparation == nil, !demo, !recording, !starting,
-              processingID == nil, pending.isEmpty, !modelSetup.busy,
-              let request = meetingPhrases.personalizationRequest() else { return }
-
-        let root = library.root.appendingPathComponent("Models")
-        meetingPhrasePreparation = Task(priority: .utility) { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                self.meetingPhrasePreparation = nil
-                self.runNext()
-            }
-            do {
-                if let suggestions = try await self.titleModel.phraseSuggestions(for: request, root: root) {
-                    try Task.checkCancellation()
-                    self.meetingPhrases.acceptPersonalization(suggestions, for: request)
-                }
-            } catch {
-                if !Task.isCancelled {
-                    self.meetingPhrases.acceptPersonalization([], for: request)
-                }
-            }
-        }
-    }
-
     func startRecording(automatic: Bool = false) async {
         guard !recording, !starting, !demo else { return }
         guard !modelSetup.busy, !modelSetup.presented else { modelSetup.presented = true; return }
         stopPlayback()
         starting = true; defer { starting = false }
-        meetingPhrasePreparation?.cancel()
         let selectedSource = source
         var m = Meeting(title: "", source: selectedSource)
         m.title = m.defaultTitle; m.automaticTitle = m.title
@@ -764,10 +726,7 @@ final class AppState: ObservableObject {
             do { try library.save(meeting) } catch { message = error.localizedDescription; return }
             upsert(meeting); processingID = id
             livePaused = false; liveStopped = false; liveStatus = "Готовлю черновик"
-            let phrasePreparation = meetingPhrasePreparation
-            phrasePreparation?.cancel()
             liveTask = Task(executorPreference: transcriptionPerformance, priority: .utility) { @MainActor in
-                await phrasePreparation?.value
                 await self.runLiveTranscription(id: id, model: model, committed: committed, mode: "live", reprocess: false)
             }
             return
@@ -780,10 +739,6 @@ final class AppState: ObservableObject {
     }
     private func runNext() {
         guard processingID == nil, !pending.isEmpty else { return }
-        if let meetingPhrasePreparation {
-            meetingPhrasePreparation.cancel()
-            return
-        }
         let request = pending.removeFirst()
         let id = request.id
         let reprocess = request.reprocess

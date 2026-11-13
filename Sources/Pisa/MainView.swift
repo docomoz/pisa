@@ -3,7 +3,6 @@ import AppKit
 
 struct MainView: View {
     @EnvironmentObject var state: AppState
-    @State private var showingMeetingPhrase = false
     @State private var recordingDateReference = Date()
     var body: some View {
         HStack(spacing: PisaDesign.Spacing.none) {
@@ -26,9 +25,6 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in recordingDateReference = Date() }
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in recordingDateReference = Date() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in recordingDateReference = Date() }
-        .sheet(isPresented: $showingMeetingPhrase) {
-            MeetingPhraseView(nextPhrase: state.nextMeetingPhrase)
-        }
         .sheet(item: $state.reprocessTarget) { meeting in
             ConfirmationSheet(
                 title: "Расшифровать встречу заново?",
@@ -79,9 +75,6 @@ struct MainView: View {
             .background(TitleBarZoom().allowsHitTesting(false))
 
             HStack(spacing: spacing) {
-                Button { showingMeetingPhrase = true } label: {
-                    Text("🤦").font(PisaDesign.Typography.Icon.medium)
-                }.actionButton().screenHelp("Фраза для созвона").accessibilityLabel("Фраза для созвона")
                 Button { state.showingSettings = true } label: {
                     Image(systemName: "gearshape").textStyle(PisaDesign.Typography.detailMedium)
                 }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
