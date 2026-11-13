@@ -36,6 +36,7 @@
 		2B57D9DE8F0252674F78B36C /* RussianRecognition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E86CDF57C8B39BC9E0F902E /* RussianRecognition.swift */; };
 		2FA73F8AD23B72E418C226EB /* PisyaYoWords-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A9117FC7881DCE5C3D492963 /* PisyaYoWords-LICENSE.txt */; };
 		7D9E52CB243C2A1D111B4C23 /* PisyaEntityForms.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 4B05B79FCBCBC8353E830815 /* PisyaEntityForms.deflate */; };
+		76893BFFCBFEF9C78344E3EC /* PisyaCommonForms.deflate in Resources */ = {isa = PBXBuildFile; fileRef = D27C3BC26C08B5ADFD916927 /* PisyaCommonForms.deflate */; };
 		2FD6837333011E07B17B2E2E /* RecognitionAudioFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACF0AD03B747C71B6F0901C2 /* RecognitionAudioFocus.swift */; };
 		31B3EA58BE206A9B53E81D2F /* EchoAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF2EBBCD215F139B48E02E5 /* EchoAnalysis.swift */; };
 		31DF0AAD5574DC1B3DDBF7E7 /* PisyaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4FF1C5BBACF2D807BA97CDB /* PisyaApp.swift */; };
@@ -263,6 +264,7 @@
 		A697488CF0DDBEB0150E6F5B /* ModelSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupTests.swift; sourceTree = "<group>"; };
 		A9117FC7881DCE5C3D492963 /* PisyaYoWords-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "PisyaYoWords-LICENSE.txt"; sourceTree = "<group>"; };
 		4B05B79FCBCBC8353E830815 /* PisyaEntityForms.deflate */ = {isa = PBXFileReference; path = PisyaEntityForms.deflate; sourceTree = "<group>"; };
+		D27C3BC26C08B5ADFD916927 /* PisyaCommonForms.deflate */ = {isa = PBXFileReference; path = PisyaCommonForms.deflate; sourceTree = "<group>"; };
 		AAE096CFE68A84FCE1E46817 /* MeetingPhrases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingPhrases.swift; sourceTree = "<group>"; };
 		ACF0AD03B747C71B6F0901C2 /* RecognitionAudioFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionAudioFocus.swift; sourceTree = "<group>"; };
 		AED83BC1A8487EDD045D8450 /* AbbreviationFamilies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AbbreviationFamilies.swift; sourceTree = "<group>"; };
@@ -501,6 +503,7 @@
 			children = (
 				A9117FC7881DCE5C3D492963 /* PisyaYoWords-LICENSE.txt */,
 				4B05B79FCBCBC8353E830815 /* PisyaEntityForms.deflate */,
+				D27C3BC26C08B5ADFD916927 /* PisyaCommonForms.deflate */,
 				D28FE5F3E29F0B4747090D07 /* PisyaYoWords.deflate */,
 			);
 			name = Resources;
@@ -614,6 +617,7 @@
 				A69A4EC3F53D8A7F0077F944 /* PisyaPlain.icns in Resources */,
 				2FA73F8AD23B72E418C226EB /* PisyaYoWords-LICENSE.txt in Resources */,
 				7D9E52CB243C2A1D111B4C23 /* PisyaEntityForms.deflate in Resources */,
+				76893BFFCBFEF9C78344E3EC /* PisyaCommonForms.deflate in Resources */,
 				A1C5109C08EDC0124819F54C /* PisyaYoWords.deflate in Resources */,
 				3F6BA10B65F06C8802346D3A /* Silero-LICENSE in Resources */,
 				0FC78B37D018EFE5DECED7DB /* cmudict.dict in Resources */,

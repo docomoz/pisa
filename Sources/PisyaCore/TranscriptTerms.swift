@@ -31,16 +31,22 @@ public enum TranscriptTerms {
         "will", "with", "would", "yeah", "you", "your"
     ]
     private static let entityForms: Set<String> = {
+        Set(wordFormData(named: "PisyaEntityForms").split(separator: 0x0A).map { String(decoding: $0, as: UTF8.self) })
+    }()
+    private static let commonForms = wordFormData(named: "PisyaCommonForms")
+    private static let russianParticles = ["-то", "-либо", "-нибудь", "-ка"]
+
+    private static func wordFormData(named resource: String) -> Data {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
         #else
         let bundle = Bundle.main
         #endif
-        guard let url = bundle.url(forResource: "PisyaEntityForms", withExtension: "deflate"),
+        guard let url = bundle.url(forResource: resource, withExtension: "deflate"),
               let compressed = NSData(contentsOf: url),
-              let data = try? compressed.decompressed(using: .zlib) else { return [] }
-        return Set((data as Data).split(separator: 0x0A).map { String(decoding: $0, as: UTF8.self) })
-    }()
+              let data = try? compressed.decompressed(using: .zlib) else { return Data() }
+        return Data(referencing: data)
+    }
 
     public static func candidates(in segments: [TranscriptSegment], vocabulary: String) -> [TermCandidate] {
         let terms = vocabulary.components(separatedBy: separators)
@@ -77,6 +83,8 @@ public enum TranscriptTerms {
                 if score > 0 {
                     let entity = entityKey(stem)
                     guard !entityForms.contains(entity), !speakers.contains(entity) else { continue }
+                    // An acronym can have the same lowercase spelling as a dictionary word.
+                    if family == nil, isCommonRussianWord(entity) { continue }
                     // Contextual tags can mistake acronyms and model names for entities.
                     if family == nil, !stem.contains(where: \.isNumber) {
                         if taggedNames == nil { taggedNames = contextualEntityRanges(in: text, using: tagger) }
@@ -224,6 +232,40 @@ public enum TranscriptTerms {
         term.lowercased().replacingOccurrences(of: "ё", with: "е")
             .replacingOccurrences(of: "‐", with: "-").replacingOccurrences(of: "‑", with: "-")
             .replacingOccurrences(of: "’", with: "'")
+    }
+
+    private static func isCommonRussianWord(_ word: String) -> Bool {
+        guard word.unicodeScalars.allSatisfy({ (0x430...0x44F).contains($0.value) || $0.value == 0x2D }) else {
+            return false
+        }
+        if containsCommonForm(word) { return true }
+        guard let particle = russianParticles.first(where: { word.hasSuffix($0) }) else { return false }
+        return containsCommonForm(String(word.dropLast(particle.count)))
+    }
+
+    private static func containsCommonForm(_ word: String) -> Bool {
+        let query = Array(word.utf8)
+        // The resource is sorted UTF-8, one form per line. Search the bytes
+        // directly to avoid creating millions of strings on first use.
+        return commonForms.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            var lower = 0
+            var upper = bytes.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                var start = middle
+                var end = middle
+                while start > lower, bytes[start - 1] != 0x0A { start -= 1 }
+                while end < upper, bytes[end] != 0x0A { end += 1 }
+                let form = bytes[start..<end]
+                if form.elementsEqual(query) { return true }
+                if form.lexicographicallyPrecedes(query) {
+                    lower = end + 1
+                } else {
+                    upper = start
+                }
+            }
+            return false
+        }
     }
 
     private static func speakerNameForms(in segments: [TranscriptSegment]) -> Set<String> {

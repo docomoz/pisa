@@ -1,4 +1,4 @@
-PisyaYoWords.deflate and PisyaEntityForms.deflate
+PisyaYoWords.deflate, PisyaEntityForms.deflate and PisyaCommonForms.deflate
 
 Source: Russian morphological dictionary by the OpenCorpora project and its
 contributors, format 0.92, revision 417150.
@@ -19,6 +19,11 @@ analysis. The list is sorted, deduplicated and compressed.
 PisyaEntityForms contains geographical names and singular given names, surnames
 and patronymics, excluding forms also marked as organizations or trademarks.
 The list is folded from ё to е, sorted, deduplicated and compressed.
+PisyaCommonForms contains ordinary Russian word forms up to 48 characters.
+The list excludes organization and trademark spellings and is folded from ё
+to е, sorted, deduplicated and compressed.
 
-To reproduce both lists, run the following command.
-python3 scripts/generate-yo-wordforms.py --entity-output Sources/PisyaCore/Resources/PisyaEntityForms.deflate
+To reproduce the lists, run the following command.
+python3 scripts/generate-yo-wordforms.py \
+  --entity-output Sources/PisyaCore/Resources/PisyaEntityForms.deflate \
+  --common-output Sources/PisyaCore/Resources/PisyaCommonForms.deflate

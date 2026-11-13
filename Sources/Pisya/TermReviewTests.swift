@@ -23,6 +23,7 @@ enum TermReviewTests {
                                      text: text)
         }
         meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России. Для ЛПР, ЛПР'ов, ЛПРов и ЛПРы обсудили запрос Сбера и встречу со Сбером."
+        meeting.segments[1].text += " Так, Давайте обсудим Семь задач и Новогодний график. Ну, Во-первых, что-то и как-то. Потом снова что-то и как-то."
         state.update(meeting)
         return try state.library.read(meeting.id)
     }
@@ -46,6 +47,8 @@ enum TermReviewTests {
         try check(candidateTexts.isDisjoint(with: ["Сбер", "Сбера", "Сбером"]), "Known dictionary forms appeared as candidates")
         try check(Set(["MapKit", "Qwen3-ASR", "LLM"]).isSubset(of: candidateTexts), "Candidate list dropped a term")
         try check(candidateTexts.isDisjoint(with: ["Димой", "Москвы", "России"]), "Candidate list included a person or a place")
+        try check(candidateTexts.isDisjoint(with: ["Давайте", "Семь", "Новогодний", "Во-первых", "что-то", "как-то"]),
+                  "Candidate list included ordinary Russian words")
         try check(TranscriptTerms.matches("Москвы", in: original.segments).count == 1, "Manual search did not find a place name")
 
         try state.replaceTerms(occurrences, with: "2ГИС", meetingID: original.id)

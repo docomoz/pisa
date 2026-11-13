@@ -57,6 +57,20 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(candidates.first { $0.text == "7АБВ" }?.occurrences.count, 2)
     }
 
+    func testCandidatesSkipOrdinaryRussianWordFormsDespiteCapitalizationAndHyphens() {
+        let segments = [
+            segment("Так, Давайте обсудим Семь Новогодних задач, потом Новогодний график и Послезавтрашнюю встречу."),
+            segment("Ну, Во-первых, что-то и как-то, во-первых, почему-то и какие-то. Во‑вторых, с кем-нибудь."),
+            segment("Спросили, почему-то снова что-то, как-то и какие-то. Во-вторых, с кем-нибудь и по-русски."),
+            segment("Договорились работать по‑русски. Ну, Давай-ка и скажи-ка, давай-ка. Упомянули ДАО, ИДП, ЛПР, СДП, Иви, Геопэй и Qwen3-ASR.")
+        ]
+
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["ДАО", "ИДП", "ЛПР", "СДП", "Иви", "Геопэй", "Qwen3-ASR"])
+        XCTAssertEqual(TranscriptTerms.matches("Давайте", in: segments).count, 1)
+        XCTAssertEqual(TranscriptTerms.matches("что-то", in: segments).count, 2)
+    }
+
     func testCandidatesSkipRegularInflectionsOfDictionaryTerms() {
         let text = "Для Сбера и со Сбером обсуждали API. Рассказали о Сбере."
         let segments = [segment(text)]

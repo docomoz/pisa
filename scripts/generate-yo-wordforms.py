@@ -87,6 +87,26 @@ def select_entity_forms(words, paradigms, tags):
     return sorted(forms - competing)
 
 
+def select_common_forms(words, paradigms, tags):
+    excluded = EXCLUDED_TAGS | {"Init"}
+    tag_sets = [set(re.split(r"[, ]+", tag)) for tag in tags]
+    ordinary = [not excluded.intersection(tag) for tag in tag_sets]
+    commercial = [bool({"Orgn", "Trad"} & tag) for tag in tag_sets]
+    forms, brands = set(), set()
+    russian_word = re.compile(r"[а-яё]+(?:-[а-яё]+)*")
+    for word, (paradigm_id, index) in words.iteritems():
+        if not 2 <= len(word) <= 48 or not russian_word.fullmatch(word):
+            continue
+        paradigm = paradigms[paradigm_id]
+        tag = paradigm[len(paradigm) // 3 + index]
+        folded = word.replace("ё", "е")
+        if ordinary[tag]:
+            forms.add(folded)
+        if commercial[tag]:
+            brands.add(folded)
+    return sorted(forms - brands)
+
+
 def write_forms(forms, output):
     # Foundation NSData.decompressed(using: .zlib) reads raw DEFLATE.
     compressor = zlib.compressobj(level=9, wbits=-15)
@@ -101,6 +121,7 @@ def main():
     default_output = Path(__file__).resolve().parents[1] / "Sources/PisyaCore/Resources/PisyaYoWords.deflate"
     parser.add_argument("--output", type=Path, default=default_output)
     parser.add_argument("--entity-output", type=Path, help="also write the list of names and places")
+    parser.add_argument("--common-output", type=Path, help="also write the list of ordinary Russian word forms")
     args = parser.parse_args()
 
     with TemporaryDirectory() as temporary:
@@ -119,6 +140,8 @@ def main():
         write_forms(select_forms(words, paradigms, tags), args.output)
         if args.entity_output:
             write_forms(select_entity_forms(words, paradigms, tags), args.entity_output)
+        if args.common_output:
+            write_forms(select_common_forms(words, paradigms, tags), args.common_output)
 
 
 if __name__ == "__main__":
