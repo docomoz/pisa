@@ -160,7 +160,12 @@ final class AppState: ObservableObject {
         folderFilter = id; showingTrash = trash; unfiledOnly = unfiled
         select(filtered.first?.id)
     }
-    func canModify(_ m: Meeting) -> Bool { !demo && activeMeeting?.id != m.id && processingID != m.id && !isQueued(m.id) }
+    func canModify(_ m: Meeting, allowQueued: Bool = false) -> Bool {
+        !demo && activeMeeting?.id != m.id && processingID != m.id && (allowQueued || !isQueued(m.id))
+    }
+    func canTrash(_ m: Meeting) -> Bool {
+        canModify(m, allowQueued: m.deletedAt == nil && m.status != .ready)
+    }
     func canRename(_ m: Meeting) -> Bool { !demo }
     func canMove(_ m: Meeting) -> Bool {
         !demo && m.deletedAt == nil && activeMeeting?.id != m.id && !isQueued(m.id)
@@ -193,10 +198,12 @@ final class AppState: ObservableObject {
         } catch { message = error.localizedDescription }
     }
     func trash(_ m: Meeting, restore: Bool = false) {
-        guard canModify(m), var latest = meetings.first(where: { $0.id == m.id }) else { return }
+        guard var latest = meetings.first(where: { $0.id == m.id }), canTrash(latest),
+              restore == (latest.deletedAt != nil) else { return }
         stopPlayback(); latest.deletedAt = restore ? nil : Date()
         do {
             try library.save(latest)
+            if !restore { cancelQueued(latest.id) }
             upsert(latest)
             select(filtered.first?.id)
         } catch {
@@ -727,12 +734,13 @@ final class AppState: ObservableObject {
         return pass
     }
     func enqueue(_ id: UUID, reprocess: Bool = false) {
-        guard !demo, id != processingID, !isQueued(id) else { return }
+        guard !demo, id != processingID, !isQueued(id),
+              let saved = meetings.first(where: { $0.id == id }), saved.deletedAt == nil else { return }
         guard modelReady else { modelSetup.presented = true; return }
         if id == recordingMeetingID {
             // An open recording can only be read through the capture boundaries.
-            guard !reprocess, canStartLiveTranscription,
-                  var meeting = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
+            guard !reprocess, canStartLiveTranscription, let model = modelURL() else { return }
+            var meeting = saved
             meeting.status = .processing; meeting.error = nil
             meeting.interruptedBatchProgress = nil
             let committed = meeting.liveCommittedUntil ?? 0

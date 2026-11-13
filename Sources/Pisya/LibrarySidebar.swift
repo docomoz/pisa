@@ -333,9 +333,7 @@ struct MeetingActionSet {
         move.isEnabled = state.canMove(meeting)
         let transcribeItem = transcribe.nativeItem
         transcribeItem.isEnabled = canModify && transcribeItem.isEnabled
-        let trashItem = trash.nativeItem
-        trashItem.isEnabled = canModify
-        return [voices, rename.nativeItem, move, .separator(), transcribeItem, .separator(), trashItem]
+        return [voices, rename.nativeItem, move, .separator(), transcribeItem, .separator(), trash.nativeItem]
     }
 
     var folderMenuItems: [NSMenuItem] { folderMenuItems(beforeNewFolder: {}) }
@@ -369,7 +367,7 @@ struct MeetingActionSet {
             }
         }
     }
-    var trash: Item { Item(title: "В корзину", role: .destructive) { state.trash(meeting) } }
+    var trash: Item { Item(title: "В корзину", role: .destructive, enabled: state.canTrash(meeting)) { state.trash(meeting) } }
     var restore: Item { Item(title: "Восстановить") { state.trash(meeting, restore: true) } }
 }
 

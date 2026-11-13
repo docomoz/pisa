@@ -86,6 +86,7 @@ enum Launcher {
             Task { @MainActor in
                 do {
                     try InterfacePreview.testQueue()
+                    try InterfacePreview.testTrashQueuedRecording()
                     try await InterfacePreview.testQueuedTurboTranscription()
                     try await InterfacePreview.testQueuedResumeWithProtectedMetadata()
                     try await InterfacePreview.testTranscriptionDuringRecording()

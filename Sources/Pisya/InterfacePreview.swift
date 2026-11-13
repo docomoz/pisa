@@ -264,6 +264,62 @@ final class InterfacePreview: NSObject {
         guard state.processingID == active else { throw PisyaError.message("Отмена очереди остановила обработку") }
     }
 
+    static func testTrashQueuedRecording() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Queued-Trash-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        state.modelSetup.phase = .ready
+
+        var recording = Meeting(title: "Короткая запись", source: "Аудио")
+        recording.duration = 3
+        recording.audioFiles = ["short-mic.caf"]
+        try writeAudio(to: state.library.audioURL("short-mic.caf"), duration: 3, frequency: 180)
+        var processing = Meeting(title: "Текущая обработка", source: "Аудио")
+        processing.status = .processing
+        var finalized = Meeting(title: "Готовая расшифровка", source: "Аудио")
+        finalized.status = .ready
+        for meeting in [recording, processing, finalized] { state.update(meeting) }
+        state.processingID = processing.id
+        state.enqueue(recording.id)
+        state.enqueue(finalized.id, reprocess: true)
+        guard state.isQueued(recording.id), state.isQueued(finalized.id) else {
+            throw PisyaError.message("Тестовые записи не добавлены в очередь")
+        }
+
+        _ = NSApplication.shared
+        let title = "В корзину"
+        let menu = nativeActionMenu(items: MeetingActionSet(state: state, meeting: recording).contextMenuItems)
+        guard let trash = menu.item(withTitle: title), trash.isEnabled else {
+            throw PisyaError.message("Команда «В корзину» недоступна для ожидающей записи")
+        }
+        for busy in [processing, finalized] {
+            let items = MeetingActionSet(state: state, meeting: busy).contextMenuItems
+            guard items.first(where: { $0.title == title })?.isEnabled == false else {
+                throw PisyaError.message("Команда «В корзину» доступна для занятой записи с готовой или текущей расшифровкой")
+            }
+        }
+        menu.performActionForItem(at: menu.index(of: trash))
+        let trashed = try state.library.read(recording.id)
+        guard trashed.deletedAt != nil, !state.isQueued(recording.id),
+              !state.filtered.contains(where: { $0.id == recording.id }), state.hasAudio(trashed),
+              state.isQueued(finalized.id), state.processingID == processing.id else {
+            throw PisyaError.message("Перенос в корзину изменил аудио или другие задачи либо оставил запись в очереди")
+        }
+        state.enqueue(recording.id)
+        guard !state.isQueued(recording.id) else {
+            throw PisyaError.message("Запись из корзины снова попала в очередь")
+        }
+        state.openFolder(trash: true)
+        guard state.filtered.map(\.id) == [recording.id] else {
+            throw PisyaError.message("Запись не появилась в корзине")
+        }
+        state.trash(trashed, restore: true)
+        let restored = try state.library.read(recording.id)
+        guard restored.deletedAt == nil, !state.isQueued(recording.id), state.hasAudio(restored) else {
+            throw PisyaError.message("Не удалось восстановить запись с аудио из корзины")
+        }
+    }
+
     static func testQueuedTurboTranscription() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisya-Queued-Turbo-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
