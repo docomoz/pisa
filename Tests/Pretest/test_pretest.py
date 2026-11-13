@@ -182,6 +182,59 @@ class PretestRunnerTests(unittest.TestCase):
         self.assertEqual(imported.stdout, "")
 
 
+class ChangedChecksTests(unittest.TestCase):
+    def select(self, *changes):
+        records = b"".join(f"{added}\t{deleted}\t{path}\0".encode()
+                           for path, added, deleted in changes)
+        with patch.object(pretest.subprocess, "check_output", return_value=records):
+            scope, checks = pretest.changed_checks(ROOT, "a" * 40, pretest.default_checks())
+        return scope, {check.id: check.command for check in checks}
+
+    def test_small_layout_change_does_not_run_core_or_unrelated_native_checks(self):
+        scope, checks = self.select(("Sources/Pisya/MainView.swift", 4, 1), ("Resources/Info.plist", 2, 2))
+        self.assertEqual(scope, "targeted")
+        self.assertEqual(list(checks), ["diff-check", "design-system"])
+        self.assertEqual(checks["diff-check"], ("git", "diff", "--check", "a" * 40, "HEAD", "--"))
+        self.assertEqual(checks["design-system"][-1], "Sources/Pisya/MainView.swift")
+
+    def test_shared_control_uses_its_probe(self):
+        scope, checks = self.select(("Sources/Pisya/Appearance.swift", 1, 1))
+        self.assertEqual(scope, "targeted")
+        self.assertEqual(list(checks), ["diff-check", "design-system", "native-interface-controls"])
+
+    def test_small_core_change_runs_matching_suites_or_builds_tests(self):
+        for path, expected in [
+            ("Sources/PisyaCore/VoiceSampleSelection.swift",
+             ("swift", "test", "--filter", r"^(PisyaCoreTests\.)?(AutomaticVoiceSampleTests|VoiceSampleSelectionTests)/")),
+            ("Sources/PisyaCore/Models.swift", ("swift", "build", "--build-tests")),
+            ("Sources/PisyaMCP/Launcher.swift",
+             ("swift", "test", "--filter", r"^(PisyaCoreTests\.)?(MCPTransportTests)/")),
+        ]:
+            with self.subTest(path=path):
+                scope, checks = self.select((path, 1, 1))
+                self.assertEqual(scope, "targeted")
+                self.assertNotIn("swift-core", checks)
+                self.assertIn(expected, checks.values())
+
+    def test_broad_app_changes_and_dependency_changes_run_full_suite(self):
+        for changes in [
+            [("Sources/Pisya/MainView.swift", 151, 149)],
+            [(f"Sources/Pisya/View{i}.swift", 1, 0) for i in range(10)],
+            [("Package.swift", 1, 1)],
+            [("Vendor/mlx-audio-swift", 1, 1)],
+        ]:
+            with self.subTest(changes=changes):
+                scope, checks = self.select(*changes)
+                self.assertEqual(scope, "full")
+                self.assertEqual(list(checks), [check.id for check in pretest.default_checks()])
+
+    def test_docs_website_and_ci_changes_stay_local_to_their_checks(self):
+        scope, checks = self.select(("docs/pretest.md", 5, 5), ("website/page.html", 10, 1),
+                                    (".github/workflows/pretest.yml", 2, 1))
+        self.assertEqual(scope, "targeted")
+        self.assertEqual(list(checks), ["diff-check", "pretest-runner", "website"])
+
+
 @unittest.skipUnless(shutil.which("git"), "Git is required for source fingerprint tests")
 class SourceFingerprintTests(unittest.TestCase):
     def setUp(self):

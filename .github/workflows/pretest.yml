@@ -2,19 +2,23 @@ name: Pretest
 
 on:
   push:
+    branches: ['**']
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: pretest-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   pretest:
     name: macOS regression checks
+    if: ${{ !github.event.deleted && (github.event.action != 'labeled' || github.event.label.name == 'full-pretest') }}
+    concurrency:
+      group: pretest-${{ github.event_name }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -22,14 +26,30 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Set up Node for the website checks
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       - name: Enable keyboard navigation in the test desktop
         run: defaults write -g AppleKeyboardUIMode -int 2
-      - name: Run the complete Pretest
-        run: python3 scripts/pretest.py --output-dir build/pretest/ci
+      - name: Run Pretest
+        shell: bash
+        env:
+          FULL_PRETEST: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || contains(github.event.pull_request.labels.*.name, 'full-pretest') }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          options=(--output-dir build/pretest/ci)
+          if [[ "$FULL_PRETEST" != true ]]; then
+            if [[ "$BASE_SHA" == 0000000000000000000000000000000000000000 ]]; then
+              BASE_SHA=$(git merge-base HEAD "refs/remotes/origin/$DEFAULT_BRANCH")
+            elif ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags origin "$BASE_SHA"
+            fi
+            options+=(--changed-from "$BASE_SHA")
+          fi
+          python3 scripts/pretest.py "${options[@]}"
       - name: Publish the check summary
         if: always()
         shell: bash
