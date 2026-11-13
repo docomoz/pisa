@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-enum PisyaError: Error { case message(String) }
+enum PisaError: Error { case message(String) }
 @main struct Probe {
     static func main() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)

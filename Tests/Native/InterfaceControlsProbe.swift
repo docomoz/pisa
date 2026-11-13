@@ -38,18 +38,18 @@ private struct ControlsView: View {
     let scale: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.related) {
-            HStack(spacing: PisyaDesign.Spacing.related) {
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+            HStack(spacing: PisaDesign.Spacing.related) {
                 FormTextField(title: "Filled name", text: $fixture.name).measured("name")
                 FormTextField(title: "ПППППП", text: $fixture.emptyName).measured("empty-name")
             }
-            HStack(spacing: PisyaDesign.Spacing.related) {
+            HStack(spacing: PisaDesign.Spacing.related) {
                 SearchField(title: "Filled search", text: $fixture.search).measured("search")
                 SearchField(title: "ПППППП", text: $fixture.emptySearch).measured("empty-search")
             }
             SearchField(title: "Поиск в библиотеке", text: $fixture.compactSearch, compact: true)
                 .measured("compact-search")
-            HStack(spacing: PisyaDesign.Spacing.related) {
+            HStack(spacing: PisaDesign.Spacing.related) {
                 button("primary", role: .primary)
                 button("secondary", role: .secondary)
                 button("recording", role: .recording)
@@ -61,7 +61,7 @@ private struct ControlsView: View {
             SettingsSectionPicker(selection: $fixture.section).fixedSize().measured("tabs")
             FormTextEditor(text: $fixture.notes).measured("editor")
         }
-        .padding(PisyaDesign.Spacing.section)
+        .padding(PisaDesign.Spacing.section)
         .frame(width: 900, height: 620, alignment: .topLeading)
         .coordinateSpace(name: "controls-probe")
         .environment(\.appTextScale, scale)
@@ -281,7 +281,7 @@ private final class Probe {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.title = "Pisya isolated controls regression"
+        window.title = "Pisa isolated controls regression"
         window.contentView = host
         window.center()
         window.makeKeyAndOrderFront(nil)

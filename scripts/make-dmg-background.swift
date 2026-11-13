@@ -62,7 +62,7 @@ func render(scale: CGFloat) -> NSBitmapImageRep {
     }
 
     // Keep the short preposition attached to the folder name; the instruction fits one line.
-    let instruction = NSAttributedString(string: "Перенесите Pisya в\u{00A0}Приложения", attributes: [
+    let instruction = NSAttributedString(string: "Перенесите Pisa в\u{00A0}Приложения", attributes: [
         .font: NSFont.systemFont(ofSize: 25, weight: .semibold),
         .foregroundColor: NSColor.white
     ])

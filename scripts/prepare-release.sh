@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# != 2 || ! -f "$1" || ! -f "$2" ]]; then
-    print -u2 "Использование: $0 <Pisya-версия-arm64.dmg> <заметки-к-релизу.md>"
+    print -u2 "Использование: $0 <Pisa-версия-arm64.dmg> <заметки-к-релизу.md>"
     exit 1
 fi
 
@@ -32,14 +32,14 @@ staged_dmg="$scratch/assets/${dmg:t}"
 cp "$dmg" "$staged_dmg"
 hdiutil attach "$staged_dmg" -mountpoint "$mount_path" -readonly -nobrowse -noautoopen >/dev/null
 mounted=1
-app="$mount_path/Pisya.app"
+app="$mount_path/Pisa.app"
 plist="$app/Contents/Info.plist"
 codesign --verify --deep --strict "$app"
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
 build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
 public_key=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$plist")
 if [[ ! "$version" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' || ! "$build_number" =~ '^[0-9]+$' ||
-      "${dmg:t}" != "Pisya-$version-arm64.dmg" || "$(lipo -archs "$app/Contents/MacOS/Pisya")" != arm64 ]]; then
+      "${dmg:t}" != "Pisa-$version-arm64.dmg" || "$(lipo -archs "$app/Contents/MacOS/Pisa")" != arm64 ]]; then
     print -u2 "Имя образа, версия или архитектура приложения не подходят для релиза"
     exit 1
 fi
@@ -50,20 +50,43 @@ fi
 hdiutil detach "$mount_path" -quiet
 mounted=0
 
-asset_url="https://github.com/docomoz/pisya/releases/download/v$version/"
+asset_url="https://github.com/docomoz/pisa/releases/download/v$version/"
 cp "$notes" "${staged_dmg:r}.md"
 "$sparkle/generate_appcast" --account pisya --maximum-deltas 0 --embed-release-notes \
-    --link https://github.com/docomoz/pisya/releases/latest --download-url-prefix "$asset_url" "$scratch/assets"
-feed="$scratch/assets/appcast.xml"
+    --link https://github.com/docomoz/pisa/releases/latest --download-url-prefix "$asset_url" "$scratch/assets"
+feed="$scratch/assets/pisa-appcast.xml"
 "$sparkle/sign_update" --account pisya --verify "$feed"
+
+# Installed copies with the previous bundle ID need a manual migration.
+legacy_feed="$scratch/appcast.xml"
+cat > "$legacy_feed" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Pisa</title>
+    <link>https://getpisa.app/</link>
+    <description>Переход на Pisa</description>
+    <item>
+      <title>Pisa $version</title>
+      <sparkle:version>$build_number</sparkle:version>
+      <sparkle:shortVersionString>$version</sparkle:shortVersionString>
+      <link>https://getpisa.app/migration</link>
+      <description><![CDATA[<p>Вышла Pisa. Установите приложение отдельно и скопируйте библиотеку встреч по инструкции.</p>]]></description>
+    </item>
+  </channel>
+</rss>
+EOF
+"$sparkle/sign_update" --account pisya "$legacy_feed"
+"$sparkle/sign_update" --account pisya --verify "$legacy_feed"
+
 
 sha256=$(shasum -a 256 "$staged_dmg" | cut -d ' ' -f 1)
 sed -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha256/g" \
-    packaging/homebrew/pisya.rb.in > "$scratch/pisya.rb"
-ruby -c "$scratch/pisya.rb"
+    packaging/homebrew/pisa.rb.in > "$scratch/pisa.rb"
+ruby -c "$scratch/pisa.rb"
 
 out="$PWD/build/release-v$version"
 mkdir -p "$out"
-cp "$staged_dmg" "$feed" "$scratch/pisya.rb" "$out/"
+cp "$staged_dmg" "$feed" "$legacy_feed" "$scratch/pisa.rb" "$out/"
 printf '%s  %s\n' "$sha256" "${dmg:t}" > "$out/SHA256SUMS"
 print "Готово: $out"

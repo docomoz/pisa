@@ -23,7 +23,7 @@ SwiftUI и AppKit.
 
 ```sh
 bash Tests/Native/run-interface-controls-test.sh
-bash Tests/Native/run-interface-layout-test.sh build/Build/Products/Release/Pisya.app
+bash Tests/Native/run-interface-layout-test.sh build/Build/Products/Release/Pisa.app
 ```
 
 Вторая команда принимает путь к сборке с текущими изменениями. Сценарии
@@ -35,12 +35,12 @@ bash Tests/Native/run-interface-layout-test.sh build/Build/Products/Release/Pisy
 Обычный прогон проверяет положение подсказки и введённого текста
 до фокуса, при фокусе и после него. Все сочетания масштаба
 100%, 110% и 120% с обычным и крупным размером элементов входят
-в один запуск. На экранах Pisya те же измерения охватывают поиск
+в один запуск. На экранах Pisa те же измерения охватывают поиск
 в библиотеке и расшифровке, словарь, разметку терминов и голосов,
 переименование и создание папки. Допуск составляет не более
 половины пункта.
 
-Визуальная проверка по [матрице Pisya](../.agents/skills/pisya-check/references/matrix.md)
+Визуальная проверка по [матрице Pisa](../.agents/skills/pisa-check/references/matrix.md)
 по-прежнему охватывает переносы и обрезку длинных дат и заголовков, контраст
 при наведении, значки и состояния, не вошедшие в автоматические сценарии.
 Физическая клавиатура и системные диалоги проверяются отдельно.

@@ -52,11 +52,11 @@ def main():
     obj = git('hash-object', '-w', '--stdin', input=new_index).decode().strip()
     git('update-index', '--cacheinfo', '100644', obj, FILE)
     path.write_bytes(new_worktree)
-    print(f'Pisya version: {new_version} ({build})', file=sys.stderr)
+    print(f'Pisa version: {new_version} ({build})', file=sys.stderr)
 
 if __name__ == '__main__':
     try:
         main()
     except (OSError, KeyError, ValueError, subprocess.CalledProcessError, plistlib.InvalidFileException) as exc:
-        print(f'Could not advance Pisya version: {exc}', file=sys.stderr)
+        print(f'Could not advance Pisa version: {exc}', file=sys.stderr)
         sys.exit(1)

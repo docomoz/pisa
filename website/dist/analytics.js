@@ -1,4 +1,4 @@
-const measurementId = document.querySelector('meta[name="pisya-ga-measurement-id"]')?.content;
+const measurementId = document.querySelector('meta[name="pisa-ga-measurement-id"]')?.content;
 
 if (measurementId && /^G-[A-Z0-9]+$/.test(measurementId)) {
   const script = document.createElement('script');
@@ -15,19 +15,19 @@ if (measurementId && /^G-[A-Z0-9]+$/.test(measurementId)) {
   gtag('config', measurementId, {
     page_location: pageLocation,
     page_referrer: pageReferrer,
-    page_title: 'Pisya',
+    page_title: 'Pisa',
     allow_google_signals: false,
     allow_ad_personalization_signals: false,
   });
 
   // Only fixed event names are sent: no link text, search terms or user input.
-  window.pisyaTrack = (name, params = {}) => gtag('event', name, params);
+  window.pisaTrack = (name, params = {}) => gtag('event', name, params);
   document.addEventListener('click', event => {
     const link = event.target.closest?.('a');
     if (!link) return;
     const href = link.getAttribute('href');
     if (href === '#install-guide') {
-      window.pisyaTrack('install_guide_click');
+      window.pisaTrack('install_guide_click');
     } else if (href === '/download') {
       // Let the event leave the page before a same-tab download redirect.
       if (!event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && !link.hasAttribute('download') && (!link.target || link.target === '_self')) {
@@ -36,13 +36,13 @@ if (measurementId && /^G-[A-Z0-9]+$/.test(measurementId)) {
         const navigate = () => {
           if (!navigated) { navigated = true; window.location.assign(link.href); }
         };
-        window.pisyaTrack('download_click', { event_callback: navigate, event_timeout: 700 });
+        window.pisaTrack('download_click', { event_callback: navigate, event_timeout: 700 });
         window.setTimeout(navigate, 700);
       } else {
-        window.pisyaTrack('download_click');
+        window.pisaTrack('download_click');
       }
-    } else if (href?.startsWith('https://github.com/docomoz/pisya')) {
-      window.pisyaTrack('github_click');
+    } else if (href?.startsWith('https://github.com/docomoz/pisa')) {
+      window.pisaTrack('github_click');
     }
   });
 }

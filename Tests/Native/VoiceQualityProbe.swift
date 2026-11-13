@@ -21,7 +21,7 @@ import AVFoundation
         let buffer = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: AVAudioFrameCount(last - first))!
         try file.read(into: buffer)
         let target = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
-        guard let converter = AVAudioConverter(from: source, to: target) else { throw PisyaError.message("Audio conversion unavailable") }
+        guard let converter = AVAudioConverter(from: source, to: target) else { throw PisaError.message("Audio conversion unavailable") }
         let result = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(ceil(Double(buffer.frameLength) * 16000 / source.sampleRate) + 64))!
         var supplied = false, error: NSError?
         converter.convert(to: result, error: &error) { _, status in
@@ -127,7 +127,7 @@ import AVFoundation
         try encoder.encode(results).write(to: URL(fileURLWithPath: output), options: .atomic)
     }
     static func main() throws {
-        guard CommandLine.arguments.count == 4 else { throw PisyaError.message("Usage: probe manifest.json speaker-model-directory output.json") }
+        guard CommandLine.arguments.count == 4 else { throw PisaError.message("Usage: probe manifest.json speaker-model-directory output.json") }
         if CommandLine.arguments[1] == "--replay" {
             try replayEvidence(CommandLine.arguments[2], output: CommandLine.arguments[3]); return
         }

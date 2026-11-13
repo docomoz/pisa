@@ -1,18 +1,18 @@
 #!/bin/zsh
 set -euo pipefail
 cd "$(dirname "$0")/.."
-app_bundle="$PWD/build/Build/Products/Release/Pisya.app"
+app_bundle="$PWD/build/Build/Products/Release/Pisa.app"
 mkdir -p "$app_bundle/Contents/Helpers" "$app_bundle/Contents/Resources/Licenses"
-cp build/Build/Products/Release/pisya-mcp "$app_bundle/Contents/Helpers/"
+cp build/Build/Products/Release/pisa-mcp "$app_bundle/Contents/Helpers/"
 python3 - <<'PY'
 from pathlib import Path
 import plistlib
 import shutil
 
-contents = Path('build/Build/Products/Release/Pisya.app/Contents')
+contents = Path('build/Build/Products/Release/Pisa.app/Contents')
 
 # Sparkle loads its own localization table. Adapt the Russian update prompts
-# to Pisya before signing the embedded framework.
+# to Pisa before signing the embedded framework.
 strings = contents / 'Frameworks/Sparkle.framework/Resources/ru.lproj/Sparkle.strings'
 with strings.open('rb') as source:
     translations = plistlib.load(source)
@@ -51,11 +51,11 @@ for root in roots:
 PY
 # Local identity is optional and must never be committed (contains machine-specific paths).
 if [[ -f .signing.env ]]; then source .signing.env; fi
-sign_args=(--sign "${PISYA_SIGNING_IDENTITY:--}")
-if [[ -n "${PISYA_SIGNING_KEYCHAIN:-}" ]]; then
-    sign_args+=(--keychain "$PISYA_SIGNING_KEYCHAIN")
+sign_args=(--sign "${PISA_SIGNING_IDENTITY:--}")
+if [[ -n "${PISA_SIGNING_KEYCHAIN:-}" ]]; then
+    sign_args+=(--keychain "$PISA_SIGNING_KEYCHAIN")
 fi
-if [[ "${PISYA_SIGNING_IDENTITY:--}" == "Developer ID Application:"* ]]; then
+if [[ "${PISA_SIGNING_IDENTITY:--}" == "Developer ID Application:"* ]]; then
     sign_args+=(--options runtime --timestamp)
 fi
 
@@ -71,6 +71,6 @@ codesign --force "${sign_args[@]}" "$app_bundle/Contents/Frameworks/Sparkle.fram
 for library in "$app_bundle"/Contents/Frameworks/*.dylib(N); do
     codesign --force "${sign_args[@]}" "$library"
 done
-codesign --force "${sign_args[@]}" "$app_bundle/Contents/Helpers/pisya-mcp"
-codesign --force "${sign_args[@]}" --entitlements Resources/Pisya.entitlements "$app_bundle"
+codesign --force "${sign_args[@]}" "$app_bundle/Contents/Helpers/pisa-mcp"
+codesign --force "${sign_args[@]}" --entitlements Resources/Pisa.entitlements "$app_bundle"
 codesign --verify --deep --strict "$app_bundle"

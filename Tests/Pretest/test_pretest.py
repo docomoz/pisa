@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("pisya_pretest", ROOT / "scripts/pretest.py")
+SPEC = importlib.util.spec_from_file_location("pisa_pretest", ROOT / "scripts/pretest.py")
 pretest = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = pretest
 SPEC.loader.exec_module(pretest)
@@ -191,24 +191,24 @@ class ChangedChecksTests(unittest.TestCase):
         return scope, {check.id: check.command for check in checks}
 
     def test_small_layout_change_does_not_run_core_or_unrelated_native_checks(self):
-        scope, checks = self.select(("Sources/Pisya/MainView.swift", 4, 1), ("Resources/Info.plist", 2, 2))
+        scope, checks = self.select(("Sources/Pisa/MainView.swift", 4, 1), ("Resources/Info.plist", 2, 2))
         self.assertEqual(scope, "targeted")
         self.assertEqual(list(checks), ["diff-check", "design-system"])
         self.assertEqual(checks["diff-check"], ("git", "diff", "--check", "a" * 40, "HEAD", "--"))
-        self.assertEqual(checks["design-system"][-1], "Sources/Pisya/MainView.swift")
+        self.assertEqual(checks["design-system"][-1], "Sources/Pisa/MainView.swift")
 
     def test_shared_control_uses_its_probe(self):
-        scope, checks = self.select(("Sources/Pisya/Appearance.swift", 1, 1))
+        scope, checks = self.select(("Sources/Pisa/Appearance.swift", 1, 1))
         self.assertEqual(scope, "targeted")
         self.assertEqual(list(checks), ["diff-check", "design-system", "native-interface-controls"])
 
     def test_small_core_change_runs_matching_suites_or_builds_tests(self):
         for path, expected in [
-            ("Sources/PisyaCore/VoiceSampleSelection.swift",
-             ("swift", "test", "--filter", r"^(PisyaCoreTests\.)?(AutomaticVoiceSampleTests|VoiceSampleSelectionTests)/")),
-            ("Sources/PisyaCore/Models.swift", ("swift", "build", "--build-tests")),
-            ("Sources/PisyaMCP/Launcher.swift",
-             ("swift", "test", "--filter", r"^(PisyaCoreTests\.)?(MCPTransportTests)/")),
+            ("Sources/PisaCore/VoiceSampleSelection.swift",
+             ("swift", "test", "--filter", r"^(PisaCoreTests\.)?(AutomaticVoiceSampleTests|VoiceSampleSelectionTests)/")),
+            ("Sources/PisaCore/Models.swift", ("swift", "build", "--build-tests")),
+            ("Sources/PisaMCP/Launcher.swift",
+             ("swift", "test", "--filter", r"^(PisaCoreTests\.)?(MCPTransportTests)/")),
         ]:
             with self.subTest(path=path):
                 scope, checks = self.select((path, 1, 1))
@@ -218,8 +218,8 @@ class ChangedChecksTests(unittest.TestCase):
 
     def test_broad_app_changes_and_dependency_changes_run_full_suite(self):
         for changes in [
-            [("Sources/Pisya/MainView.swift", 151, 149)],
-            [(f"Sources/Pisya/View{i}.swift", 1, 0) for i in range(10)],
+            [("Sources/Pisa/MainView.swift", 151, 149)],
+            [(f"Sources/Pisa/View{i}.swift", 1, 0) for i in range(10)],
             [("Package.swift", 1, 1)],
             [("Vendor/mlx-audio-swift", 1, 1)],
         ]:

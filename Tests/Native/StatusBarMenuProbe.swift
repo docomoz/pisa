@@ -18,7 +18,7 @@ final class AppState: ObservableObject {
 }
 
 enum BrandMark { static var menuIcon: NSImage { NSImage(size: NSSize(width: 16, height: 16)) } }
-enum PisyaDesign {
+enum PisaDesign {
     enum Metrics { static let cornerRadius: CGFloat = 8 }
     enum Spacing {
         static let none: CGFloat = 0
@@ -97,7 +97,7 @@ enum StatusBarMenuProbe {
             let bitmap = control.bitmapImageRepForCachingDisplay(in: control.bounds)!
             control.cacheDisplay(in: control.bounds, to: bitmap)
             let scale = CGFloat(bitmap.pixelsWide) / control.bounds.width
-            let pixel = bitmap.colorAt(x: Int(PisyaDesign.Spacing.inline * scale), y: bitmap.pixelsHigh / 2)!
+            let pixel = bitmap.colorAt(x: Int(PisaDesign.Spacing.inline * scale), y: bitmap.pixelsHigh / 2)!
             return pixel.alphaComponent > 0.9
         }
 

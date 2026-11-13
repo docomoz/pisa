@@ -4,13 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 if (process.argv.length !== 3) {
-  console.error('Usage: node scripts/package-vps.mjs /absolute/path/pisya-site.tar.gz');
+  console.error('Usage: node scripts/package-vps.mjs /absolute/path/pisa-site.tar.gz');
   process.exit(1);
 }
 const archive = resolve(process.argv[2]);
 for (const [command, args] of [
   [process.execPath, ['scripts/build.mjs']],
-  ['tar', ['-czf', archive, 'package.json', 'scripts/serve.mjs', 'dist/server/index.js', 'deploy/pisya-site.service', 'deploy/Caddyfile', 'deploy/install.sh', 'deploy/README.md']],
+  ['tar', ['-czf', archive, 'package.json', 'scripts/serve.mjs', 'dist/server/index.js', 'deploy/pisa-site.service', 'deploy/Caddyfile', 'deploy/install.sh', 'deploy/README.md']],
 ]) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit' });
   if (result.error) throw result.error;

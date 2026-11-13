@@ -9,7 +9,7 @@ root = pathlib.Path(sys.argv[1])
 # Resolve real volume creation times and file IDs before compression. Finder rejects
 # background settings when the alias does not identify the actual HFS image.
 alias = Alias.for_file(str(root / ".background/background.tiff"))
-alias.volume.posix_path = b"/Volumes/Pisya"
+alias.volume.posix_path = b"/Volumes/Pisa"
 alias.volume.disk_image_alias = None
 with DSStore.open(str(root / ".DS_Store"), "w+") as store:
     store["."]["vSrn"] = ("long", 1)
@@ -27,11 +27,11 @@ with DSStore.open(str(root / ".DS_Store"), "w+") as store:
         "labelOnBottom": True, "textSize": 13.0, "iconSize": 128.0,
     }
     store["."]["icvl"] = ("type", b"icnv")
-    store["Pisya.app"]["Iloc"] = (160, 200)
+    store["Pisa.app"]["Iloc"] = (160, 200)
     store["Applications"]["Iloc"] = (440, 200)
 # Validate the final file before putting it in the compressed disk image.
 with DSStore.open(str(root / ".DS_Store"), "r") as store:
-    assert store["Pisya.app"]["Iloc"] == (160, 200)
+    assert store["Pisa.app"]["Iloc"] == (160, 200)
     assert store["Applications"]["Iloc"] == (440, 200)
     assert store["."]["icvp"]["backgroundType"] == 2
 

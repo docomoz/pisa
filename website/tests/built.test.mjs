@@ -4,11 +4,11 @@ import { readFile } from 'node:fs/promises';
 import worker from '../dist/server/index.js';
 import { measurementIdFromConfig } from '../scripts/analytics-config.mjs';
 
-const request = (path, method = 'GET') => new Request(`https://pisya.example${path}`, { method });
+const request = (path, method = 'GET') => new Request(`https://pisa.example${path}`, { method });
 test('the built Worker serves the page and its assets', async () => {
   const page = await worker.fetch(request('/'), {}, {});
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /Pisya пишет/);
+  assert.match(await page.text(), /Pisa пишет/);
   const css = await worker.fetch(request('/style.css'), {}, {});
   assert.match(css.headers.get('content-type'), /text\/css/);
   assert.match(await css.text(), /hero-logo/);
@@ -27,7 +27,7 @@ test('the built Worker serves the page and its assets', async () => {
 });
 test('the built Worker redirects to the latest feed DMG', async () => {
   const original = globalThis.fetch;
-  const url = 'https://github.com/docomoz/pisya/releases/download/v9.8.7/Pisya-9.8.7-arm64.dmg';
+  const url = 'https://github.com/docomoz/pisa/releases/download/v9.8.7/Pisa-9.8.7-arm64.dmg';
   globalThis.fetch = async () => new Response(`<rss><item><enclosure url="${url}" /></item></rss>`);
   try {
     const response = await worker.fetch(request('/download'), {}, {});
@@ -46,6 +46,15 @@ test('the built page uses the configured measurement ID', async () => {
   const config = JSON.parse(await readFile(new URL('../analytics.json', import.meta.url), 'utf8'));
   const id = measurementIdFromConfig(config);
   const page = await (await worker.fetch(request('/'), {}, {})).text();
-  const meta = page.match(/<meta name="pisya-ga-measurement-id" content="([^"]+)">/);
+  const meta = page.match(/<meta name="pisa-ga-measurement-id" content="([^"]+)">/);
   assert.equal(meta?.[1] ?? '', id);
+});
+
+test('migration guide serves the verified source and destination paths', async () => {
+  const response = await worker.fetch(request('/migration'));
+  assert.equal(response.status, 200);
+  const page = await response.text();
+  assert.match(page, /com\.docomoz\.pisya/);
+  assert.match(page, /com\.domocoz\.pisa/);
+  assert.match(page, /Pisa-before-migration/);
 });

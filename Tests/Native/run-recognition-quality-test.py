@@ -107,14 +107,14 @@ def synthetic_corpus(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--app", type=pathlib.Path, default=pathlib.Path("build/Build/Products/Release/Pisya.app/Contents/MacOS/Pisya"))
+    parser.add_argument("--app", type=pathlib.Path, default=pathlib.Path("build/Build/Products/Release/Pisa.app/Contents/MacOS/Pisa"))
     parser.add_argument("--corpus", type=pathlib.Path)
     parser.add_argument("--save-corpus", type=pathlib.Path)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--modes", nargs="+", default=["pipeline"])
     parser.add_argument("--maximum-wer", type=float, help="Fail when corpus WER exceeds this fraction")
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="pisya-recognition-") as directory:
+    with tempfile.TemporaryDirectory(prefix="pisa-recognition-") as directory:
         fixtures = json.loads(args.corpus.read_text()) if args.corpus else synthetic_corpus(pathlib.Path(directory))
         if args.save_corpus:
             args.save_corpus.write_text(json.dumps(fixtures, ensure_ascii=False))

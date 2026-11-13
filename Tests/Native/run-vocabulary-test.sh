@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-app_binary="${1:-$root/build/Build/Products/Release/Pisya.app/Contents/MacOS/Pisya}"
-fixture_dir="$(mktemp -d -t pisya-vocabulary)"
+app_binary="${1:-$root/build/Build/Products/Release/Pisa.app/Contents/MacOS/Pisa}"
+fixture_dir="$(mktemp -d -t pisa-vocabulary)"
 trap 'rm -rf "$fixture_dir"' EXIT
 
 # Synthetic speech only; no recordings from the user's library are needed.

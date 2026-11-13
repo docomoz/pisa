@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Pisya word-form lists from a pinned OpenCorpora snapshot."""
+"""Build Pisa word-form lists from a pinned OpenCorpora snapshot."""
 
 import argparse
 from collections import defaultdict
@@ -118,7 +118,7 @@ def write_forms(forms, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    default_output = Path(__file__).resolve().parents[1] / "Sources/PisyaCore/Resources/PisyaYoWords.deflate"
+    default_output = Path(__file__).resolve().parents[1] / "Sources/PisaCore/Resources/PisaYoWords.deflate"
     parser.add_argument("--output", type=Path, default=default_output)
     parser.add_argument("--entity-output", type=Path, help="also write the list of names and places")
     parser.add_argument("--common-output", type=Path, help="also write the list of ordinary Russian word forms")

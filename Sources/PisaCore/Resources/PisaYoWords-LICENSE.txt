@@ -1,0 +1,29 @@
+PisaYoWords.deflate, PisaEntityForms.deflate and PisaCommonForms.deflate
+
+Source: Russian morphological dictionary by the OpenCorpora project and its
+contributors, format 0.92, revision 417150.
+https://opencorpora.org/?page=downloads
+https://opencorpora.org/?page=faq
+
+Snapshot distributed as the data in pymorphy3-dicts-ru 2.4.417150.4580142:
+https://pypi.org/project/pymorphy3-dicts-ru/2.4.417150.4580142/
+
+These derived word-form lists are distributed under Creative Commons
+Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0).
+https://creativecommons.org/licenses/by-sa/3.0/
+https://creativecommons.org/licenses/by-sa/3.0/legalcode
+
+PisaYoWords contains lowercase word forms with ё, excluding spellings with
+competing е/ё forms, other held-out spellings and entries without a common-word
+analysis. The list is sorted, deduplicated and compressed.
+PisaEntityForms contains geographical names and singular given names, surnames
+and patronymics, excluding forms also marked as organizations or trademarks.
+The list is folded from ё to е, sorted, deduplicated and compressed.
+PisaCommonForms contains ordinary Russian word forms up to 48 characters.
+The list excludes organization and trademark spellings and is folded from ё
+to е, sorted, deduplicated and compressed.
+
+To reproduce the lists, run the following command.
+python3 scripts/generate-yo-wordforms.py \
+  --entity-output Sources/PisaCore/Resources/PisaEntityForms.deflate \
+  --common-output Sources/PisaCore/Resources/PisaCommonForms.deflate

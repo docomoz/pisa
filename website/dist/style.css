@@ -99,3 +99,24 @@ em{font-family:Georgia,"Times New Roman",serif;font-weight:400;color:var(--green
 
 @media(max-width:480px){.mcp-flow strong{white-space:nowrap}.copy{min-height:44px;padding:0 4px;font-size:13px}}
 @media(max-width:360px){.install-top .section-lead{font-size:16px}}
+
+/* Migration guide */
+.migration { max-width: 850px; padding-top: 90px; padding-bottom: 120px; }
+.migration h1 { margin: 20px 0 32px; }
+.migration-lead { max-width: 700px; font-size: 22px; line-height: 1.5; }
+.migration-steps { list-style: none; counter-reset: migration; padding: 0; margin: 70px 0; }
+.migration-steps li { counter-increment: migration; position: relative; padding: 0 0 48px 68px; }
+.migration-steps li::before { content: counter(migration, decimal-leading-zero); position: absolute; left: 0; top: 4px; color: #858b88; font-size: 15px; }
+.migration h2 { font-size: 26px; line-height: 1.2; margin: 0 0 16px; }
+.migration p { line-height: 1.6; }
+.migration-steps p, .migration-after p { margin: 0 0 16px; }
+.migration-path { background: #f1f3ef; border-radius: 12px; padding: 16px; overflow-wrap: anywhere; }
+.migration-path code { font-size: 14px; }
+.migration-after { border-top: 1px solid #d6dad6; padding-top: 40px; }
+@media (max-width: 600px) {
+  .migration { padding-top: 55px; padding-bottom: 75px; }
+  .migration-lead { font-size: 19px; }
+  .migration-steps { margin: 50px 0; }
+  .migration-steps li { padding-left: 42px; }
+  .migration h2 { font-size: 23px; }
+}

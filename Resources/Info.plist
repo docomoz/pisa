@@ -13,40 +13,40 @@
 		<string>ru</string>
 	</array>
 	<key>CFBundleIconFile</key>
-	<string>PisyaPlain</string>
+	<string>PisaPlain</string>
 	<key>CFBundleName</key>
-	<string>Pisya</string>
+	<string>Pisa</string>
 	<key>CFBundleDisplayName</key>
-	<string>Pisya</string>
+	<string>Pisa</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.docomoz.pisya.transcript</string>
+			<string>com.domocoz.pisa.transcript</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>pisya</string>
+				<string>pisa</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.221</string>
+	<string>0.4.222</string>
 	<key>CFBundleVersion</key>
-	<string>261</string>
+	<string>262</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Pisya записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
+	<string>Pisa записывает ваш голос во время встречи. Запись остаётся на этом Mac.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Pisya записывает звук собеседников из приложения звонка для локальной расшифровки</string>
+	<string>Pisa записывает звук собеседников из приложения звонка для локальной расшифровки</string>
 	<key>NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://github.com/docomoz/pisya/releases/latest/download/appcast.xml</string>
+	<string>https://github.com/docomoz/pisa/releases/latest/download/pisa-appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>g9qlO8D7mHG5qkvX0v9ZpnQb+0JZNfKXknt6no+XDrw=</string>
 	<key>SUEnableInstallerLauncherService</key>

@@ -7,7 +7,7 @@ def digest(path):
         for chunk in iter(lambda: f.read(1024 * 1024), b''): value.update(chunk)
     return value.hexdigest()
 
-root = pathlib.Path.home() / 'Library/Containers/com.docomoz.pisya/Data/Library/Application Support/Pisya/Models'
+root = pathlib.Path.home() / 'Library/Containers/com.domocoz.pisa/Data/Library/Application Support/Pisa/Models'
 manifest = json.loads((pathlib.Path(__file__).parent / 'models.json').read_text())
 for item in manifest:
     destination = root / item['path']
@@ -24,4 +24,4 @@ for item in manifest:
         os.replace(partial, destination)
     except Exception:
         partial.unlink(missing_ok=True); raise
-print('Models installed. Restart Pisya.')
+print('Models installed. Restart Pisa.')

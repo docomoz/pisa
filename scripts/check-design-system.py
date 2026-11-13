@@ -34,7 +34,7 @@ def compact_actions_in_form_rows(source):
 
 
 root = Path(__file__).resolve().parents[1]
-paths = [Path(value) for value in sys.argv[1:]] or sorted((root / 'Sources/Pisya').glob('*.swift'))
+paths = [Path(value) for value in sys.argv[1:]] or sorted((root / 'Sources/Pisa').glob('*.swift'))
 failures = []
 for path in paths:
     # Definitions live here. Tests and diagnostics contain no product screens.
@@ -45,16 +45,16 @@ for path in paths:
     source = re.sub(r'"""[\s\S]*?"""|"(?:\\.|[^"\\])*"|//[^\n]*|/\*[\s\S]*?\*/',
                     lambda match: '\n' * match[0].count('\n'), source)
     rules = [
-        (r'\b(?:NSFont|Font)\s*(?:\(|\.\w+\s*\()|\.appFont\s*\(', 'Use PisyaDesign.Typography'),
+        (r'\b(?:NSFont|Font)\s*(?:\(|\.\w+\s*\()|\.appFont\s*\(', 'Use PisaDesign.Typography'),
         (r'\.font\(\s*\.', 'Use a named typography role'),
-        (r'\.padding\((?![^)]*PisyaDesign\.Spacing)[^)]*\)', 'Use PisyaDesign.Spacing'),
-        (r'\bfont\((?!\s*PisyaDesign\.Typography\.Icon\.)[^)]*\)', 'Use textStyle so font and leading cannot diverge'),
+        (r'\.padding\((?![^)]*PisaDesign\.Spacing)[^)]*\)', 'Use PisaDesign.Spacing'),
+        (r'\bfont\((?!\s*PisaDesign\.Typography\.Icon\.)[^)]*\)', 'Use textStyle so font and leading cannot diverge'),
         (r'\.(?:lineSpacing|tracking)\(', 'Leading and tracking belong to the shared text style'),
-        (r'\bspacing:\s*(?!PisyaDesign\b|subtitle\b)[0-9.-]+', 'Use PisyaDesign.Spacing'),
+        (r'\bspacing:\s*(?!PisaDesign\b|subtitle\b)[0-9.-]+', 'Use PisaDesign.Spacing'),
         (r'SectionHeading\([^\n]*\bsize:', 'Choose a SectionHeading.Style'),
     ]
     if path.name != 'Appearance.swift':
-        rules.append((r'\bPisyaDesign\.Typography\.smallButton\b', 'Let the action button choose its label size'))
+        rules.append((r'\bPisaDesign\.Typography\.smallButton\b', 'Let the action button choose its label size'))
     for match in compact_actions_in_form_rows(source):
         line = source.count('\n', 0, match.start()) + 1
         failures.append(f'{path}:{line}: error: Use a regular action button next to a form field')

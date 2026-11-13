@@ -57,12 +57,12 @@ def main():
     if not args.evidence and (not args.manifest or not args.models):
         parser.error('--manifest and --models are required for extraction')
     repo = Path(__file__).resolve().parents[2]
-    with tempfile.TemporaryDirectory(prefix='pisya-voice-probe-') as temp:
+    with tempfile.TemporaryDirectory(prefix='pisa-voice-probe-') as temp:
         scratch = Path(temp)
-        sources = sorted((repo / 'Sources/PisyaCore').glob('*.swift'))
-        sources += [repo / 'Sources/Pisya/SpeakerEngine.swift']
+        sources = sorted((repo / 'Sources/PisaCore').glob('*.swift'))
+        sources += [repo / 'Sources/Pisa/SpeakerEngine.swift']
         if args.purity:
-            sources += [repo / 'Sources/Pisya/SavedVoiceAudio.swift', repo / 'Sources/Pisya/PCMRead.swift']
+            sources += [repo / 'Sources/Pisa/SavedVoiceAudio.swift', repo / 'Sources/Pisa/PCMRead.swift']
         if args.source_ref:
             baseline = []
             for path in sources:

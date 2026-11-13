@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="Как перенести встречи и настройки из Pisya в Pisa">
+  <title>Перенос встреч в Pisa</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/analytics.js" defer></script>
+</head>
+<body>
+  <header class="header wrap">
+    <div class="header-brand"><a class="brand" href="/"><img src="/assets/mark.svg" alt=""><span>Pisa</span></a></div>
+    <a class="button button-small" href="/download">Скачать <span aria-hidden="true">↓</span></a>
+  </header>
+  <main class="migration wrap">
+    <p class="section-label">ПЕРЕХОД С PISYA</p>
+    <h1>Перенос встреч<br><em>в Pisa</em></h1>
+    <p class="migration-lead">На каждом Mac скопируйте свою библиотеку. Вместе с записями перенесутся расшифровки, папки, словарь, голоса и загруженные модели.</p>
+    <ol class="migration-steps">
+      <li><h2>Подготовьте приложения</h2><p>Закончите запись и расшифровку в Pisya, затем закройте приложение через ⌘Q. Установите Pisa, откройте один раз и закройте через ⌘Q, чтобы macOS создала папку данных. Выполните перенос до первой записи в Pisa.</p><p>Чтобы отключить анонимную статистику, перед первым запуском выполните в Терминале команду ниже.</p><div class="migration-path"><code>defaults write com.domocoz.pisa usageAnalyticsEnabled -bool false</code></div></li>
+      <li><h2>Скопируйте библиотеку Pisya</h2><p>В Finder нажмите ⇧⌘G, вставьте путь ниже и нажмите Enter. Выделите папку <strong>Pisya</strong> и скопируйте её через ⌘C.</p><div class="migration-path"><code>~/Library/Containers/com.docomoz.pisya/Data/Library/Application Support/</code></div></li>
+      <li><h2>Откройте папку Pisa</h2><p>Так же откройте путь ниже. Переименуйте уже существующую папку <strong>Pisa</strong> в <strong>Pisa-before-migration</strong>. Если в Pisa уже есть новые встречи, остановитесь и сохраните обе библиотеки отдельно.</p><div class="migration-path"><code>~/Library/Containers/com.domocoz.pisa/Data/Library/Application Support/</code></div></li>
+      <li><h2>Перенесите встречи</h2><p>Вставьте скопированную папку через ⌘V и переименуйте только её из <strong>Pisya</strong> в <strong>Pisa</strong>. Откройте Pisa, проверьте встречи, расшифровки и воспроизведение.</p></li>
+    </ol>
+    <section class="migration-after"><h2>После переноса</h2><p>При первой записи выдайте Pisa разрешения на микрофон и системный звук. Если использовали свою папку моделей или экспорта Markdown, выберите её заново в настройках. Для Codex скопируйте новую конфигурацию из раздела MCP. Старые ссылки <code>pisya://</code> открываются в прежнем приложении.</p><p>Сохраните старое приложение и его папку, пока не проверите копию.</p></section>
+  </main>
+  <footer class="footer wrap"><div class="footer-identity"><a class="brand" href="/"><img src="/assets/mark.svg" alt=""><span>Pisa</span></a><p>Пишет. Чтобы вы не писали.</p></div><div class="footer-links"><a href="https://github.com/docomoz/pisa">GitHub ↗</a><a href="https://t.me/docomoz">Написать автору ↗</a></div></footer>
+</body>
+</html>

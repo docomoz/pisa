@@ -27,12 +27,12 @@ EXIT_CODES = {"PASS": 0, "FAIL": 1, "BLOCKED": 2}
 GENERATED_ROOTS = {"build", ".build", "DerivedData"}
 GENERATED_NAMES = {"__pycache__", ".pytest_cache", "node_modules"}
 SOURCE_DIRECTORIES = {"Sources", "Tests", "scripts", ".github", ".agents", "docs", "website"}
-APP_PATHS = ("Sources/", "Resources/", "Tests/PisyaCoreTests/", "Tests/Native/")
-CORE_PATHS = ("Sources/PisyaCore/", "Sources/PisyaMCP/", "Tests/PisyaCoreTests/")
-BUILD_FILES = {"Package.swift", "project.yml", "Pisya.xcodeproj/project.pbxproj",
+APP_PATHS = ("Sources/", "Resources/", "Tests/PisaCoreTests/", "Tests/Native/")
+CORE_PATHS = ("Sources/PisaCore/", "Sources/PisaMCP/", "Tests/PisaCoreTests/")
+BUILD_FILES = {"Package.swift", "project.yml", "Pisa.xcodeproj/project.pbxproj",
                "dependencies.resolved.json", ".gitmodules"}
 CHECK_PATHS = {
-    "design-system": ("Sources/Pisya/",),
+    "design-system": ("Sources/Pisa/",),
     "versioning": ("scripts/versioning/", "Tests/Versioning/", ".gitattributes"),
     "pretest-runner": ("scripts/pretest.py", ".github/workflows/pretest.yml", "Tests/Pretest/"),
     "website": ("website/",),
@@ -90,8 +90,8 @@ def default_checks() -> tuple[Check, ...]:
               tools=("swift",), portable=False, macos=True),
         *(Check("native-" + name, ("bash", f"Tests/Native/run-{name}-test.sh"),
                 files=(f"Tests/Native/run-{name}-test.sh", f"Tests/Native/{probe}.swift",
-                       *(f"Sources/Pisya/{source}.swift" for source in app_sources),
-                       *(f"Sources/PisyaCore/{source}.swift" for source in core_sources)),
+                       *(f"Sources/Pisa/{source}.swift" for source in app_sources),
+                       *(f"Sources/PisaCore/{source}.swift" for source in core_sources)),
                 tools=("bash", "swiftc", "xcrun"), portable=False, macos=True, gui=True, native=True)
           for name, probe, app_sources, core_sources in native),
     )
@@ -108,7 +108,7 @@ def changed_checks(repo: Path, base: str, plan: Sequence[Check]) -> tuple[str, t
     app_changes = [lines for path, lines in changes.items() if path.startswith(APP_PATHS)]
     full = (len(app_changes) >= 10 or sum(app_changes) >= 300
             or bool(BUILD_FILES.intersection(changes))
-            or any(path.startswith(("Vendor/", "patches/", "Pisya.xcodeproj/")) for path in changes))
+            or any(path.startswith(("Vendor/", "patches/", "Pisa.xcodeproj/")) for path in changes))
     scope = "full" if full else "targeted"
     checks = []
     for check in plan:
@@ -120,7 +120,7 @@ def changed_checks(repo: Path, base: str, plan: Sequence[Check]) -> tuple[str, t
             if any(path.startswith(CORE_PATHS) for path in changes):
                 checks.append(focused_core_check(repo, changes, check))
         elif check.id == "design-system" and not set(check.files).intersection(changes):
-            sources = sorted(path for path in changes if path.startswith("Sources/Pisya/")
+            sources = sorted(path for path in changes if path.startswith("Sources/Pisa/")
                              and path.endswith(".swift") and (repo / path).is_file())
             if sources:
                 checks.append(replace(check, command=check.command + tuple(sources)))
@@ -131,16 +131,16 @@ def changed_checks(repo: Path, base: str, plan: Sequence[Check]) -> tuple[str, t
 
 
 def focused_core_check(repo: Path, changes: dict[str, int], check: Check) -> Check:
-    test_root = repo / "Tests/PisyaCoreTests"
+    test_root = repo / "Tests/PisaCoreTests"
     matching_names = {Path(path).stem + "Tests.swift" for path in changes if path.startswith(CORE_PATHS[:2])}
-    if any(path.startswith("Sources/PisyaMCP/") for path in changes):
+    if any(path.startswith("Sources/PisaMCP/") for path in changes):
         matching_names.add("MCPTransportTests.swift")
     suites = set()
     for test in test_root.glob("*.swift"):
         if test.name in matching_names or test.relative_to(repo).as_posix() in changes:
             suites.update(re.findall(r"^\s*(?:final\s+)?class\s+(\w+)\s*:\s*XCTestCase\b", test.read_text(), re.M))
     if suites:
-        pattern = r"^(PisyaCoreTests\.)?(" + "|".join(re.escape(suite) for suite in sorted(suites)) + ")/"
+        pattern = r"^(PisaCoreTests\.)?(" + "|".join(re.escape(suite) for suite in sorted(suites)) + ")/"
         return replace(check, id="swift-core-focused", command=("swift", "test", "--filter", pattern))
     return replace(check, id="swift-core-build", command=("swift", "build", "--build-tests"))
 

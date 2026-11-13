@@ -5,7 +5,7 @@ document.querySelectorAll('.code').forEach(block => {
   copy?.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(command.textContent);
-      if (command.textContent.startsWith('xattr ')) window.pisyaTrack?.('copy_install_command');
+      if (command.textContent.startsWith('xattr ')) window.pisaTrack?.('copy_install_command');
       copy.textContent = 'Скопировано';
       if (status) status.textContent = 'Команда скопирована';
       window.setTimeout(() => { copy.textContent = 'Копировать'; }, 2200);

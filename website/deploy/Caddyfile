@@ -1,8 +1,8 @@
-pisya.app {
+getpisa.app {
     encode zstd gzip
-    reverse_proxy 127.0.0.1:4173
+    reverse_proxy 127.0.0.1:4174
 }
 
-www.pisya.app {
-    redir https://pisya.app{uri} permanent
+www.getpisa.app, pisya.app, www.pisya.app {
+    redir https://getpisa.app{uri} permanent
 }

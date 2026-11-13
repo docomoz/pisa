@@ -28,6 +28,6 @@ struct Evidence: Decodable {
         let rows = refreshed.values.sorted { $0.file < $1.file }
         try JSONEncoder().encode(rows).write(to: root.appendingPathComponent("purity-production-results.json"))
         for example in rows { print(example.file, "excluded", example.excludedFromRecognition == true) }
-        guard rows.count == files.count else { throw PisyaError.message("Missing assessed clips") }
+        guard rows.count == files.count else { throw PisaError.message("Missing assessed clips") }
     }
 }

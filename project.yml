@@ -1,4 +1,4 @@
-name: Pisya
+name: Pisa
 options:
   bundleIdPrefix: com.docomoz
   deploymentTarget:
@@ -23,7 +23,7 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     SWIFT_STRICT_CONCURRENCY: targeted
 targets:
-  Pisya:
+  Pisa:
     type: application
     platform: macOS
     preBuildScripts:
@@ -31,16 +31,16 @@ targets:
         script: python3 "$SRCROOT/scripts/check-design-system.py"
         basedOnDependencyAnalysis: false
     sources:
-      - Sources/Pisya
-      - path: Sources/PisyaCore
+      - Sources/Pisa
+      - path: Sources/PisaCore
         excludes: [Resources]
-      - path: Sources/PisyaCore/Resources/PisyaYoWords.deflate
+      - path: Sources/PisaCore/Resources/PisaYoWords.deflate
         buildPhase: resources
-      - path: Sources/PisyaCore/Resources/PisyaEntityForms.deflate
+      - path: Sources/PisaCore/Resources/PisaEntityForms.deflate
         buildPhase: resources
-      - path: Sources/PisyaCore/Resources/PisyaCommonForms.deflate
+      - path: Sources/PisaCore/Resources/PisaCommonForms.deflate
         buildPhase: resources
-      - path: Sources/PisyaCore/Resources/PisyaYoWords-LICENSE.txt
+      - path: Sources/PisaCore/Resources/PisaYoWords-LICENSE.txt
         buildPhase: resources
       - path: Resources/silero_vad.onnx
         buildPhase: resources
@@ -56,7 +56,7 @@ targets:
         buildPhase: resources
       - path: Resources/BrandMark.json
         buildPhase: resources
-      - path: Resources/PisyaPlain.icns
+      - path: Resources/PisaPlain.icns
         buildPhase: resources
     dependencies:
       - framework: Vendor/WebRTCAEC/libPisyaAEC.a
@@ -85,25 +85,26 @@ targets:
         HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/Sherpa/include $(SRCROOT)/Vendor/WebRTCAEC/include
         GCC_PREPROCESSOR_DEFINITIONS: $(inherited) FLOATING_POINT USE_KISS_FFT EXPORT=
         LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/../Frameworks
-        PRODUCT_BUNDLE_IDENTIFIER: com.docomoz.pisya
-        PRODUCT_NAME: Pisya
+        PRODUCT_BUNDLE_IDENTIFIER: com.domocoz.pisa
+        PRODUCT_NAME: Pisa
         INFOPLIST_FILE: Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Resources/Pisya.entitlements
+        CODE_SIGN_ENTITLEMENTS: Resources/Pisa.entitlements
         COMBINE_HIDPI_IMAGES: YES
-  PisyaMCP:
+  PisaMCP:
     type: tool
     platform: macOS
     sources:
-      - Sources/PisyaMCP
-      - path: Sources/PisyaCore
+      - Sources/PisaMCP
+      - path: Sources/PisaCore
         excludes: [Resources]
     settings:
       base:
-        PRODUCT_NAME: pisya-mcp
+        PRODUCT_NAME: pisa-mcp
+        PRODUCT_BUNDLE_IDENTIFIER: com.domocoz.pisa.mcp
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: XCODE_BUILD
 schemes:
-  Pisya:
+  Pisa:
     build:
       targets:
-        Pisya: all
-        PisyaMCP: all
+        Pisa: all
+        PisaMCP: all

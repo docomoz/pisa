@@ -17,19 +17,19 @@ if ! platform="$(xcrun --sdk macosx --show-sdk-platform-path 2>/dev/null)"; then
   export DEVELOPER_DIR="$xcode/Contents/Developer"
   platform="$(xcrun --sdk macosx --show-sdk-platform-path)"
 fi
-binary="$(mktemp -t pisya-interface-controls)"
+binary="$(mktemp -t pisa-interface-controls)"
 trap 'rm -f "$binary"' EXIT
-xcrun --sdk macosx swiftc -D PISYA_CONTROLS_PROBE -swift-version 5 -target "$(uname -m)-apple-macosx15.0" \
+xcrun --sdk macosx swiftc -D PISA_CONTROLS_PROBE -swift-version 5 -target "$(uname -m)-apple-macosx15.0" \
   -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
   -plugin-path "$platform/Developer/usr/lib/swift/host/plugins" \
-  "$root/Sources/PisyaCore/Models.swift" \
-  "$root/Sources/PisyaCore/MeetingTitles.swift" \
-  "$root/Sources/PisyaCore/LiveTranscriptionSchedule.swift" \
-  "$root/Sources/Pisya/Appearance.swift" \
-  "$root/Sources/Pisya/AppTypography.swift" \
-  "$root/Sources/Pisya/ScreenTypography.swift" \
-  "$root/Sources/Pisya/DesignComponents.swift" \
-  "$root/Sources/Pisya/SlimScrollbars.swift" \
-  "$root/Sources/Pisya/SettingsSectionPicker.swift" \
+  "$root/Sources/PisaCore/Models.swift" \
+  "$root/Sources/PisaCore/MeetingTitles.swift" \
+  "$root/Sources/PisaCore/LiveTranscriptionSchedule.swift" \
+  "$root/Sources/Pisa/Appearance.swift" \
+  "$root/Sources/Pisa/AppTypography.swift" \
+  "$root/Sources/Pisa/ScreenTypography.swift" \
+  "$root/Sources/Pisa/DesignComponents.swift" \
+  "$root/Sources/Pisa/SlimScrollbars.swift" \
+  "$root/Sources/Pisa/SettingsSectionPicker.swift" \
   "$root/Tests/Native/InterfaceControlsProbe.swift" -o "$binary"
 "$binary" "$@"
