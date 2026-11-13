@@ -238,7 +238,7 @@ final class InterfacePreview: NSObject {
         guard state.meetings.contains(where: { $0.id == active.id }) else { throw PisaError.message("Удалена запись вне корзины") }
         state.deletePermanently(deleted)
         guard !state.meetings.contains(where: { $0.id == deleted.id }), state.selection != deleted.id else {
-            throw PisaError.message("Удалённая запись осталась в библиотеке")
+            throw PisaError.message("Удалённая запись осталась в библиотеке: \(state.message ?? "нет ошибки"), записей: \(state.meetings.count), выбрана: \(state.selection == deleted.id)")
         }
         guard (try? state.library.read(deleted.id)) == nil else { throw PisaError.message("Запись осталась на диске") }
     }
