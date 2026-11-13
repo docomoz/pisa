@@ -230,7 +230,7 @@ struct SingleLineTextField: NSViewRepresentable {
     var onCommand: ((Selector) -> Bool)?
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: text)
+        let field = StationaryPlaceholderField(string: text)
         field.isBordered = false
         field.isBezeled = false
         field.drawsBackground = false
@@ -248,7 +248,14 @@ struct SingleLineTextField: NSViewRepresentable {
         field.isEnabled = enabled
         field.font = AppTypography.singleLineField(scale: scale, compact: compact)
         field.textColor = NSColor(enabled ? Color.ink : Color.disabledInk)
-        field.placeholderString = typographicText(title)
+        let placeholder = typographicText(title)
+        // Draw the same placeholder under the transparent field editor, since
+        // macOS 15 hides the standard placeholder as soon as editing starts.
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
+            .font: field.font ?? AppTypography.singleLineField(scale: scale, compact: compact),
+            .foregroundColor: NSColor.clear,
+        ])
+        field.needsDisplay = true
         field.setAccessibilityLabel(typographicText(accessibilityTitle ?? title))
 
         if let editor = field.currentEditor() as? NSTextView {
@@ -290,11 +297,19 @@ struct SingleLineTextField: NSViewRepresentable {
 
         init(field: SingleLineTextField) { self.field = field }
 
-        func controlTextDidBeginEditing(_ notification: Notification) { reportFocus(true) }
-        func controlTextDidEndEditing(_ notification: Notification) { reportFocus(false) }
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            (notification.object as? NSTextField)?.needsDisplay = true
+            reportFocus(true)
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            (notification.object as? NSTextField)?.needsDisplay = true
+            reportFocus(false)
+        }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView else { return }
+            (notification.object as? NSTextField)?.needsDisplay = true
             reportFocus(true)
             if field.text != editor.string { field.text = editor.string }
         }
@@ -311,6 +326,28 @@ struct SingleLineTextField: NSViewRepresentable {
             requestedFocus = focused
             if binding.wrappedValue != focused { binding.wrappedValue = focused }
         }
+    }
+}
+
+private final class StationaryPlaceholderField: NSTextField {
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard (currentEditor()?.string ?? stringValue).isEmpty,
+              let placeholder = placeholderAttributedString?.string,
+              let font, let cell else { return }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.placeholderTextColor,
+            .paragraphStyle: style,
+        ]
+        let content = cell.titleRect(forBounds: bounds)
+        let height = (placeholder as NSString).size(withAttributes: attributes).height
+        let rect = NSRect(x: content.minX, y: content.midY - height / 2,
+                          width: content.width, height: height)
+        (placeholder as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                       attributes: attributes)
     }
 }
 

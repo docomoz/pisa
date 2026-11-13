@@ -182,7 +182,10 @@ private final class Probe {
         // glyph edge. Keep the tolerance below a full point on Retina.
         let pixelsPerPoint = CGFloat(image.pixelsHigh) / host.bounds.height
         let tolerance = min(0.5, 1 / pixelsPerPoint)
-        return abs(first.minX - second.minX) <= tolerance && abs(first.minY - second.minY) <= tolerance
+        // Compare the glyph baseline edge. At 1× the top antialiased row can
+        // disappear while the baseline and the field's frame stay fixed.
+        return abs(first.minX - second.minX) <= tolerance
+            && abs(first.maxY - second.maxY) <= tolerance
     }
 
     func checkFocus(_ field: NSTextField, id: String, fixture: ControlsFixture,
@@ -191,7 +194,8 @@ private final class Probe {
         pump(host)
         let beforeFrame = fixture.frames[id]
         let nativeRect = topRect(field, in: host)
-        let sample = field.stringValue.isEmpty ? (field.placeholderString ?? "") : field.stringValue
+        let sample = field.stringValue.isEmpty
+            ? (field.placeholderString ?? field.placeholderAttributedString?.string ?? "") : field.stringValue
         guard let font = field.font else { check(false, "\(prefix)/\(id): native font exists"); return }
         let textWidth = (sample as NSString).size(withAttributes: [.font: font]).width
         // Ignore the caret at either edge. Keep this same fixed crop for focused

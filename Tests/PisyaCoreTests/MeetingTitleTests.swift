@@ -122,8 +122,13 @@ final class MeetingTitleTests: XCTestCase {
 
     func testLongTranscriptIncludesLastPartThroughMultipleSummaryLevels() async throws {
         // The decisive topic appears at the end, beyond the first context window.
-        let segments = (0..<100).map { index in
-            TranscriptSegment(start: Double(index), end: Double(index + 1), speaker: "Анна", text: index == 99 ? "Итог: монетизация поиска" : "Обсудили подробности плана, результаты проверки и следующие шаги команды.")
+        let segments = (0..<100).map { index -> TranscriptSegment in
+            let start = Double(index)
+            let end = Double(index + 1)
+            let text = index == 99
+                ? "Итог: монетизация поиска"
+                : "Обсудили подробности плана, результаты проверки и следующие шаги команды."
+            return TranscriptSegment(start: start, end: end, speaker: "Анна", text: text)
         }
         let composer = MeetingTitleComposer(characterLimit: 256) { request in
             let hasTopic = request.text.contains("монетизация")
