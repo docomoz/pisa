@@ -225,7 +225,6 @@ struct SavedVoicesSettings: View {
     private func sampleRow(_ example: VoiceExample, number: Int, profile: VoiceProfile, canRemove: Bool) -> some View {
         let playing = state.playingSegmentID == example.id
         let meetingTitle = state.meetings.first { $0.id == example.meetingID }?.title
-        let removeHelp = canRemove ? "Удалить образец" : "Последний образец можно удалить вместе с голосом"
         return HStack(spacing: PisyaDesign.Spacing.related) {
             Button { state.playExample(example) } label: {
                 HStack(spacing: PisyaDesign.Spacing.inline) {
@@ -256,19 +255,19 @@ struct SavedVoicesSettings: View {
             .accessibilityLabel(typographicText("\(playing ? "Остановить" : "Послушать") образец \(number), \(profile.name)"))
             .accessibilityHint(typographicText(meetingTitle ?? ""))
 
-            Button { dialog = .remove(example, number: number, from: profile) } label: {
-                Image(systemName: "trash")
-                    .font(PisyaDesign.Typography.Icon.medium)
-                    .foregroundStyle(canRemove ? Color.mutedInk : Color.disabledInk)
-                    .frame(width: PisyaDesign.Metrics.smallHeight, height: PisyaDesign.Metrics.smallHeight)
-                    .contentShape(Rectangle())
+            if canRemove {
+                Button { dialog = .remove(example, number: number, from: profile) } label: {
+                    Image(systemName: "trash")
+                        .font(PisyaDesign.Typography.Icon.medium)
+                        .foregroundStyle(Color.mutedInk)
+                        .frame(width: PisyaDesign.Metrics.smallHeight, height: PisyaDesign.Metrics.smallHeight)
+                        .contentShape(Rectangle())
+                }
+                .shapeAwarePlainButton()
+                .focused($focusedControl, equals: .remove(example.id))
+                .screenHelp("Удалить образец")
+                .accessibilityLabel(typographicText("Удалить образец \(number), \(profile.name)"))
             }
-            .shapeAwarePlainButton()
-            .disabled(!canRemove)
-            .focused($focusedControl, equals: .remove(example.id))
-            .screenHelp(removeHelp)
-            .accessibilityLabel(typographicText("Удалить образец \(number), \(profile.name)"))
-            .accessibilityHint(typographicText(canRemove ? "" : removeHelp))
         }
     }
 }
