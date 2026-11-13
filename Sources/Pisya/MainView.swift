@@ -183,14 +183,19 @@ struct MeetingView: View {
     // Keep at least this much space for the transcript and the gap beside it.
     private static let transcriptWidthWithDetails: CGFloat = 529
     private static let detailsColumnWidth: CGFloat = 244
-    private var isRecording: Bool { state.recordingMeetingID == meeting.id }
-    private var isSaving: Bool { state.savingMeetingID == meeting.id }
-    private var isQueued: Bool { state.isQueued(meeting.id) }
-    private var isTranscribing: Bool { meeting.status == .processing && state.processingID == meeting.id }
+    private var presentation: MeetingPresentation {
+        MeetingPresentation(meeting: meeting, recordingID: state.recordingMeetingID,
+                            savingID: state.savingMeetingID, processingID: state.processingID,
+                            isQueued: state.isQueued(meeting.id))
+    }
+    private var isRecording: Bool { presentation.isRecording }
+    private var isSaving: Bool { presentation.isSaving }
+    private var isQueued: Bool { presentation.isQueued }
+    private var isTranscribing: Bool { presentation.isTranscribing }
     private var canStartLiveTranscription: Bool { isRecording && state.canStartLiveTranscription }
-    private var showsTranscriptTools: Bool { meeting.status == .ready && !isRecording && !isSaving && !isQueued }
-    private var showsAutomaticPlayer: Bool { !showsTranscriptTools && meeting.segments.isEmpty }
-    private var showsTranscriptStatus: Bool { isSaving || isTranscribing || isQueued || (meeting.status == .failed && !meeting.segments.isEmpty) }
+    private var showsTranscriptTools: Bool { presentation.showsTranscriptTools }
+    private var showsAutomaticPlayer: Bool { presentation.showsAutomaticPlayer }
+    private var showsTranscriptStatus: Bool { presentation.showsTranscriptStatus }
     private var finishesRecording: Bool {
         !state.isReprocessing && (meeting.liveCommittedUntil != nil || meeting.source == state.source)
     }
@@ -202,8 +207,8 @@ struct MeetingView: View {
         })
     }
     var body: some View {
-        let hasAudio = !isRecording && !isSaving && state.hasAudio(meeting)
-        let audioSources = !isRecording && !isSaving && !state.demo && (showsAutomaticPlayer || hasAudio)
+        let hasAudio = presentation.allowsSavedAudio && state.hasAudio(meeting)
+        let audioSources = presentation.allowsSavedAudio && !state.demo && (showsAutomaticPlayer || hasAudio)
             ? MeetingAudioExport.playbackSources(for: meeting, in: state.library) : []
         let canToggleAudio = !showsAutomaticPlayer && !audioSources.isEmpty
         let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
@@ -214,7 +219,7 @@ struct MeetingView: View {
                     .padding(.vertical, PisyaDesign.Spacing.compact)
                 screenText("·")
                 screenText(meeting.source)
-                if !isRecording && !isSaving {
+                if presentation.allowsSavedAudio {
                     screenText("·")
                     screenText(timecode(meeting.duration)).monospacedDigit()
                     screenText("·")

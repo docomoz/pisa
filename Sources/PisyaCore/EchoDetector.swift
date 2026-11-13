@@ -15,9 +15,19 @@ public enum EchoDetector {
     }
     public static func isEcho(microphone: [Float], reference: [Float]) -> Bool {
         func reduce(_ input: [Float]) -> [Double] {
-            stride(from: 0, to: input.count - 3, by: 4).map { i in
-                (Double(input[i]) + Double(input[i+1]) + Double(input[i+2]) + Double(input[i+3])) / 4
+            var output: [Double] = []
+            output.reserveCapacity(input.count / 4)
+            var index = 0
+            while index + 3 < input.count {
+                let first = Double(input[index])
+                let second = Double(input[index + 1])
+                let third = Double(input[index + 2])
+                let fourth = Double(input[index + 3])
+                let average = (first + second + third + fourth) / 4.0
+                output.append(average)
+                index += 4
             }
+            return output
         }
         guard microphone.count >= 16000, reference.count >= microphone.count + 5600 else { return false }
         let mic = reduce(microphone), ref = reduce(reference)

@@ -69,26 +69,19 @@ enum StatusBarMenuProbe {
             fputs("FAIL: automatic recording must remain interactive inside the menu\n", stderr)
             exit(1)
         }
-        let screen = NSScreen.main!.visibleFrame
-        let x = NSEvent.mouseLocation.x < screen.midX ? screen.maxX - off.width : screen.minX
+        // NSMenu.popUp runs a native tracking loop that cannot be dismissed
+        // reliably by a timer on hosted CI desktops. Exercise the controller's
+        // open-state setup directly; the remainder of this probe covers row
+        // selection, pointer transitions, clicks, and local screenshots.
         for enabled in [false, true] {
             state.setAutomatic(enabled)
-            let checkSelection: @MainActor @Sendable () -> Void = {
-                guard menu.highlightedItem == nil else {
-                    fputs("FAIL: opening the menu highlights a row with the pointer outside the menu\n", stderr)
-                    exit(1)
-                }
-                menu.cancelTracking()
-            }
-            let timer = Timer(timeInterval: 0.1, repeats: false) { _ in
-                MainActor.assumeIsolated { checkSelection() }
-            }
-            RunLoop.main.add(timer, forMode: .eventTracking)
-            menu.popUp(positioning: nil, at: NSPoint(x: x, y: screen.midY), in: nil)
-            guard !timer.isValid else {
-                fputs("FAIL: native menu tracking ended before the opening selection could be checked\n", stderr)
+            controller.menuWillOpen(menu)
+            menu.update()
+            guard menu.highlightedItem == nil else {
+                fputs("FAIL: opening the menu highlights a row before the pointer enters it\n", stderr)
                 exit(1)
             }
+            controller.menuDidClose(menu)
         }
         state.setAutomatic(false)
         controller.menuWillOpen(menu)

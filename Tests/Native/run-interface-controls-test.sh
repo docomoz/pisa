@@ -19,7 +19,7 @@ if ! platform="$(xcrun --sdk macosx --show-sdk-platform-path 2>/dev/null)"; then
 fi
 binary="$(mktemp -t pisya-interface-controls)"
 trap 'rm -f "$binary"' EXIT
-xcrun --sdk macosx swiftc -swift-version 5 -target "$(uname -m)-apple-macosx15.0" \
+xcrun --sdk macosx swiftc -D PISYA_CONTROLS_PROBE -swift-version 5 -target "$(uname -m)-apple-macosx15.0" \
   -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
   -plugin-path "$platform/Developer/usr/lib/swift/host/plugins" \
   "$root/Sources/PisyaCore/Models.swift" \
@@ -30,5 +30,6 @@ xcrun --sdk macosx swiftc -swift-version 5 -target "$(uname -m)-apple-macosx15.0
   "$root/Sources/Pisya/ScreenTypography.swift" \
   "$root/Sources/Pisya/DesignComponents.swift" \
   "$root/Sources/Pisya/SlimScrollbars.swift" \
+  "$root/Sources/Pisya/SettingsSectionPicker.swift" \
   "$root/Tests/Native/InterfaceControlsProbe.swift" -o "$binary"
 "$binary" "$@"

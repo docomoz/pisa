@@ -217,7 +217,7 @@ struct SpokenVocabulary {
                     guard count > 1, source.allSatisfy({ $0.isLetter || $0.isNumber || $0.isWhitespace || "-'’&".contains($0) }),
                           let span = Range(range, in: normalized) else { continue }
                     let surrounding = String(normalized[..<span.lowerBound].reversed().prefix { !$0.isWhitespace }.reversed())
-                        + source + normalized[span.upperBound...].prefix { !$0.isWhitespace }
+                        + source + String(normalized[span.upperBound...].prefix { !$0.isWhitespace })
                     guard !surrounding.contains(where: { ":/\\@=_`\"«»“”".contains($0) }) else { continue }
                 } else if !Self.joinable(source) { continue }
                 if count > 1, Self.standaloneWords.contains(words[index].text.lowercased()) || Self.standaloneWords.contains(words[index + count - 1].text.lowercased()) { continue }
@@ -297,10 +297,12 @@ struct SpokenVocabulary {
     private static func omitsRepeatedLetter(_ source: String, from target: String) -> Bool {
         let letters = Array(target)
         guard letters.count == source.count + 1 else { return false }
-        return (1..<letters.count).contains { index in
-            letters[index] == letters[index - 1]
-                && String(letters[..<index] + letters[(index + 1)...]) == source
+        for index in 1..<letters.count {
+            guard letters[index] == letters[index - 1] else { continue }
+            let candidate = String(letters[..<index]) + String(letters[(index + 1)...])
+            if candidate == source { return true }
         }
+        return false
     }
 
     private func suggestion(_ source: String) -> String? {

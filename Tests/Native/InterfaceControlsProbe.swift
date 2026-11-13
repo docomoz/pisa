@@ -12,6 +12,7 @@ private final class ControlsFixture: ObservableObject {
     @Published var emptySearch = ""
     @Published var compactSearch = "ПППППП"
     @Published var notes = "Первая строка\nВторая строка"
+    @Published var section = "Запись"
     @Published var frames: [String: CGRect] = [:]
 }
 
@@ -57,6 +58,7 @@ private struct ControlsView: View {
                 screenButton("ПППППП") {}
                     .actionButton(size: .small).measured("compact")
             }
+            SettingsSectionPicker(selection: $fixture.section).fixedSize().measured("tabs")
             FormTextEditor(text: $fixture.notes).measured("editor")
         }
         .padding(PisyaDesign.Spacing.section)
@@ -79,6 +81,9 @@ private struct ControlsView: View {
 private final class Probe {
     private(set) var checks = 0
     private(set) var failures = 0
+    let output: URL?
+
+    init(output: URL?) { self.output = output }
     func check(_ condition: @autoclosure () -> Bool, _ message: String) {
         checks += 1
         if !condition() {
@@ -100,12 +105,16 @@ private final class Probe {
         [root] + root.subviews.flatMap(allViews)
     }
 
-    func capture(_ host: NSView) -> NSBitmapImageRep? {
+    func capture(_ host: NSView, evidence: String? = nil) -> NSBitmapImageRep? {
         guard let image = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
             check(false, "Cannot allocate an image of the test view")
             return nil
         }
         host.cacheDisplay(in: host.bounds, to: image)
+        if let output, let evidence, let data = image.representation(using: .png, properties: [:]) {
+            do { try data.write(to: output.appendingPathComponent(evidence + ".png")) }
+            catch { check(false, "Cannot save evidence: \(error)") }
+        }
         return image
     }
 
@@ -189,13 +198,13 @@ private final class Probe {
         // and blurred captures, otherwise an offset in the view would be hidden.
         let region = CGRect(x: nativeRect.minX + 4, y: nativeRect.minY - 4,
                             width: max(1, textWidth - 8), height: nativeRect.height + 8)
-        guard let before = capture(host),
+        guard let before = capture(host, evidence: "\(prefix)-\(id)-blur"),
               let beforeInk = inkBounds(before, in: region, host: host) else {
             check(false, "\(prefix)/\(id): unfocused text/placeholder is actually rendered")
             return
         }
         guard focus(field, window: window, host: host, label: "\(prefix)/\(id)") != nil,
-              let focused = capture(host),
+              let focused = capture(host, evidence: "\(prefix)-\(id)-focus"),
               let focusedInk = inkBounds(focused, in: region, host: host) else {
             check(false, "\(prefix)/\(id): focused text/placeholder is actually rendered")
             return
@@ -291,10 +300,10 @@ private final class Probe {
         }
         let distinctFields = Set(fields.map { ObjectIdentifier($0) }).count
         check(nativeFields.count == ids.count, "\(prefix): found all five real native text fields, got \(nativeFields.count)")
-        check(fixture.frames.count == 11, "\(prefix): all control geometry preferences were measured, got \(fixture.frames.keys.sorted())")
+        check(fixture.frames.count == 12, "\(prefix): all control geometry preferences were measured, got \(fixture.frames.keys.sorted())")
         check(fields.count == ids.count && distinctFields == ids.count, "\(prefix): each field maps to one distinct control frame")
         guard nativeFields.count == ids.count, fields.count == ids.count,
-              distinctFields == ids.count, fixture.frames.count == 11 else { return }
+              distinctFields == ids.count, fixture.frames.count == 12 else { return }
 
         for (field, id) in zip(fields, ids) {
             let expectedSize: CGFloat = id == "compact-search" ? 12 : 16
@@ -342,6 +351,14 @@ private final class Probe {
 
         checkButtonFocus(fixture, after: fields[4], window: window, host: host, prefix: prefix)
 
+        let tabSize = fixture.frames["tabs"]?.size
+        for title in ["Модель", "Голоса", "Словарь", "Экспорт", "MCP", "Обновления", "Запись"] {
+            fixture.section = title
+            pump(host)
+            check(fixture.frames["tabs"]?.size == tabSize,
+                  "\(prefix): selecting \(title) does not resize the settings tabs")
+        }
+
         guard let editor = allViews(host).compactMap({ $0 as? NSTextView }).first(where: { $0.isEditable && !$0.isFieldEditor }) else {
             check(false, "\(prefix): native multiline editor exists")
             return
@@ -388,7 +405,18 @@ enum InterfaceControlsProbe {
             exit(77)
         }
         app.finishLaunching()
-        let probe = Probe()
+        var output: URL?
+        if CommandLine.arguments.count != 1 {
+            guard CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render" else {
+                fputs("Usage: interface-controls-probe [--render DIRECTORY]\n", stderr)
+                exit(2)
+            }
+            let directory = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+            do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+            catch { fputs("Cannot create evidence directory: \(error)\n", stderr); exit(2) }
+            output = directory
+        }
+        let probe = Probe(output: output)
         for percent in [100, 110, 120] {
             for size in [ControlSize.regular, .large] {
                 probe.test(scale: AppTextSize.factor(for: percent), controlSize: size)
