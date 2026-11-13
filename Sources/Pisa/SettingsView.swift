@@ -113,7 +113,7 @@ struct SettingsView: View {
             .background(ClickToUnfocus())
     }
     private var modelSettings: some View {
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
+        columns {
             FormSection("Qwen3-ASR", subtitle: "Локальное распознавание русской речи на Apple Silicon") {
                 screenLabel(
                     state.modelReady ? "Модель готова" : "Модели ещё не установлены",
@@ -124,7 +124,7 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .foregroundStyle(Color.mutedInk).textSelection(.enabled)
                 }
-                HStack(spacing: PisaDesign.Spacing.related) {
+                VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                     screenButton(state.modelReady ? "Проверить и установить модели" : "Загрузить модели") {
                         dismiss()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -136,6 +136,7 @@ struct SettingsView: View {
                 }
                 SupportingText("Pisa загрузит проверенные модели речи и участников с Hugging Face — около 3 ГБ. Можно также выбрать свою папку с моделью Qwen3-ASR в формате MLX.")
             }
+        } right: {
             FormSection("Производительность") {
                 screenToggle("Тихая обработка", isOn: Binding(
                     get: { state.preferences.usesQuietProcessing },
