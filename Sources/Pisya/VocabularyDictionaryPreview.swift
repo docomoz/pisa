@@ -28,7 +28,7 @@ enum VocabularyDictionaryPreview {
         editItem.submenu = editMenu; menu.addItem(editItem); app.mainMenu = menu
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Pisya · Словарь"
-        let hosting = NSHostingView(rootView: SettingsView(initialSection: "Модель").environmentObject(state)
+        let hosting = NSHostingView(rootView: SettingsView(initialSection: "Словарь").environmentObject(state)
             .preferredColorScheme(.light).environment(\.locale, Locale(identifier: "ru_RU"))
             .environment(\.appTextScale, (CommandLine.arguments.contains("--large-text-preview") || Bundle.main.object(forInfoDictionaryKey: "PisyaDictionaryLargeText") as? Bool == true) ? 1.2 : 1))
         hosting.sizingOptions = []

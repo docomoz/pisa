@@ -6,7 +6,6 @@ struct SettingsView: View {
     @ObservedObject private var updates = AppUpdates.shared
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
-    @State private var dictionaryPresented = false
     init(initialSection: String = "Запись") {
         _section = State(initialValue: initialSection)
     }
@@ -16,6 +15,8 @@ struct SettingsView: View {
             SettingsSectionPicker(selection: $section)
             if section == "Голоса" {
                 SavedVoicesSettings()
+            } else if section == "Словарь" {
+                VocabularyDictionaryView()
             } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
@@ -23,30 +24,7 @@ struct SettingsView: View {
                     case "Запись":
                         recordingSettings
                     case "Модель":
-                        columns {
-                        block("Qwen3-ASR", "Локальное распознавание русской речи на Apple Silicon") {
-                            screenToggle("Тихая обработка", isOn: Binding(get: { state.preferences.usesQuietProcessing }, set: { state.preferences.quietProcessing = $0; state.savePreferences() }))
-                            SupportingText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
-                            screenLabel(state.modelReady ? "Модель готова" : "Модели ещё не установлены", systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive").foregroundStyle(Color.moss)
-                            if let url = state.modelURL() { screenText(verbatim: url.path).textStyle(PisyaDesign.Typography.code).fixedSize(horizontal: false, vertical: true).foregroundStyle(Color.mutedInk).textSelection(.enabled) }
-                            screenButton("Выбрать папку модели…") { state.chooseModel() }.actionButton()
-                            screenButton(state.modelReady ? "Проверить и установить модели" : "Загрузить модели") {
-                                dismiss()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { state.modelSetup.check(); state.modelSetup.presented = true }
-                            }.actionButton()
-                            SupportingText("Pisya загрузит проверенные модели речи и участников с Hugging Face — около 3 ГБ. Распознавание выполняется на Mac. Также можно выбрать свою папку MLX-модели Qwen3-ASR.")
-                        }
-                        } right: {
-                            VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
-                        block("Словарь распознавания", "Чтобы Pisya точнее записывала имена и названия в вашей речи и речи собеседников") {
-                            SupportingText("Записей: \(VocabularyDictionary.entries(in: state.preferences.vocabulary).count)")
-                            SupportingText("Например, добавьте «2ГИС». Формы аббревиатур с окончаниями, например «2ГИС'ом», учитываются автоматически.")
-                            screenButton("Открыть словарь") { dictionaryPresented = true }.actionButton()
-                        }
-
-
-                            }
-                        }
+                        modelSettings
                     case "Экспорт":
                         columns {
                         block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
@@ -131,7 +109,39 @@ struct SettingsView: View {
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
-            .sheet(isPresented: $dictionaryPresented) { VocabularyDictionaryView().environmentObject(state) }
+    }
+    private var modelSettings: some View {
+        VStack(alignment: .leading, spacing: PisyaDesign.Spacing.section) {
+            FormSection("Qwen3-ASR", subtitle: "Локальное распознавание русской речи на Apple Silicon") {
+                screenLabel(
+                    state.modelReady ? "Модель готова" : "Модели ещё не установлены",
+                    systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive"
+                ).foregroundStyle(Color.moss)
+                if let url = state.modelURL() {
+                    screenText(verbatim: url.path).textStyle(PisyaDesign.Typography.code)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(Color.mutedInk).textSelection(.enabled)
+                }
+                HStack(spacing: PisyaDesign.Spacing.related) {
+                    screenButton(state.modelReady ? "Проверить и установить модели" : "Загрузить модели") {
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            state.modelSetup.check()
+                            state.modelSetup.presented = true
+                        }
+                    }.actionButton()
+                    screenButton("Выбрать папку модели…") { state.chooseModel() }.actionButton()
+                }
+                SupportingText("Pisya загрузит проверенные модели речи и участников с Hugging Face — около 3 ГБ. Можно также выбрать свою папку с моделью Qwen3-ASR в формате MLX.")
+            }
+            FormSection("Производительность") {
+                screenToggle("Тихая обработка", isOn: Binding(
+                    get: { state.preferences.usesQuietProcessing },
+                    set: { state.preferences.quietProcessing = $0; state.savePreferences() }
+                ))
+                SupportingText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
+            }
+        }
     }
     private var recordingSettings: some View {
         HStack(alignment: .top, spacing: PisyaDesign.Spacing.section) {
@@ -191,7 +201,7 @@ struct SettingsView: View {
 private struct SettingsSectionPicker: View {
     @Binding var selection: String
     @FocusState private var focused: String?
-    private let sections = ["Запись", "Модель", "Голоса", "Экспорт", "MCP", "Обновления"]
+    private let sections = ["Запись", "Модель", "Голоса", "Словарь", "Экспорт", "MCP", "Обновления"]
     var body: some View {
         HStack(spacing: PisyaDesign.Spacing.compact) {
             ForEach(sections, id: \.self) { item in
@@ -210,7 +220,8 @@ private struct SettingsSectionPicker: View {
                     .foregroundStyle(Color.ink)
                     .background(isSelected ? Color.paper : .clear, in: RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
                     .contentShape(RoundedRectangle(cornerRadius: PisyaDesign.Metrics.cornerRadius))
-                }.shapeAwarePlainButton().focused($focused, equals: item)
+                }.measuredForInterfaceTest(.settingsTab(item))
+                    .shapeAwarePlainButton().focused($focused, equals: item)
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .onMoveCommand { direction in
                         guard direction == .left || direction == .right,

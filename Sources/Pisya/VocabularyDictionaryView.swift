@@ -12,7 +12,6 @@ extension AppState {
 
 struct VocabularyDictionaryView: View {
     @EnvironmentObject private var state: AppState
-    @Environment(\.dismiss) private var dismiss
     @State private var search = ""
     @State private var input = ""
     @State private var error: String?
@@ -32,11 +31,7 @@ struct VocabularyDictionaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisyaDesign.Spacing.content) {
-            HStack(alignment: .top, spacing: PisyaDesign.Spacing.related) {
-                SectionHeading("Словарь распознавания", subtitle: "Нужное написание имён, названий и специальных слов", style: .window)
-                Spacer(minLength: PisyaDesign.Spacing.inline)
-                screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
-            }
+            SectionHeading("Словарь распознавания", subtitle: "Нужное написание имён, названий и специальных слов")
             SupportingText(search.isEmpty ? "Записей: \(entries.count)" : "Найдено: \(filtered.count) из \(entries.count)")
             HStack(spacing: PisyaDesign.Spacing.related) {
                 SearchField(title: typographicText("Поиск по словарю"), text: $search)
@@ -101,7 +96,7 @@ struct VocabularyDictionaryView: View {
                     if let target { withAnimation { proxy.scrollTo(target, anchor: .center) } }
                 }
             }
-        }.dialogContent().frame(width: 780, height: 620)
+        }.frame(maxHeight: .infinity, alignment: .topLeading)
             .sheet(item: $editing) { entry in
                 VocabularyEditForm(entry: entry).environmentObject(state)
             }

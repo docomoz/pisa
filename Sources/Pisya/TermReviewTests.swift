@@ -117,7 +117,7 @@ enum TermReviewTests {
         let meeting = try fixture(state)
         let large = CommandLine.arguments.contains("--large-text") || CommandLine.arguments.contains("--large-text-preview")
         let content: AnyView = dictionary
-            ? AnyView(SettingsView(initialSection: "Модель"))
+            ? AnyView(SettingsView(initialSection: "Словарь"))
             : AnyView(TermReview(meeting: meeting))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: dictionary ? 900 : 940, height: dictionary ? 700 : 660),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)

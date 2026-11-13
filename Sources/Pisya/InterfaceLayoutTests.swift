@@ -9,6 +9,7 @@ enum InterfaceLayoutElement: Hashable {
     case transcriptSearch, firstMeetingAction, detailsButton
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
+    case settingsTab(String)
     case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult
     case termSearch, termFind
 }
@@ -250,8 +251,16 @@ private final class LayoutSuite {
     private func checkForms(state: AppState, meeting: Meeting, scale: CGFloat) {
         scenario = "dictionary form, \(Int(scale * 100))%"
         do {
-            let host = LayoutHost(VocabularyDictionaryView().environmentObject(state), size: CGSize(width: 780, height: 620), scale: scale)
+            let host = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state),
+                                  size: CGSize(width: 900, height: 700), scale: scale)
             defer { host.close() }
+            let tabs = ["Запись", "Модель", "Голоса", "Словарь", "Экспорт", "MCP", "Обновления"]
+            if let tabFrames = frames(tabs.map(InterfaceLayoutElement.settingsTab), in: host) {
+                check(zip(tabFrames, tabFrames.dropFirst()).allSatisfy { left, right in left.maxX <= right.minX },
+                      "settings tabs appear in order without overlapping")
+                check(tabFrames.allSatisfy { host.bounds.contains($0) }, "all settings tabs fit in the window")
+                host.click(tabFrames[3].center)
+            }
             if let measured = frames([.dictionarySearch, .dictionaryEntry, .dictionaryAdd, .dictionaryResult], in: host) {
                 checkFormRow(measured.prefix(3))
                 let result = measured[3]
