@@ -13,6 +13,7 @@ enum InterfaceLayoutElement: Hashable {
     case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit
     case termSearch, termFind, termReplacement
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
+    case voiceMergeList, voiceMergeCandidate(UUID)
 }
 
 private struct InterfaceFrames: PreferenceKey {
@@ -387,12 +388,7 @@ private final class LayoutSuite {
         }
 
         scenario = "voice merge search, \(percent)%"
-        do {
-            let host = LayoutHost(SavedVoiceMergeEditor(profile: savedVoice) { _ in }.environmentObject(state),
-                                  size: CGSize(width: 540, height: 420), scale: scale)
-            defer { host.close() }
-            checkField(.voiceMergeSearch, placeholder: true, value: "ПППППП", in: host)
-        }
+        checkVoiceMerge(state: state, savedVoice: savedVoice, scale: scale)
 
         scenario = "saved voice rename, \(percent)%"
         let host = LayoutHost(SavedVoiceNameEditor(profile: savedVoice) { _ in }.environmentObject(state),
@@ -401,6 +397,34 @@ private final class LayoutSuite {
         checkInitialFocus(.savedVoiceName, in: host)
         checkField(.savedVoiceName, placeholder: false, in: host)
         checkField(.savedVoiceName, placeholder: true, clear: true, in: host)
+    }
+
+    private func checkVoiceMerge(state: AppState, savedVoice: VoiceProfile, scale: CGFloat) {
+        let first = VoiceProfile(name: "Борис", samples: [])
+        let other = (1...8).map { VoiceProfile(name: "Участник \($0)", samples: []) }
+        let previousProfiles = state.voiceProfiles
+        state.voiceProfiles = [savedVoice, first] + other
+        let host = LayoutHost(SavedVoiceMergeEditor(profile: savedVoice) { _ in }.environmentObject(state),
+                              size: CGSize(width: 540, height: 420), scale: scale)
+        defer {
+            host.close()
+            state.voiceProfiles = previousProfiles
+        }
+
+        func checkCandidateInsets(_ context: String) {
+            guard let measured = frames([.voiceMergeList, .voiceMergeCandidate(first.id)], in: host) else { return }
+            let list = measured[0], row = measured[1]
+            equal(row.minX - list.minX, PisyaDesign.Spacing.compact, "\(context): candidate left inset")
+            equal(list.maxX - row.maxX, PisyaDesign.Spacing.compact, "\(context): candidate right inset")
+        }
+
+        checkCandidateInsets("full list")
+        checkField(.voiceMergeSearch, placeholder: true, value: first.name, in: host)
+        check(host.wait { host.frames[.voiceMergeCandidate(other[0].id)] == nil }, "search filters out other voices")
+        checkCandidateInsets("filtered list")
+        checkField(.voiceMergeSearch, placeholder: true, clear: true, in: host)
+        check(host.wait { host.frames[.voiceMergeCandidate(other[0].id)] != nil }, "clearing search restores other voices")
+        checkCandidateInsets("restored list")
     }
 
     private func checkInitialFocus(_ element: InterfaceLayoutElement, in host: LayoutHost) {

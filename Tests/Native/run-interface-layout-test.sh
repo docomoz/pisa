@@ -16,4 +16,5 @@ if ! LC_ALL=C grep -Faq -- '--interface-layout-self-test' "$binary"; then
   printf 'This build does not contain the interface layout tests: %s\n' "$app" >&2
   exit 2
 fi
-"$binary" --interface-layout-self-test
+# Exercise scrollable layouts with macOS configured to reserve space for scrollbars.
+"$binary" --interface-layout-self-test -AppleShowScrollBars Always

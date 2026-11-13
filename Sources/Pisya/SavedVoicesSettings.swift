@@ -395,14 +395,18 @@ struct SavedVoiceMergeEditor: View {
                         } else {
                             VStack(spacing: PisyaDesign.Spacing.compact) {
                                 ForEach(candidates) { candidate in
-                                    candidateRow(candidate).id(candidate.id)
+                                    candidateRow(candidate)
+                                        .measuredForInterfaceTest(.voiceMergeCandidate(candidate.id))
+                                        .id(candidate.id)
                                 }
                             }
                             .padding(PisyaDesign.Spacing.compact)
                         }
                     }
+                    .scrollIndicators(.never, axes: .vertical)
                     .frame(height: PisyaDesign.Metrics.editorHeight)
                     .plainSurface()
+                    .measuredForInterfaceTest(.voiceMergeList)
                     .onChange(of: focusedTargetID) { _, id in
                         if let id { proxy.scrollTo(id) }
                     }
