@@ -35,7 +35,9 @@ struct PisyaApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                screenButton("О программе Pisya") { delegate.showAboutWindow() }
+                screenButton("О программе Pisya") {
+                    delegate.showAboutWindow(textScale: AppTextSize.factor(for: textSize))
+                }
                 screenButton("Проверить обновления…") { updates.check() }
                     .disabled(!updates.canCheck)
             }
@@ -136,7 +138,7 @@ final class PisyaDelegate: NSObject, NSApplicationDelegate {
         if statusController == nil { statusController = StatusBarController(state: state, openMain: openMain) }
     }
     func showStatusMenu() { statusController?.showMenu() }
-    func showAboutWindow() { aboutWindow.show() }
+    func showAboutWindow(textScale: CGFloat) { aboutWindow.show(textScale: textScale) }
     func applicationDidFinishLaunching(_ notification: Notification) {
         quitShortcutMonitor = QuitShortcut.install { QuitShortcut.terminate(NSApp) }
         AppUpdates.shared.start()
