@@ -47,6 +47,13 @@ enum Launcher {
             do { try RecognitionMeetingPreview.run(); exit(0) }
             catch { print("RECOGNITION_PREVIEW_FAILED", error.localizedDescription); exit(1) }
         }
+        if CommandLine.arguments.contains("--recognition-meeting-benchmark") {
+            Task {
+                do { try await RecognitionMeetingBenchmark.run(); exit(0) }
+                catch { print("RECOGNITION_MEETING_BENCHMARK_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--recognition-quality-test") {
             Task { @MainActor in
                 do { try await RecognitionQualityTests.run(); exit(0) }

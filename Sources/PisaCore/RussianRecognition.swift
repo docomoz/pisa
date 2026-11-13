@@ -155,6 +155,52 @@ enum RussianRecognition {
         return !first.isEmpty && first != second && similarLength(first, second)
     }
 
+    /// Necessary evidence for the existing broad-retry acceptance paths, not
+    /// permission to edit. Keep every possible local disagreement, even when
+    /// the verifier differs elsewhere; the fresh decode still has to corroborate it.
+    static func canRevise(original: String, corroboration: String, hypothesis: String,
+                          vocabulary: String, dictionaryCorroboration: String? = nil) -> Bool {
+        let evidence = Set([corroboration, hypothesis,
+            dictionaryCorroboration ?? SpokenVocabulary(vocabulary).apply(to: corroboration)])
+        for heard in evidence {
+            // Fused names and initialisms can use right-only anchors. Check
+            // each proposal alone: a candidate may contain just one of several
+            // conflicting proposals in the independent output.
+            let proposals = repairProposals(in: heard)
+            for proposal in proposals {
+                if applyRepairs(original: original, proposals: [proposal], matching: proposals,
+                                vocabulary: vocabulary) != nil { return true }
+            }
+            if hasAnchoredDifference(original, heard) { return true }
+        }
+        return false
+    }
+
+    private static func hasAnchoredDifference(_ original: String, _ evidence: String) -> Bool {
+        struct Anchor: Hashable { let left: String; let right: String }
+        func intervals(_ text: String) -> [Anchor: Set<String>] {
+            let words = tokens(in: text)
+            guard words.count >= 2 else { return [:] }
+            var result: [Anchor: Set<String>] = [:]
+            for left in 0..<(words.count - 1) {
+                // Consensus permits zero to four words between its anchors;
+                // dictionary repairs permit at most four. This deliberately
+                // ignores their stricter uniqueness/literal/meaning checks.
+                for right in (left + 1)...min(words.count - 1, left + 5) {
+                    let anchor = Anchor(left: words[left].key, right: words[right].key)
+                    let interval = String(text[words[left].range.upperBound..<words[right].range.lowerBound])
+                    result[anchor, default: []].insert(interval)
+                }
+            }
+            return result
+        }
+        let source = intervals(original), heard = intervals(evidence)
+        return source.contains { anchor, originals in
+            guard let alternatives = heard[anchor] else { return false }
+            return originals.contains { previous in alternatives.contains { $0 != previous } }
+        }
+    }
+
     static func context(vocabulary: String, hypothesis: String) -> String {
         [vocabulary, hypothesis].filter { !$0.isEmpty }.joined(separator: "\n")
     }

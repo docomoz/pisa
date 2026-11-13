@@ -6,6 +6,8 @@ struct VoiceRegion {
     var embedding: [Float]?
     var recoveredSpeech = false
     var embeddingExclusions: [Range<Int>] = []
+    // Keep integer bounds independently of displayed/recognition timestamps.
+    var embeddingRange: Range<Int>? = nil
 }
 final class SpeakerEngine {
     private var diarizer: OpaquePointer?
@@ -39,7 +41,7 @@ final class SpeakerEngine {
 
     deinit { if let diarizer { SherpaOnnxDestroyOfflineSpeakerDiarization(diarizer) } }
 
-    func regions(_ samples: [Float]) -> [VoiceRegion] {
+    func regions(_ samples: [Float], extractEmbeddings: Bool = true) -> [VoiceRegion] {
         let sampleRate = SpeakerEmbeddingExtractor.sampleRate
         guard let diarizer, samples.count >= sampleRate,
               let result = SherpaOnnxOfflineSpeakerDiarizationProcess(diarizer, samples, Int32(samples.count)) else { return [] }
@@ -63,8 +65,8 @@ final class SpeakerEngine {
                 .map(\.range)
             return VoiceRegion(start: Double(turn.range.lowerBound) / Double(sampleRate),
                 end: Double(turn.range.upperBound) / Double(sampleRate),
-                embedding: vector(samples, in: turn.range, excluding: overlaps),
-                embeddingExclusions: overlaps)
+                embedding: extractEmbeddings ? vector(samples, in: turn.range, excluding: overlaps) : nil,
+                embeddingExclusions: overlaps, embeddingRange: turn.range)
         }
     }
 
@@ -100,7 +102,36 @@ final class SpeakerEngine {
     }
 }
 
+struct SpeakerEmbeddingMetrics {
+    var attemptedCalls = 0
+    var successfulCalls = 0
+    var inferenceSeconds: Double = 0
+}
+
 final class SpeakerEmbeddingExtractor {
+    private static let metricsLock = NSLock()
+    private static var metrics = SpeakerEmbeddingMetrics()
+
+    static var inferenceMetrics: SpeakerEmbeddingMetrics {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        return metrics
+    }
+
+    static func resetInferenceMetrics() {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        metrics = SpeakerEmbeddingMetrics()
+    }
+
+    private static func recordInference(succeeded: Bool, seconds: Double) {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        metrics.attemptedCalls += 1
+        if succeeded { metrics.successfulCalls += 1 }
+        metrics.inferenceSeconds += seconds
+    }
+
     static let sampleRate = 16000
     static let minimumSamples = 24000
     private let extractor: OpaquePointer
@@ -128,8 +159,11 @@ final class SpeakerEmbeddingExtractor {
         defer { SherpaOnnxDestroyOnlineStream(stream) }
         SherpaOnnxOnlineStreamAcceptWaveform(stream, Int32(Self.sampleRate), samples, Int32(samples.count))
         SherpaOnnxOnlineStreamInputFinished(stream)
-        guard SherpaOnnxSpeakerEmbeddingExtractorIsReady(extractor, stream) != 0,
-              let vector = SherpaOnnxSpeakerEmbeddingExtractorComputeEmbedding(extractor, stream) else { return nil }
+        guard SherpaOnnxSpeakerEmbeddingExtractorIsReady(extractor, stream) != 0 else { return nil }
+        let started = ProcessInfo.processInfo.systemUptime
+        let computed = SherpaOnnxSpeakerEmbeddingExtractorComputeEmbedding(extractor, stream)
+        Self.recordInference(succeeded: computed != nil, seconds: ProcessInfo.processInfo.systemUptime - started)
+        guard let vector = computed else { return nil }
         defer { SherpaOnnxSpeakerEmbeddingExtractorDestroyEmbedding(vector) }
         return Array(UnsafeBufferPointer(start: vector, count: Int(SherpaOnnxSpeakerEmbeddingExtractorDim(extractor))))
     }

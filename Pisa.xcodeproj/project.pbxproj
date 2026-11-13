@@ -15,6 +15,7 @@
 		0AEAC7CB676510B7E9127D53 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 18ECE1339EFF1C2ABA0A18E9 /* CoreFoundation.framework */; };
 		0B2BAAA661BAA6E1AC8D74D5 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7803AC9848D7A70B3A3C4096 /* Models.swift */; };
 		0C10B925DCC05AF5B46AD29D /* VoiceProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A1C20763968A48B9EF8C89 /* VoiceProfileTests.swift */; };
+		0D2E6F9A3C8B9A99746E71FC /* SpeakerEmbeddingInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9756103EBE979F632A21B531 /* SpeakerEmbeddingInput.swift */; };
 		0E9E550F477B8DFD94B65DCE /* TranscriptOrthography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F2320FEC329CB186F897CC /* TranscriptOrthography.swift */; };
 		0F3EA7BA947D9D011F68559B /* LivePipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C424C33CA491C2B4EFD5155B /* LivePipelineTests.swift */; };
 		0FAE4375B3F658C23A2BCAC5 /* AudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA0F2E8846F836495A67DC0 /* AudioCapture.swift */; };
@@ -61,6 +62,7 @@
 		62E86156EDEE8DC7AAF3FAC4 /* libsherpa-onnx-c-api.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D291CE6A71D59344D1F0137 /* libsherpa-onnx-c-api.dylib */; };
 		670576BF975CAB2A253D7F03 /* SourceLinkPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0A7EC519AF4D6E008A508C /* SourceLinkPreview.swift */; };
 		67AC047F1B0BC9E3492DCCA5 /* EchoAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A0C57A54D9BC112131B7E70 /* EchoAlignment.swift */; };
+		684E2EFCB5289FE0B04D283C /* RecognitionDecodeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4A9D654E07720102E9905E /* RecognitionDecodeCache.swift */; };
 		693EB07FE0A717E87BC546B9 /* ModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C15CB351413AB8A913001F5 /* ModelSetup.swift */; };
 		695855DF5703964015B93E5E /* PisaPlain.icns in Resources */ = {isa = PBXBuildFile; fileRef = 4F84B0E9A784477656CB5A6A /* PisaPlain.icns */; };
 		6B4501074D7C327C907A4E03 /* cmudict.dict in Resources */ = {isa = PBXBuildFile; fileRef = 1135B75B7FCF1E01E612D873 /* cmudict.dict */; };
@@ -81,6 +83,7 @@
 		7EB7688BE8CBBB19EB4EA2B2 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 5EBA555117B0141BE93F6C63 /* MLXLLM */; };
 		80905C65798F6988FFBA8654 /* AppTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0BDDD2630165DD58B3BAF3 /* AppTypography.swift */; };
 		81A9BB4A392FFCCD1F94813C /* AbbreviationFamilies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B2CD7D060A8ACA3D2802F17 /* AbbreviationFamilies.swift */; };
+		81EEA1598586E119535EEF2C /* SpeakerEmbeddingInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9756103EBE979F632A21B531 /* SpeakerEmbeddingInput.swift */; };
 		82462BCECC84E51B292D0034 /* TermReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA6FB5C1C1CE83708E81327 /* TermReviewTests.swift */; };
 		839E7C5C10D4E31450CCE3B6 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627AE7B2515D927A148C3718 /* SettingsView.swift */; };
 		842EFF41D2317594CD188DC4 /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696B3AF962C7CC34B9F3D01A /* Analytics.swift */; };
@@ -112,6 +115,7 @@
 		A934979833D7A93151CC53CC /* PisaYoWords.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 687F5291F27084FC64D80EA1 /* PisaYoWords.deflate */; };
 		A9CCD4962B1A59BB7B765EEF /* EchoDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C98AF72E732E0EB7E053E133 /* EchoDiagnostics.swift */; };
 		AB029DDC5E0621C42DAAF6C1 /* Launcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9EC25E600FF1EF0F5F28529 /* Launcher.swift */; };
+		ABE648BA104937DEF13E9EE2 /* RecognitionMeetingBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA7797D0B55DB223FE7D2585 /* RecognitionMeetingBenchmark.swift */; };
 		ADAC8E5A36255DA3E6218C36 /* TranscriptEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6804780222FB96C5F4FD2EC1 /* TranscriptEvidence.swift */; };
 		AFF6F046D6C90B772291C1A2 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26B179D0C5A09CBBBF692B80 /* ModelInstaller.swift */; };
 		B1EE2E88007D4314C164862A /* SpokenVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3531AF4D3773F1FCEAACBF7 /* SpokenVocabulary.swift */; };
@@ -132,6 +136,7 @@
 		CB209FEF981B123B3DD0BB0B /* SlimScrollbars.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D914A6B3157FBA63372BE23 /* SlimScrollbars.swift */; };
 		CBCACA8DC3C3993E65EFB2E8 /* SettingsSectionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1AAEAA51A57FFF68DF378F9 /* SettingsSectionPicker.swift */; };
 		CCE3DE2107A93FC673DC1099 /* AudioCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F5FDC5980E217B9D5ED0CE /* AudioCaptureTests.swift */; };
+		CD8C7044B44FE911F2A3B4FD /* RecognitionDecodeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4A9D654E07720102E9905E /* RecognitionDecodeCache.swift */; };
 		CE5B9FB2197FF29A666A97A9 /* AudioTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBBD143F7E54604E5465444E /* AudioTimeline.swift */; };
 		CEA7F183BD1BEC43436FC537 /* VoiceSampleSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FF747222BA02786F315EC7 /* VoiceSampleSelection.swift */; };
 		D0AEC7C8DD99DDEF85D64BF6 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F02F57444459CC5E2C6346D /* MainView.swift */; };
@@ -247,9 +252,11 @@
 		846325FA5D5E1547F4CBB4F5 /* BackchannelLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackchannelLanguage.swift; sourceTree = "<group>"; };
 		88B9F7625E98F1D438D8E7EA /* ProtectedFileRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectedFileRead.swift; sourceTree = "<group>"; };
 		8A0C57A54D9BC112131B7E70 /* EchoAlignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoAlignment.swift; sourceTree = "<group>"; };
+		8C4A9D654E07720102E9905E /* RecognitionDecodeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionDecodeCache.swift; sourceTree = "<group>"; };
 		8D914A6B3157FBA63372BE23 /* SlimScrollbars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlimScrollbars.swift; sourceTree = "<group>"; };
 		90391FF4B4FA8508C90F7BEC /* MeetingTitles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTitles.swift; sourceTree = "<group>"; };
 		97094D84D523BCD693218204 /* MeetingSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearch.swift; sourceTree = "<group>"; };
+		9756103EBE979F632A21B531 /* SpeakerEmbeddingInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEmbeddingInput.swift; sourceTree = "<group>"; };
 		99A8439E80C30F869F89F0DF /* VoiceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceManager.swift; sourceTree = "<group>"; };
 		9AD504BBC21C3A8834A8083D /* models.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = models.json; sourceTree = "<group>"; };
 		9CFE1AEC2932A674A86C751A /* VocabularyDictionary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VocabularyDictionary.swift; sourceTree = "<group>"; };
@@ -286,6 +293,7 @@
 		D51B6C940C98537F8DD98594 /* SpeechDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDetector.swift; sourceTree = "<group>"; };
 		D5A1C20763968A48B9EF8C89 /* VoiceProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileTests.swift; sourceTree = "<group>"; };
 		D8FF747222BA02786F315EC7 /* VoiceSampleSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSampleSelection.swift; sourceTree = "<group>"; };
+		DA7797D0B55DB223FE7D2585 /* RecognitionMeetingBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionMeetingBenchmark.swift; sourceTree = "<group>"; };
 		E217CA015ED5B87EFB23B66D /* RecognitionConsensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionConsensus.swift; sourceTree = "<group>"; };
 		E362F69823EB290411A34C68 /* HorizontalWheelScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalWheelScroll.swift; sourceTree = "<group>"; };
 		E3F6C804951BD8D9156B4EDF /* PisaMCP */ = {isa = PBXFileReference; includeInIndex = 0; path = PisaMCP; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -419,6 +427,7 @@
 				83224764ACBA5C3B27DABFF0 /* PisaApp.swift */,
 				114A6BB73B85839658DAE664 /* PopupMenu.swift */,
 				22607AFCF76389820EDE7D7A /* QuitShortcut.swift */,
+				DA7797D0B55DB223FE7D2585 /* RecognitionMeetingBenchmark.swift */,
 				A93F50E976C912315FB27E46 /* RecognitionMeetingPreview.swift */,
 				59558E31DD6B72CCB917A254 /* RecognitionQualityTests.swift */,
 				421D7787C7BB6334E699E13A /* RussianSpeechRecognizer.swift */,
@@ -466,11 +475,13 @@
 				0C1AC9B6624860455BB87B22 /* RecognitionAudioFocus.swift */,
 				E217CA015ED5B87EFB23B66D /* RecognitionConsensus.swift */,
 				CBE219ECCCC01FDF3464AB5E /* RecognitionContext.swift */,
+				8C4A9D654E07720102E9905E /* RecognitionDecodeCache.swift */,
 				5520B1A444827B410D00C8FA /* RecognitionPromptEcho.swift */,
 				17B3A2E5D6CB7484B235B837 /* RecognitionTimedWords.swift */,
 				786046F58651B62B0F30E5BD /* RecognitionVocabulary.swift */,
 				11076B2E54B2005BDFD63793 /* RussianRecognition.swift */,
 				6F857C18E71DDC6C4FF38955 /* SpeakerClustering.swift */,
+				9756103EBE979F632A21B531 /* SpeakerEmbeddingInput.swift */,
 				E766938E4181D500740B5173 /* SpeechChunking.swift */,
 				16D88E5581A59E47F6AD8E2A /* SpeechCoverage.swift */,
 				F3531AF4D3773F1FCEAACBF7 /* SpokenVocabulary.swift */,
@@ -676,11 +687,13 @@
 				A22735668EF27758A1577AF0 /* RecognitionAudioFocus.swift in Sources */,
 				28B092623C6481A330243DC0 /* RecognitionConsensus.swift in Sources */,
 				F888B5E84BD5B450F5139F0C /* RecognitionContext.swift in Sources */,
+				684E2EFCB5289FE0B04D283C /* RecognitionDecodeCache.swift in Sources */,
 				3220D104F5A6EF428879057F /* RecognitionPromptEcho.swift in Sources */,
 				942CCFFAAEB9BE3C30C42A2C /* RecognitionTimedWords.swift in Sources */,
 				D49FE42B91C6D025EEB3CAB6 /* RecognitionVocabulary.swift in Sources */,
 				9529D5BB0A3EAA5B9D0CA744 /* RussianRecognition.swift in Sources */,
 				160D158657D5ACD7AB2C1938 /* SpeakerClustering.swift in Sources */,
+				0D2E6F9A3C8B9A99746E71FC /* SpeakerEmbeddingInput.swift in Sources */,
 				BC0CA1D56B6E526ADA973BE1 /* SpeechChunking.swift in Sources */,
 				9AD593CAF8395C0A23D9D32D /* SpeechCoverage.swift in Sources */,
 				B1EE2E88007D4314C164862A /* SpokenVocabulary.swift in Sources */,
@@ -759,6 +772,8 @@
 				02543D6A8911E2042C1484E9 /* RecognitionAudioFocus.swift in Sources */,
 				595DBC832AB986964E25A361 /* RecognitionConsensus.swift in Sources */,
 				8D4786A7B7A1243D158F8112 /* RecognitionContext.swift in Sources */,
+				CD8C7044B44FE911F2A3B4FD /* RecognitionDecodeCache.swift in Sources */,
+				ABE648BA104937DEF13E9EE2 /* RecognitionMeetingBenchmark.swift in Sources */,
 				5A6823126EE46FDEE7C3B109 /* RecognitionMeetingPreview.swift in Sources */,
 				D72265B37D85926A97DD443C /* RecognitionPromptEcho.swift in Sources */,
 				936276A9D1C5B05FB6F48BCC /* RecognitionQualityTests.swift in Sources */,
@@ -775,6 +790,7 @@
 				CB209FEF981B123B3DD0BB0B /* SlimScrollbars.swift in Sources */,
 				670576BF975CAB2A253D7F03 /* SourceLinkPreview.swift in Sources */,
 				8AE92915767888EDC8A7007C /* SpeakerClustering.swift in Sources */,
+				81EEA1598586E119535EEF2C /* SpeakerEmbeddingInput.swift in Sources */,
 				CAE6196DE51E6E677D91C29C /* SpeakerEngine.swift in Sources */,
 				03D8CBBBF34D2A81DE99E2DA /* SpeechChunking.swift in Sources */,
 				3DF0147A9CE6B4A8287E7181 /* SpeechCoverage.swift in Sources */,

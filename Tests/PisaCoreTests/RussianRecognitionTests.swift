@@ -2,6 +2,23 @@ import XCTest
 @testable import PisaCore
 
 final class RussianRecognitionTests: XCTestCase {
+    /// Every existing accepted repair is also a regression case for retry
+    /// selection: skipping its decode must never hide a valid correction.
+    private func revisedText(original: String, candidate: String, corroboration: String,
+                             hypothesis: String, vocabulary: String, usesCyrillicHints: Bool,
+                             dictionaryCorroboration: String? = nil,
+                             file: StaticString = #filePath, line: UInt = #line) -> String? {
+        let result = RussianRecognition.revisedText(original: original, candidate: candidate,
+            corroboration: corroboration, hypothesis: hypothesis, vocabulary: vocabulary,
+            usesCyrillicHints: usesCyrillicHints, dictionaryCorroboration: dictionaryCorroboration)
+        if let result, result != original {
+            XCTAssertTrue(RussianRecognition.canRevise(original: original, corroboration: corroboration,
+                hypothesis: hypothesis, vocabulary: vocabulary, dictionaryCorroboration: dictionaryCorroboration),
+                "An accepted correction must remain eligible for its audio retry", file: file, line: line)
+        }
+        return result
+    }
+
     func testNumericEndingRepairChangesOnlyIndependentlyDecodedEnding() {
         let original = "Проверим поиск внутри 7АБВ и обсудим результаты."
         let candidate = "Проверим поиск внутри 7АБВ'а и обсудим другое."
@@ -59,7 +76,7 @@ final class RussianRecognitionTests: XCTestCase {
         let raw = "Передадим данные в Vie Clince, обсудим Rity Media."
         let candidate = "Передадим данные в YClients, обсудим Retail Media."
         XCTAssertEqual(dictionary.promptHypothesis(source), "Передадим данные YClients, обсудим Retail Media.")
-        XCTAssertEqual(RussianRecognition.revisedText(original: source, candidate: candidate, corroboration: raw,
+        XCTAssertEqual(revisedText(original: source, candidate: candidate, corroboration: raw,
             hypothesis: dictionary.promptHypothesis(raw), vocabulary: "YClients, Retail Media", usesCyrillicHints: false),
             "Передадим данные в YClients, обсудим Retail Media.")
         for (original, confirmed, context) in [
@@ -69,16 +86,16 @@ final class RussianRecognitionTests: XCTestCase {
             ("Передадим данные «вай-клиенты», обсудим Retail Media.", raw, "YClients, Retail Media")
         ] {
             let guessed = SpokenVocabulary(context).promptHypothesis(confirmed)
-            XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: confirmed,
+            XCTAssertNil(revisedText(original: original, candidate: candidate, corroboration: confirmed,
                 hypothesis: guessed, vocabulary: context, usesCyrillicHints: false), original)
         }
         let wrongPreposition = "Передадим данные с YClients, обсудим Retail Media."
-        XCTAssertNil(RussianRecognition.revisedText(original: source, candidate: wrongPreposition, corroboration: raw,
+        XCTAssertNil(revisedText(original: source, candidate: wrongPreposition, corroboration: raw,
             hypothesis: wrongPreposition, vocabulary: "YClients, Retail Media", usesCyrillicHints: false))
         for original in ["Передадим данные не вай-клиенты, обсудим Retail Media.",
                          "Передадим данные `вай-клиенты`, обсудим Retail Media.",
                          "Передадим данные к вай-клиенты, обсудим Retail Media."] {
-            XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: raw,
+            XCTAssertNil(revisedText(original: original, candidate: candidate, corroboration: raw,
                 hypothesis: dictionary.promptHypothesis(raw), vocabulary: "YClients, Retail Media", usesCyrillicHints: false), original)
         }
     }
@@ -89,13 +106,13 @@ final class RussianRecognitionTests: XCTestCase {
         let candidate = "Передадим данные в YClients и обсудим Retail Media."
         let vocabulary = "YClients, Retail Media"
         let hypothesis = "Передадим данные в YClients и обсудим Retail Media."
-        XCTAssertEqual(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: raw,
+        XCTAssertEqual(revisedText(original: original, candidate: candidate, corroboration: raw,
             hypothesis: hypothesis, vocabulary: vocabulary, usesCyrillicHints: false),
             "Передадим данные в YClients, обсудим Retail Media.")
-        XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: raw,
+        XCTAssertNil(revisedText(original: original, candidate: candidate, corroboration: raw,
             hypothesis: "Передадим данные в YClients обсудим Retail Media.", vocabulary: vocabulary,
             usesCyrillicHints: false))
-        XCTAssertNil(RussianRecognition.revisedText(original: original,
+        XCTAssertNil(revisedText(original: original,
             candidate: "Передадим данные в YClients или обсудим Retail Media.", corroboration: raw,
             hypothesis: "Передадим данные в YClients или обсудим Retail Media.", vocabulary: vocabulary,
             usesCyrillicHints: false))
@@ -240,12 +257,12 @@ final class RussianRecognitionTests: XCTestCase {
     func testGeneralDictionaryRepairUsesRawIndependentAudioNotPromptHint() {
         let original = "Вопрос ГИС ГИС может здесь помочь."
         let candidate = "Вопрос ГИС GR может здесь помочь."
-        XCTAssertEqual(RussianRecognition.revisedText(original: original, candidate: candidate,
+        XCTAssertEqual(revisedText(original: original, candidate: candidate,
             corroboration: "Вопрос ГИС джар может здесь помочь.", hypothesis: candidate,
             vocabulary: "GR", usesCyrillicHints: false), candidate)
-        XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: candidate,
+        XCTAssertNil(revisedText(original: original, candidate: candidate,
             corroboration: original, hypothesis: candidate, vocabulary: "GR", usesCyrillicHints: false))
-        XCTAssertEqual(RussianRecognition.revisedText(original: original, candidate: candidate,
+        XCTAssertEqual(revisedText(original: original, candidate: candidate,
             corroboration: "Вопрос ГИС pronunciation может здесь помочь.", hypothesis: candidate,
             vocabulary: "GR", usesCyrillicHints: false, dictionaryCorroboration: candidate), candidate)
     }
@@ -288,9 +305,9 @@ final class RussianRecognitionTests: XCTestCase {
         let original = "Мы её знакомили с руководителем PRTS. Мы можем онлайн сделать встречу."
         let hypothesis = "Мы её знакомили с руководителем ЦРТС. Мы можем онлайн сделать встречу."
         let candidate = "Мы её познакомили с руководителем ЦРТС. Мы можем онлайн организовать встречу."
-        XCTAssertEqual(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: original,
+        XCTAssertEqual(revisedText(original: original, candidate: candidate, corroboration: original,
             hypothesis: hypothesis, vocabulary: "ЦРТС", usesCyrillicHints: true), hypothesis)
-        XCTAssertNil(RussianRecognition.revisedText(original: original,
+        XCTAssertNil(revisedText(original: original,
             candidate: "Мы её познакомили с новым руководителем ЦРТС. Завтра будем онлайн обсуждать новую встречу.",
             corroboration: original, hypothesis: hypothesis, vocabulary: "ЦРТС", usesCyrillicHints: true))
     }
@@ -298,7 +315,7 @@ final class RussianRecognitionTests: XCTestCase {
     func testUnhintedAcousticRecheckRetainsExistingAcceptanceRules() {
         let original = "Мы обсудим сроки запуска в четверг."
         let candidate = "Мы обсудим сроки запуска уже в четверг."
-        XCTAssertEqual(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: candidate,
+        XCTAssertEqual(revisedText(original: original, candidate: candidate, corroboration: candidate,
             hypothesis: candidate, vocabulary: "", usesCyrillicHints: false), candidate)
     }
 
@@ -311,11 +328,11 @@ final class RussianRecognitionTests: XCTestCase {
             "Вчера мы обсуждали это с B2C, допустим, или с Сергеем после встречи.",
             "Вчера мы обсуждали это с B2C, с Анжелой около офиса или с Сергеем после встречи.",
         ] {
-            XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: corroboration,
+            XCTAssertNil(revisedText(original: original, candidate: candidate, corroboration: corroboration,
                 hypothesis: corroboration, vocabulary: "Анжела, B2C", usesCyrillicHints: false), candidate)
         }
         let improved = "Вчера мы обсудили это с B2C, с Анжелой, допустим, или с Сергеем после встречи."
-        XCTAssertEqual(RussianRecognition.revisedText(original: original, candidate: improved, corroboration: corroboration,
+        XCTAssertEqual(revisedText(original: original, candidate: improved, corroboration: corroboration,
             hypothesis: corroboration, vocabulary: "Анжела, B2C", usesCyrillicHints: false),
             original.replacingOccurrences(of: "обсуждали", with: "обсудили"))
     }
@@ -323,7 +340,7 @@ final class RussianRecognitionTests: XCTestCase {
     func testUnhintedRetryPreservesEachConfirmedAcronymOccurrence() {
         let original = "Мы работали с отделом ЦРТС. Мы можем назвать итог. Вчера говорили с отделом ЦРТС. Мы можем повторить."
         let candidate = "Мы работали с отделом ЦРТС. Мы можем назвать итог. Вчера говорили с отделом PRTS. Мы можем повторить."
-        XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: candidate, corroboration: original,
+        XCTAssertNil(revisedText(original: original, candidate: candidate, corroboration: original,
             hypothesis: original, vocabulary: "", usesCyrillicHints: false))
     }
 

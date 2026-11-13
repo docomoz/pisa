@@ -31,6 +31,25 @@ actor Transcriber {
     private var contextDiagnostics: [[String: String]] = []
     func recognitionContextDiagnostics() -> [[String: String]] { contextDiagnostics }
 
+    private var performanceDiagnostics: [String: Double]?
+    func resetRecognitionPerformanceDiagnostics() { performanceDiagnostics = [:] }
+    func recognitionPerformanceDiagnostics() -> [String: Double] { performanceDiagnostics ?? [:] }
+
+    private func measureRecognition<T>(_ kind: String, _ body: () throws -> T) rethrows -> T {
+        guard performanceDiagnostics != nil else { return try body() }
+        let began = ProcessInfo.processInfo.systemUptime
+        defer {
+            performanceDiagnostics?[kind + "Calls", default: 0] += 1
+            performanceDiagnostics?[kind + "Seconds", default: 0] += ProcessInfo.processInfo.systemUptime - began
+        }
+        return try body()
+    }
+
+    private func acousticRecognition(_ samples: [Float], using russian: RussianSpeechRecognizer?) -> RecognitionAcousticResult? {
+        guard let russian else { return nil }
+        return measureRecognition("giga") { russian.recognizeDetailed(samples) }
+    }
+
     /// Used by the local synthetic integration fixture to check session reuse.
     func liveModelIdentity() -> ObjectIdentifier? { liveModel.map(ObjectIdentifier.init) }
     func liveRussianModelIdentity() -> ObjectIdentifier? { liveRussian.map(ObjectIdentifier.init) }
@@ -39,7 +58,12 @@ actor Transcriber {
     private func decodeShortMicrophone(_ model: Qwen3ASRModel, audio: MLXArray, maxTokens: Int) async throws -> STTOutput {
         try Task.checkCancellation()
         activeShortDecodes += 1
-        defer { activeShortDecodes -= 1 }
+        let began = ProcessInfo.processInfo.systemUptime
+        defer {
+            activeShortDecodes -= 1
+            performanceDiagnostics?["qwenCalls", default: 0] += 1
+            performanceDiagnostics?["qwenSeconds", default: 0] += ProcessInfo.processInfo.systemUptime - began
+        }
         // The short streaming API preserves a missing language as nil, rather
         // than substituting English. Drain it in an independent collector:
         // cancellation must not release MLX state while its producer still runs.
@@ -186,8 +210,8 @@ actor Transcriber {
                     let energy = samples.reduce(0.0) { $0 + Double($1 * $1) } / Double(samples.count)
                     if energy > 0.000001 {
                         var regions = isMic
-                            ? [VoiceRegion(start: max(0, range.start - start), end: min(duration, range.end - start), embedding: voices?.vector(samples))]
-                            : voices?.regions(samples) ?? []
+                            ? [VoiceRegion(start: max(0, range.start - start), end: min(duration, range.end - start), embedding: nil)]
+                            : voices?.regions(samples, extractEmbeddings: false) ?? []
                         if !isMic {
                             // Diarization deliberately ignores very short turns. VAD
                             // can still recover an isolated "да" without inventing a
@@ -219,11 +243,12 @@ actor Transcriber {
                             guard upper > lower else { return [] }
                             let chunks = SpeechChunking.ranges(in: samples, range: lower..<upper)
                             return chunks.map { chunk in
-                                let embedding = !isMic && !region.recoveredSpeech && chunks.count > 1
-                                    ? voices?.vector(samples, in: chunk, excluding: region.embeddingExclusions)
-                                    : region.embedding
+                                let input = SpeakerEmbeddingInput.forChunk(chunk, chunkCount: chunks.count,
+                                    originalRange: region.embeddingRange, exclusions: region.embeddingExclusions,
+                                    isMicrophone: isMic, recoveredSpeech: region.recoveredSpeech)
                                 return VoiceRegion(start: Double(chunk.lowerBound) / 16000, end: Double(chunk.upperBound) / 16000,
-                                    embedding: embedding, recoveredSpeech: region.recoveredSpeech)
+                                    embedding: nil, recoveredSpeech: region.recoveredSpeech,
+                                    embeddingExclusions: input?.exclusions ?? [], embeddingRange: input?.range)
                             }
                         }
                         for (index, region) in regions.enumerated() {
@@ -272,7 +297,9 @@ actor Transcriber {
                             let speaker = isMic ? "Я" : TranscriptSegment.unidentifiedSpeaker
                             var segment = TranscriptSegment(start: speech.lowerBound, end: speech.upperBound, speaker: speaker, text: recognized.text)
                             segment.audioFile = url.lastPathComponent
-                            segment.embedding = region.embedding
+                            segment.embedding = region.embeddingRange.flatMap {
+                                voices?.vector(samples, in: $0, excluding: region.embeddingExclusions)
+                            }
                             backchannels[segment.id] = recognized.russianBackchannel
                             acousticHypotheses[segment.id] = recognized.acoustic
                             audioBounds[segment.id] = (start + Double(lower) / 16000)..<(start + Double(upper) / 16000)
@@ -358,7 +385,7 @@ actor Transcriber {
                     segments[index].text = recognized.text
                     hypotheses[segment.id] = recognized.acoustic
                 } else {
-                    hypotheses[segment.id] = russian.recognizeDetailed(samples)
+                    hypotheses[segment.id] = acousticRecognition(samples, using: russian)
                 }
             }
         }
@@ -392,10 +419,12 @@ actor Transcriber {
             guard let name = segment.audioFile, let (url, offset) = files.first(where: { $0.0.lastPathComponent == name }),
                   let audioRange = bounds[segment.id] else { continue }
             let duration = segment.end - segment.start
+            let decodeCache = RecognitionDecodeCache<STTOutput>()
+            defer { performanceDiagnostics?["qwenCacheHits", default: 0] += Double(decodeCache.hitCount) }
             if duration < 2 {
                 guard RecognitionContext.isWordRichShortTurn(segment.text, duration: duration),
                       let samples = try? Self.contextSamples(url, start: audioRange.lowerBound, end: audioRange.upperBound),
-                      let heard = hypotheses[segment.id]?.text ?? russian.recognize(samples),
+                      let heard = hypotheses[segment.id]?.text ?? acousticRecognition(samples, using: russian)?.text,
                       (4...6).contains(RussianRecognition.words(heard).count),
                       RussianRecognition.words(heard) != RussianRecognition.words(segment.text) else { continue }
                 let hints = spokenVocabulary.relevantTerms(in: [segment.text, heard])
@@ -403,8 +432,13 @@ actor Transcriber {
                 for prompt in (hints.isEmpty ? [""] : [hints, ""]) {
                     try Task.checkCancellation()
                     let output = RecognitionPromptEcho.decode(context: prompt, vocabulary: prompt, text: { $0.text }) {
-                        model.generate(audio: audio, maxTokens: 96, context: $0, language: "Russian",
-                                       chunkDuration: 30, repetitionPenalty: 1.1)
+                        let prompt = $0
+                        return decodeCache.value(samples: samples, context: prompt, language: "Russian", maxTokens: 96) {
+                            measureRecognition("qwen") {
+                                model.generate(audio: audio, maxTokens: 96, context: prompt, language: "Russian",
+                                               chunkDuration: 30, repetitionPenalty: 1.1)
+                            }
+                        }
                     }
                     let candidate = spokenVocabulary.apply(to: output.text.trimmingCharacters(in: .whitespacesAndNewlines))
                     if collectDiagnostics {
@@ -439,15 +473,20 @@ actor Transcriber {
             // Reuse the first pass's padded interval. A failed optional reread preserves that pass.
             guard let samples = try? Self.contextSamples(url, start: audioRange.lowerBound, end: audioRange.upperBound),
                   !samples.isEmpty else { continue }
-            let acoustic = hypotheses[segment.id] ?? russian.recognizeDetailed(samples)
+            let acoustic = hypotheses[segment.id] ?? acousticRecognition(samples, using: russian)
             let began = ContinuousClock.now
             func decode(_ prompt: String, samples: [Float], retry: RecognitionContext.Retry,
                         applyVocabulary: Bool = true) throws -> String {
                 let audio = MLXArray(samples)
                 func generate(_ context: String) throws -> STTOutput {
                     try Task.checkCancellation()
-                    return model.generate(audio: audio, maxTokens: min(768, max(96, Int(Double(samples.count) / 16000 * 20))),
-                        context: context, language: "Russian", chunkDuration: 30, repetitionPenalty: 1.1)
+                    let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
+                    return decodeCache.value(samples: samples, context: context, language: "Russian", maxTokens: maxTokens) {
+                        measureRecognition("qwen") {
+                            model.generate(audio: audio, maxTokens: maxTokens, context: context,
+                                language: "Russian", chunkDuration: 30, repetitionPenalty: 1.1)
+                        }
+                    }
                 }
                 let result = try RecognitionPromptEcho.decode(context: prompt, vocabulary: retry.hints,
                     text: { $0.text }, generate: generate)
@@ -493,7 +532,7 @@ actor Transcriber {
                     let upper = max(lower, min(samples.count, Int(range.upperBound * 16000)))
                     guard upper > lower else { continue }
                     let clip = Array(samples[lower..<upper])
-                    let heard = russian.recognizeDetailed(clip)
+                    let heard = acousticRecognition(clip, using: russian)
                     if let heard, let joined = RecognitionContext.reconcileObservedInitialismBoundary(
                         original: segment.text, independent: heard.text, retry: retry, vocabulary: vocabulary) {
                         if collectDiagnostics {
@@ -586,7 +625,7 @@ actor Transcriber {
                 let end = min(continuation.segment.end - offset, continuation.segment.start - offset + 3.5)
                 if end > audioRange.upperBound + 0.2,
                    let expanded = try? Self.contextSamples(url, start: audioRange.lowerBound, end: end),
-                   let heard = russian.recognizeDetailed(expanded) {
+                   let heard = acousticRecognition(expanded, using: russian) {
                     var joined = segment
                     joined.text += continuation.suffix
                     if let boundaryRetry = snapshot.plan(for: joined, independent: heard.text,
@@ -639,6 +678,8 @@ actor Transcriber {
     private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: Qwen3ASRModel, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool) async throws -> RecognizedSpeech? {
         let audio = MLXArray(samples)
         let maxTokens = min(768, max(64, Int(duration * 16)))
+        let decodeCache = RecognitionDecodeCache<STTOutput>()
+        defer { performanceDiagnostics?["qwenCacheHits", default: 0] += Double(decodeCache.hitCount) }
         // On brief replies the vocabulary can be longer than the speech itself.
         let decodingVocabulary = spokenVocabulary.decodingVocabulary
         let context = duration >= 2 ? vocabulary : ""
@@ -646,8 +687,12 @@ actor Transcriber {
             let input = audioSamples.map { MLXArray($0) } ?? audio
             return try RecognitionPromptEcho.decode(context: context, vocabulary: promptVocabulary ?? vocabulary, text: { $0.text }) { prompt in
                 try Task.checkCancellation()
-                return model.generate(audio: input, maxTokens: maxTokens, context: prompt,
-                               language: language, chunkDuration: 30, repetitionPenalty: 1.1)
+                return decodeCache.value(samples: audioSamples ?? samples, context: prompt, language: language, maxTokens: maxTokens) {
+                    measureRecognition("qwen") {
+                        model.generate(audio: input, maxTokens: maxTokens, context: prompt,
+                                       language: language, chunkDuration: 30, repetitionPenalty: 1.1)
+                    }
+                }
             }
         }
         let shortMic = isMic && duration <= 1.5
@@ -678,7 +723,7 @@ actor Transcriber {
         if BackchannelLanguage.shouldRecheck(text, duration: duration) {
             let decoded = try generate(language: "Russian", context: "")
             let alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
-                corroboration: russian?.recognize(samples), vocabulary: vocabulary)
+                corroboration: acousticRecognition(samples, using: russian)?.text, vocabulary: vocabulary)
             return RecognizedSpeech(text: text, russianBackchannel: alternative)
         }
         // Diarization can leave a complete lexical reply shorter than two
@@ -687,7 +732,7 @@ actor Transcriber {
         // copied into the prompt. Expanded sound is accepted only on agreement.
         if result.language?.lowercased() == "russian", (0.35..<2).contains(duration),
            (2...6).contains(RussianRecognition.words(text).count), let russian,
-           let independent = russian.recognize(samples),
+           let independent = acousticRecognition(samples, using: russian)?.text,
            RussianRecognition.words(independent) != RussianRecognition.words(text) {
             let hints = spokenVocabulary.relevantTerms(in: [text, independent])
             if !hints.isEmpty {
@@ -698,7 +743,7 @@ actor Transcriber {
                     return RecognizedSpeech(text: revised)
                 }
             }
-            if let expandedSamples, let independent = russian.recognize(expandedSamples) {
+            if let expandedSamples, let independent = acousticRecognition(expandedSamples, using: russian)?.text {
                 let checked = try generate(language: "Russian", context: "", audioSamples: expandedSamples)
                 let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
                 if let revised = RecognitionConsensus.revisedText(original: text, candidate: candidate,
@@ -708,20 +753,25 @@ actor Transcriber {
             }
         }
         if result.language?.lowercased() == "russian", duration >= 2,
-           let rawResult = russian?.recognizeDetailed(samples) {
+           let rawResult = acousticRecognition(samples, using: russian) {
             let rawHypothesis = rawResult.text
             acoustic = rawResult
             let (hypothesis, usesCyrillicHints) = spokenVocabulary.promptResult(rawHypothesis)
             if RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
                 try Task.checkCancellation()
-                let checked = try generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
-                let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                if checked.language?.lowercased() == "russian",
-                   let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
-                        corroboration: rawHypothesis, hypothesis: hypothesis, vocabulary: vocabulary,
-                        usesCyrillicHints: usesCyrillicHints,
-                        dictionaryCorroboration: spokenVocabulary.apply(to: rawHypothesis)) {
-                    text = revised
+                let canonical = spokenVocabulary.apply(to: rawHypothesis)
+                if RussianRecognition.canRevise(original: text, corroboration: rawHypothesis, hypothesis: hypothesis,
+                                                 vocabulary: vocabulary, dictionaryCorroboration: canonical) {
+                    let checked = try generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
+                    let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                    if checked.language?.lowercased() == "russian",
+                       let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
+                            corroboration: rawHypothesis, hypothesis: hypothesis, vocabulary: vocabulary,
+                            usesCyrillicHints: usesCyrillicHints, dictionaryCorroboration: canonical) {
+                        text = revised
+                    }
+                } else {
+                    performanceDiagnostics?["qwenSkippedUnrepairable", default: 0] += 1
                 }
                 // Different acoustic boundaries can make the broad hypothesis
                 // distract from a name. Retry only a still-missing explicit
