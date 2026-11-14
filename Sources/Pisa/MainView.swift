@@ -389,7 +389,7 @@ struct MeetingView: View {
                         if let interruptedProgress {
                             interruptedProgressBar(interruptedProgress).frame(maxWidth: 320)
                         }
-                        if hasAudio { screenButton(state.modelReady ? (meeting.liveCommittedUntil == nil ? "Расшифровать" : "Продолжить расшифровку") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
+                        if hasAudio { screenButton(state.modelReady ? (meeting.status == .failed || meeting.liveCommittedUntil != nil ? "Продолжить расшифровку" : "Расшифровать") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
                     }
                     Spacer()
                 }.frame(maxWidth: .infinity)
@@ -496,11 +496,7 @@ struct MeetingView: View {
                     Spacer(minLength: PisaDesign.Spacing.none)
                     if meeting.status == .failed && meeting.deletedAt == nil
                         && hasAudio && state.canModify(meeting) {
-                        if meeting.liveCommittedUntil != nil {
-                            screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
-                        } else {
-                            screenButton("Расшифровать заново") { state.reprocessTarget = meeting }.actionButton(.primary)
-                        }
+                        screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
                     }
                     if isRecording && isTranscribing {
                         screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }

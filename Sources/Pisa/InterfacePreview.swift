@@ -104,6 +104,13 @@ final class InterfacePreview: NSObject {
             batch.interruptedBatchProgress = 0.36
             state.update(batch)
 
+            var repeated = batch
+            repeated.id = UUID()
+            repeated.title = "Остановленная повторная расшифровка"
+            repeated.segments = fixture.segments
+            state.update(repeated)
+            if CommandLine.arguments.contains("--interrupted-reprocessing-preview") { state.select(repeated.id) }
+
             var earlier = batch
             earlier.id = UUID()
             earlier.title = "Остановка без сохранённого прогресса"
