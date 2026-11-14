@@ -4,6 +4,8 @@ struct VoiceRegion {
     var start: Double
     var end: Double
     var embedding: [Float]?
+    var embeddingDuration: Double? = nil
+    var speakerEvidenceIsMixed: Bool? = nil
     var recoveredSpeech = false
     var embeddingExclusions: [Range<Int>] = []
     // Keep integer bounds independently of displayed/recognition timestamps.
@@ -63,9 +65,13 @@ final class SpeakerEngine {
             let overlaps = turns.prefix { $0.range.lowerBound < turn.range.upperBound }
                 .filter { $0.speaker != turn.speaker && $0.range.overlaps(turn.range) }
                 .map(\.range)
+            let evidence = extractEmbeddings ? embedding(samples, in: turn.range, excluding: overlaps) : nil
+            let mixed: Bool? = extractEmbeddings ? SpeakerEmbeddingInput(range: turn.range, exclusions: overlaps)
+                .hasSustainedOverlap(sampleCount: samples.count, sampleRate: sampleRate) : nil
             return VoiceRegion(start: Double(turn.range.lowerBound) / Double(sampleRate),
                 end: Double(turn.range.upperBound) / Double(sampleRate),
-                embedding: extractEmbeddings ? vector(samples, in: turn.range, excluding: overlaps) : nil,
+                embedding: evidence?.vector, embeddingDuration: evidence?.duration,
+                speakerEvidenceIsMixed: mixed,
                 embeddingExclusions: overlaps, embeddingRange: turn.range)
         }
     }
@@ -87,14 +93,16 @@ final class SpeakerEngine {
     }
 
     func vector(_ samples: [Float], in range: Range<Int>, excluding overlaps: [Range<Int>]) -> [Float]? {
-        let minimum = SpeakerEmbeddingExtractor.minimumSamples
-        guard range.count >= minimum else { return nil }
-        let clean = SpeechCoverage.uncovered(speech: [range], covered: overlaps,
-            sampleCount: samples.count, minimumPartialLength: minimum)
-        guard let longest = clean.max(by: { $0.count < $1.count }), longest.count >= minimum else { return nil }
-        let length = min(SpeakerEmbeddingExtractor.sampleRate * 12, longest.count)
-        let lower = longest.lowerBound + (longest.count - length) / 2
-        return vector(Array(samples[lower..<(lower + length)]))
+        embedding(samples, in: range, excluding: overlaps)?.vector
+    }
+
+    func embedding(_ samples: [Float], in range: Range<Int>, excluding overlaps: [Range<Int>]) -> (vector: [Float], duration: Double)? {
+        let sampleRate = SpeakerEmbeddingExtractor.sampleRate
+        let input = SpeakerEmbeddingInput(range: range, exclusions: overlaps)
+        guard let excerpt = input.cleanRange(sampleCount: samples.count,
+            minimumSamples: SpeakerEmbeddingExtractor.minimumSamples, maximumSamples: sampleRate * 12),
+            let vector = vector(Array(samples[excerpt])) else { return nil }
+        return (vector, Double(excerpt.count) / Double(sampleRate))
     }
 
     func vector(_ samples: [Float]) -> [Float]? {

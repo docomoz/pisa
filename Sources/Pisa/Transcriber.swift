@@ -310,8 +310,13 @@ actor Transcriber {
                             let speaker = isMic ? "Я" : TranscriptSegment.unidentifiedSpeaker
                             var segment = TranscriptSegment(start: speech.lowerBound, end: speech.upperBound, speaker: speaker, text: recognized.text)
                             segment.audioFile = url.lastPathComponent
-                            segment.embedding = region.embeddingRange.flatMap {
-                                voices?.vector(samples, in: $0, excluding: region.embeddingExclusions)
+                            if let range = region.embeddingRange {
+                                let input = SpeakerEmbeddingInput(range: range, exclusions: region.embeddingExclusions)
+                                segment.speakerEvidenceIsMixed = input.hasSustainedOverlap(sampleCount: samples.count,
+                                    sampleRate: SpeakerEmbeddingExtractor.sampleRate)
+                                let evidence = voices?.embedding(samples, in: range, excluding: region.embeddingExclusions)
+                                segment.embedding = evidence?.vector
+                                segment.embeddingDuration = evidence?.duration
                             }
                             backchannels[segment.id] = recognized.russianBackchannel
                             acousticHypotheses[segment.id] = recognized.acoustic

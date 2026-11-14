@@ -22,6 +22,10 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     public var end: Double
     public var speaker: String
     public var embedding: [Float]?
+    /// Seconds of audio used for the speaker embedding. Older segments have no measurement.
+    public var embeddingDuration: Double?
+    /// Evidence of sustained competing voices in the transcript turn, even if its embedding used clean audio.
+    public var speakerEvidenceIsMixed: Bool?
     public var audioFile: String?
     public var text: String
     public var displayText: String {
@@ -350,6 +354,16 @@ public struct VoiceMatcher {
     public func identify(_ embedding: [Float]) -> String? {
         identify(embedding, requiringCorroboration: false)
     }
+    /// Cluster context cannot override a closer saved identity on this turn.
+    func supportsInheritedName(_ name: String, embedding: [Float]) -> Bool {
+        let scores = candidates.map { candidate in
+            (candidate.name, candidate.samples.map { Self.similarity(embedding, $0.vector) }.max() ?? -1)
+        }
+        guard let own = scores.first(where: { $0.0 == name })?.1, own >= 0.50 else { return false }
+        let other = scores.filter { $0.0 != name }.map(\.1).max() ?? -1
+        return own - other >= 0.04
+    }
+
     func identify(_ embedding: [Float], requiringCorroboration: Bool) -> String? {
         let scores = candidates.map { $0.samples.map { Self.similarity(embedding, $0.vector) } }
         let bestByCandidate = scores.map { $0.max() ?? -1 }

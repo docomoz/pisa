@@ -67,5 +67,7 @@ func automaticVoiceSample(for segmentID: UUID, in meeting: Meeting, audioDuratio
     sample.end = best.upperBound
     sample.audioFile = filename
     sample.embedding = nil
+    sample.embeddingDuration = nil
+    sample.speakerEvidenceIsMixed = nil
     return sample
 }
