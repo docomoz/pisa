@@ -2,6 +2,57 @@ import XCTest
 @testable import PisaCore
 
 final class TranscriptTermsTests: XCTestCase {
+    func testBuiltInMeetingTermsGroupObservedSpellingsAndKeepSearchRanges() throws {
+        let segments = [segment("🎙 Для би ту би сравнили B2B и Б2Б'ом. Ещё работали с апишкой, GitHub и CI/CD. `битуби`.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["B2B", "API", "GitHub", "CI/CD"])
+        let found = TranscriptTerms.matches("B2B", in: segments)
+        XCTAssertEqual(found.map(\.text), ["би ту би", "B2B", "Б2Б'ом"])
+        XCTAssertEqual(candidates.first { $0.text == "B2B" }?.occurrences.map(\.id), found.map(\.id))
+        XCTAssertEqual(TranscriptTerms.matches("B2B'ом", in: segments).map(\.text), [], "A declined query stays literal")
+        let corrected = try XCTUnwrap(TranscriptTerms.replacing(found, with: "B2B", in: segments))
+        XCTAssertEqual(corrected[0].text, "🎙 Для B2B сравнили B2B и B2B'ом. Ещё работали с апишкой, GitHub и CI/CD. `битуби`.")
+        XCTAssertEqual(TranscriptTerms.matches("API", in: segments).map(\.text), ["апишкой"])
+        XCTAssertEqual(TranscriptTerms.replacement(for: try XCTUnwrap(TranscriptTerms.matches("API", in: segments).first), with: "API"), "API'шкой")
+    }
+
+    func testBuiltInTermsHonorPersonalVocabularyAndSkipCommonEnglishWords() {
+        let segments = [segment("It is a rest day. Обсудили внутренний апи, битуби и ДЖИ ПИ ТИ. В Store внутренний Pull Request, C++ и .NET.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "Битуби, внутренний апи")
+        XCTAssertTrue(Set(candidates.map(\.text)).isSuperset(of: ["GPT", "pull request", "C++", ".NET"]))
+        XCTAssertTrue(Set(candidates.map(\.text)).isDisjoint(with: ["B2B", "API", "IT", "REST", "Битуби"]))
+        XCTAssertTrue(TranscriptTerms.matches("B2B", in: segments, vocabulary: "Битуби").isEmpty)
+        XCTAssertTrue(TranscriptTerms.matches("B2B", in: [segment("Сравнили би ту би и би-ту-би'ом.")], vocabulary: "Битуби").isEmpty)
+    }
+
+    func testBranchTargetBufferAndBusinessToBusinessAreSeparateMeetingTerms() {
+        let segments = [segment("Проверили би ти би и BTB, потом обсудили би ту би и B2B.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(candidates.first { $0.text == "BTB" }?.occurrences.map(\.text), ["би ти би", "BTB"])
+        XCTAssertEqual(candidates.first { $0.text == "B2B" }?.occurrences.map(\.text), ["би ту би", "B2B"])
+    }
+
+    func testBuiltInReviewExcludesOrdinaryWordsSharingTheSameSpelling() {
+        let segments = [segment("Используем REST и CI/CD. Обсудили компанию Apple."),
+                        segment("It is a rest day. Grab the apple. CI/CD_internal. CI/CD/path. Pull\nRequest.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        for term in ["REST", "CI/CD", "Apple"] {
+            XCTAssertEqual(candidates.first { $0.text == term }?.occurrences.map(\.text), [term])
+            XCTAssertEqual(TranscriptTerms.matches(term, in: segments).map(\.text), [term])
+        }
+        XCTAssertEqual(TranscriptTerms.matches("rest", in: segments).map(\.text), ["REST", "rest"])
+    }
+
+    func testBuiltInCompanyPronunciationsGroupWrittenAndSpokenOccurrences() {
+        let segments = [segment("Для майкрософт, Microsoft и гугл обсудили интеграции. Сравнили компания озон и Naumen."),
+                        segment("Рядом выбросили озон из уравнения. Прочитали «гугл». В проекте работает наумен.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(candidates.first { $0.text == "Microsoft" }?.occurrences.map(\.text), ["майкрософт", "Microsoft"])
+        XCTAssertEqual(candidates.first { $0.text == "Naumen" }?.occurrences.map(\.text), ["Naumen", "наумен"])
+        XCTAssertEqual(TranscriptTerms.matches("Ozon", in: segments).map(\.text), ["озон"])
+        XCTAssertEqual(TranscriptTerms.matches("Google", in: segments).map(\.text), ["гугл"])
+    }
+
     func testAbbreviationFamiliesGroupFormsAndRecognizeKnownBase() {
         let segments = [segment("2ГИС'а, 2ГИС’е, 2ГИСом и 2ГИС. Также LLM'ки и LLM'ками.")]
         let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")

@@ -3,6 +3,66 @@ import XCTest
 @testable import PisaCore
 
 final class RecognitionConsensusTests: XCTestCase {
+    func testBoundaryConsensusRepairsOnlyWordsBothDecodersHear() {
+        let original = "Вот и вот с этого всё началось Сумный город Новосипок."
+        let independent = "Вот. И вот с этого всё началось. Умный город Новосиб."
+        let candidate = "Вот и вот с этого всё началось. Сумный город Новосиб."
+        XCTAssertTrue(RecognitionConsensus.hasBoundaryDisagreement(original: original, corroboration: independent, vocabulary: ""))
+        XCTAssertEqual(RecognitionConsensus.revisedBoundaryText(original: original, candidate: candidate,
+            corroboration: independent, vocabulary: ""), "Вот и вот с этого всё началось Сумный город Новосиб.")
+        XCTAssertNil(RecognitionConsensus.revisedBoundaryText(original: original, candidate: original,
+            corroboration: independent, vocabulary: ""))
+    }
+
+    func testRepeatedPhraseAndSecondAudioReadingCanResolveDuplicatedBoundaryConsonant() {
+        let original = "Вот и вот с этого всё началось Сумный город Новосипок."
+        let independent = "Вот. И вот с этого всё началось. Умный город Новосиб."
+        let candidate = "Вот и вот с этого всё началось. Сумный город Новосиб."
+        let expanded = "Наша аудитория огромная. " + independent + " Беда в чём?"
+        let phrases: Set<String> = ["умный город"]
+        XCTAssertTrue(RecognitionConsensus.needsBoundaryOnsetVerification(original: original, corroboration: independent,
+            vocabulary: "", establishedPhrases: phrases))
+        XCTAssertEqual(RecognitionConsensus.revisedBoundaryText(original: original, candidate: candidate,
+            corroboration: independent, vocabulary: "", establishedPhrases: phrases, expandedCorroboration: expanded),
+            "Вот и вот с этого всё началось Умный город Новосиб.")
+        for unsupported in ["", expanded.replacingOccurrences(of: "Умный", with: "Сумный"),
+                            "«" + independent + "»", independent + " " + independent] {
+            XCTAssertEqual(RecognitionConsensus.revisedBoundaryText(original: original, candidate: candidate,
+                corroboration: independent, vocabulary: "", establishedPhrases: phrases, expandedCorroboration: unsupported),
+                "Вот и вот с этого всё началось Сумный город Новосиб.")
+        }
+        XCTAssertEqual(RecognitionConsensus.revisedBoundaryText(original: original, candidate: candidate,
+            corroboration: independent, vocabulary: "", expandedCorroboration: expanded),
+            "Вот и вот с этого всё началось Сумный город Новосиб.")
+    }
+
+    func testBoundaryOnsetRuleIsDerivedFromAdjacentSounds() {
+        let original = "Мы решили что предстоит Точный формат встречи."
+        let evidence = "Мы решили что предстоит очный формат встречи."
+        XCTAssertEqual(RecognitionConsensus.revisedBoundaryText(original: original, candidate: original,
+            corroboration: evidence, vocabulary: "", establishedPhrases: ["очный формат"], expandedCorroboration: evidence), evidence)
+        XCTAssertNil(RecognitionConsensus.revisedBoundaryText(original: original.replacingOccurrences(of: "предстоит", with: "нужен"),
+            candidate: original.replacingOccurrences(of: "предстоит", with: "нужен"),
+            corroboration: evidence.replacingOccurrences(of: "предстоит", with: "нужен"), vocabulary: "",
+            establishedPhrases: ["очный формат"], expandedCorroboration: evidence.replacingOccurrences(of: "предстоит", with: "нужен")))
+    }
+
+    func testBoundaryConsensusProtectsQuantitiesNegationLiteralsAndKnownNames() {
+        for (before, after, glossary) in [
+            ("Семь тысяч человек придут утром", "Восемь тысяч человек придут утром", ""),
+            ("Третьего числа мы увидимся снова", "Четвёртого числа мы увидимся снова", ""),
+            ("Пригоден этот образец для эксперимента", "Непригоден этот образец для эксперимента", ""),
+            ("Мы решили что готов Северный Атлас", "Мы решили что готов Северный Адрес", "Северный Атлас"),
+            ("В Контуре вчера обсуждали важные правки", "В Конторе вчера обсуждали важные правки", "Контур"),
+            ("Мы решили что готов «Северный Атлас»", "Мы решили что готов «Северный Адрес»", ""),
+            ("We will send our report tomorrow", "We will send our reports tomorrow", ""),
+            ("Мы ожидаем ровно 17 человек", "Мы ожидаем ровно 18 человек", ""),
+        ] {
+            XCTAssertFalse(RecognitionConsensus.hasBoundaryDisagreement(original: before, corroboration: after, vocabulary: glossary), before)
+            XCTAssertNil(RecognitionConsensus.revisedBoundaryText(original: before, candidate: after, corroboration: after, vocabulary: glossary), before)
+        }
+    }
+
     func testShortTurnDoesNotRewriteQuotedOriginal() {
         XCTAssertNil(RecognitionConsensus.revisedText(original: "«Говори, Максим!»", candidate: "Говори, Максиму.",
             corroboration: "Говори, Максиму.", vocabulary: "", allowShortTurn: true))

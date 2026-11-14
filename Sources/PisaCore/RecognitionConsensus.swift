@@ -8,6 +8,110 @@ enum RecognitionConsensus {
     ]
     private static let affirmations: Set<String> = ["да", "ага", "угу", "окей"]
 
+    /// A short disagreement at an utterance edge can have no second anchor.
+    /// The unchanged remainder must be at least three words, and the changed
+    /// words must remain acoustically close and contain no protected meaning.
+    static func hasBoundaryDisagreement(original: String, corroboration: String, vocabulary: String) -> Bool {
+        boundaryChange(original: original, corroboration: corroboration, vocabulary: vocabulary) != nil
+    }
+
+    /// Only call with a fresh, unprompted decode of the same audio. A glossary
+    /// or neighboring sentence is never evidence for an unanchored edge.
+    static func revisedBoundaryText(original: String, candidate: String, corroboration: String, vocabulary: String,
+                                    establishedPhrases: Set<String> = [], expandedCorroboration: String? = nil) -> String? {
+        guard MeetingSpeechText.accepts(candidate),
+              let change = boundaryChange(original: original, corroboration: corroboration, vocabulary: vocabulary) else { return nil }
+        let retry = tokens(candidate), evidence = tokens(corroboration)
+        let source = tokens(original)
+        guard retry.count == source.count, evidence.count == source.count,
+              retry.indices.allSatisfy({ retry[$0].key == source[$0].key || retry[$0].key == evidence[$0].key }) else { return nil }
+        let expandedText = expandedCorroboration ?? ""
+        let expandedTokens = tokens(expandedText)
+        let expanded = expandedTokens.map(\.key)
+        let heard = evidence.map(\.key)
+        let twiceHeard = MeetingSpeechText.accepts(expandedText) && expanded.count >= heard.count && expanded.indices.filter { start in
+            guard start + heard.count <= expanded.count, expanded[start..<(start + heard.count)].elementsEqual(heard) else { return false }
+            let interval = expandedTokens[start].range.lowerBound..<expandedTokens[start + heard.count - 1].range.upperBound
+            return !intersectsLiteral(interval, in: expandedText)
+        }.count == 1
+        var edits: [(Range<String.Index>, String)] = []
+        for index in change.old where source[index].key != evidence[index].key {
+            guard !intersectsLiteral(retry[index].range, in: candidate) else { continue }
+            if retry[index].key == evidence[index].key {
+                edits.append((source[index].range, String(candidate[retry[index].range])))
+            } else if twiceHeard, repeatedBoundaryOnset(at: index, source: source, evidence: evidence,
+                                                       establishedPhrases: establishedPhrases) {
+                edits.append((source[index].range, String(corroboration[evidence[index].range])))
+            }
+        }
+        guard !edits.isEmpty else { return nil }
+        var revised = original
+        for (range, replacement) in edits.reversed() { revised.replaceSubrange(range, with: replacement) }
+        return revised
+    }
+
+    static func needsBoundaryOnsetVerification(original: String, corroboration: String, vocabulary: String,
+                                               establishedPhrases: Set<String>) -> Bool {
+        guard let change = boundaryChange(original: original, corroboration: corroboration, vocabulary: vocabulary) else { return false }
+        let source = tokens(original), evidence = tokens(corroboration)
+        return change.old.contains { repeatedBoundaryOnset(at: $0, source: source, evidence: evidence,
+                                                           establishedPhrases: establishedPhrases) }
+    }
+
+    static func hasBoundaryOnsetShape(original: String, corroboration: String) -> Bool {
+        let source = tokens(original), evidence = tokens(corroboration)
+        guard source.count == evidence.count else { return false }
+        return source.indices.contains { repeatedBoundaryOnset(at: $0, source: source, evidence: evidence, establishedPhrases: nil) }
+    }
+
+    private static func repeatedBoundaryOnset(at index: Int, source: [Token], evidence: [Token],
+                                              establishedPhrases: Set<String>?) -> Bool {
+        guard index > 0, index + 1 < source.count,
+              source[index].key.count >= 5, evidence[index].key.count >= 4,
+              let consonant = source[index].key.first, "бвгджзклмнпрстфхцчшщ".contains(consonant),
+              source[index - 1].key == evidence[index - 1].key,
+              source[index - 1].key.last(where: { !"ьъ".contains($0) }) == consonant,
+              String(source[index].key.dropFirst()) == evidence[index].key,
+              source[index + 1].key == evidence[index + 1].key else { return false }
+        return establishedPhrases?.contains(evidence[index].key + " " + evidence[index + 1].key) ?? true
+    }
+
+    private static func boundaryChange(original: String, corroboration: String, vocabulary: String) -> (old: Range<Int>, new: Range<Int>)? {
+        guard MeetingSpeechText.accepts(original), MeetingSpeechText.accepts(corroboration) else { return nil }
+        let source = tokens(original), evidence = tokens(corroboration)
+        let first = source.map(\.key), heard = evidence.map(\.key)
+        let (old, new) = differingWords(first, heard)
+        guard (1...3).contains(old.count), old.count == new.count,
+              (old.lowerBound <= 2 && first.count - old.upperBound >= 3)
+                || (first.count - old.upperBound <= 2 && old.lowerBound >= 3),
+              first.filter(isRussian).count * 2 > first.count,
+              heard.filter(isRussian).count * 2 > heard.count,
+              canChange(first, range: old, protected: protectedWords(in: first, vocabulary: vocabulary)),
+              heard[new].allSatisfy({ isReplaceable($0) && !affirmations.contains($0) }),
+              !first[old].contains(where: isNumberWord), !heard[new].contains(where: isNumberWord),
+              !zip(first[old], heard[new]).contains(where: { before, after in
+                  ["не", "ни", "без"].contains { before == $0 + after || after == $0 + before }
+              }),
+              soundsCompatible(Array(first[old]), Array(heard[new])) else { return nil }
+        let oldRange = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
+        let newRange = evidence[new.lowerBound].range.lowerBound..<evidence[new.upperBound - 1].range.upperBound
+        guard !intersectsLiteral(oldRange, in: original), !intersectsLiteral(newRange, in: corroboration) else { return nil }
+        return (old, new)
+    }
+
+    static func isNumberWord(_ word: String) -> Bool {
+        // Cardinal/ordinal stems include Russian case forms and compound
+        // quantities. Over-protection here only skips an optional reread.
+        let stems = ["нол", "нул", "один", "одн", "два", "две", "двух", "двум", "три", "трех", "трем", "тремя",
+            "четыр", "пят", "шест", "семь", "семи", "семью", "восем", "восьм", "девят", "десят",
+            "одиннадц", "двенадц", "тринадц", "четырнадц", "пятнадц", "шестнадц", "семнадц", "восемнадц", "девятнадц",
+            "двадц", "тридц", "сорок", "пятьдесят", "шестьдесят", "семьдесят", "восемьдесят", "девяност",
+            "сто", "ста", "сот", "двести", "двухсот", "триста", "трехсот", "тысяч", "миллион", "миллиард", "триллион",
+            "перв", "втор", "трет", "четверт", "седьм", "полтор", "полутор", "половин",
+            "оба", "обе", "обои", "двое", "двоих", "двоим", "трое", "троих", "троим", "четверо", "четверых"]
+        return stems.contains(where: word.hasPrefix)
+    }
+
     static func revisedText(original: String, candidate: String, corroboration: String,
                             vocabulary: String, allowShortTurn: Bool = false, expandedAudio: Bool = false) -> String? {
         guard [original, candidate, corroboration].allSatisfy(MeetingSpeechText.accepts) else { return nil }
@@ -104,6 +208,8 @@ enum RecognitionConsensus {
 
     private static func protectedWords(in words: [String], vocabulary: String) -> [Range<Int>] {
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }
             .map(RussianRecognition.words).filter { !$0.isEmpty }
         return terms.flatMap { term in
             words.indices.compactMap { start in

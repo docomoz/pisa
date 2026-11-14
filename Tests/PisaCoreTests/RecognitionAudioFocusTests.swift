@@ -30,4 +30,37 @@ final class RecognitionAudioFocusTests: XCTestCase {
         var invalid = timed; invalid[1] = RecognitionTimedWord(text: "вторая", start: .nan, end: 0.4)
         XCTAssertTrue(RecognitionAudioFocus.ranges(original: text, targets: [target(text, "цель")], words: invalid, duration: 1).isEmpty)
     }
+
+    func testBoundaryTargetsUseThreeUniqueWordsAndRealAudioEdges() {
+        let text = "в названии мы обсуждали этот проект сегодня"
+        let timed = words([("в", 0.2, 0.3), ("другом", 0.4, 0.8), ("мы", 1, 1.2),
+            ("обсуждали", 1.3, 1.7), ("этот", 1.8, 2), ("проект", 2.1, 2.5), ("вчера", 3, 3.5)])
+        XCTAssertEqual(RecognitionAudioFocus.ranges(original: text, targets: [target(text, "названии")], words: timed, duration: 6), [0..<2.5])
+        XCTAssertEqual(RecognitionAudioFocus.ranges(original: text, targets: [target(text, "сегодня")], words: timed, duration: 6), [0.8..<6])
+        let start = "название мы обсуждали этот проект сегодня"
+        XCTAssertEqual(RecognitionAudioFocus.ranges(original: start, targets: [target(start, "название")], words: Array(timed.dropFirst()), duration: 6), [0..<2.5])
+    }
+
+    func testBoundaryFocusRejectsMissingRepeatedDistantAndShortAnchors() {
+        let text = "название мы обсуждали этот проект"
+        let timed = words([("иное", 0, 0.4), ("мы", 1, 1.2), ("обсуждали", 1.3, 1.7), ("этот", 1.8, 2)])
+        let duplicate = timed + words([("мы", 3, 3.2), ("обсуждали", 3.3, 3.7), ("этот", 3.8, 4)])
+        XCTAssertTrue(RecognitionAudioFocus.ranges(original: text, targets: [target(text, "название")], words: duplicate, duration: 5).isEmpty)
+        XCTAssertTrue(RecognitionAudioFocus.ranges(original: text, targets: [target(text, "название")], words: Array(timed.dropLast()), duration: 5).isEmpty)
+        let distant = words((0..<5).map { ("слово", Double($0), Double($0) + 0.5) })
+            + words([("мы", 6, 6.2), ("обсуждали", 6.3, 6.7), ("этот", 6.8, 7)])
+        XCTAssertTrue(RecognitionAudioFocus.ranges(original: text, targets: [target(text, "название")], words: distant, duration: 8).isEmpty)
+        let leading = "на название мы обсуждали этот проект"
+        XCTAssertTrue(RecognitionAudioFocus.ranges(original: leading, targets: [target(leading, "название")], words: timed, duration: 5).isEmpty)
+    }
+
+    func testAdjacentRecognitionErrorsCanUseNearbyUniqueAudioAnchors() {
+        let text = "мы будем вместе обсуждать эту систему Сбераз название там с нашей командой"
+        let timed = words([("мы", 0, 0.2), ("будем", 0.2, 0.4), ("вместе", 0.4, 0.6), ("обсуждать", 0.6, 1),
+            ("экосистему", 1, 1.5), ("Сбера", 1.5, 1.8), ("с", 1.8, 2), ("другим", 2, 2.4),
+            ("там", 2.4, 2.6), ("с", 2.6, 2.8), ("нашей", 2.8, 3), ("командой", 3, 3.5)])
+        XCTAssertEqual(RecognitionAudioFocus.ranges(original: text, targets: [target(text, "название")], words: timed, duration: 5), [0..<3.5])
+        let tooFar = "мы будем вместе обсуждать одну давно известную очень большую систему Сбераз название там с нашей командой"
+        XCTAssertTrue(RecognitionAudioFocus.ranges(original: tooFar, targets: [target(tooFar, "название")], words: timed, duration: 5).isEmpty)
+    }
 }

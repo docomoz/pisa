@@ -2,6 +2,90 @@ import XCTest
 @testable import PisaCore
 
 final class SpokenVocabularyTests: XCTestCase {
+    func testBuiltInTechnologyTermsNormalizeWithEmptyUserVocabulary() {
+        let vocabulary = SpokenVocabulary("")
+        let text = "Для битуби-рынка обсудили пи ар ди, эй-пи-ай и эс дэ ка. Для би ту си — эм ви пи, оу кей ар и эн пи эс."
+        XCTAssertEqual(vocabulary.apply(to: text), "Для B2B-рынка обсудили PRD, API и SDK. Для B2C — MVP, OKR и NPS.")
+        XCTAssertEqual(vocabulary.apply(to: "В си эр эмке, с би ту би’шниками, к эл-эл-эмкам и на джи пи ти."),
+                       "В CRM'ке, с би ту би’шниками, к LLM'кам и на GPT.")
+        XCTAssertEqual(vocabulary.apply(to: "С Б2Б, Б2Ц и би 2 би."), "С B2B, B2C и B2B.")
+        XCTAssertEqual(vocabulary.apply(to: "Через постгрес, докер, кубернетес и граф ку эл."),
+                       "Через Postgres, Docker, Kubernetes и GraphQL.")
+        XCTAssertEqual(vocabulary.apply(to: "С апишкой и аи эм, про эл ти ви и эй би тест."),
+                       "С API'шкой и IAM, про LTV и A/B-тест.")
+    }
+
+    func testBuiltInTechnologyTermsPreserveOrdinarySpeechAndLiterals() {
+        let vocabulary = SpokenVocabulary("")
+        let text = "Биты, панель, пчела и обычная докерская работа. Докер грузит контейнеры в порту. Джейсон не прислал файл. Котлин находится в заливе. Андроид посмотрел в телефон. Докер прочитал «Kubernetes». У клиента уже есть две ГИС. Pull the cord and go. It is a rest day. «битуби», `апи`, https://пример.рф/битуби, demo_битуби и супер-битуби."
+        XCTAssertEqual(vocabulary.apply(to: text), text)
+        XCTAssertEqual(vocabulary.apply(to: "Use GitHub, Docker, .NET, C++, REST and a pull request."),
+                       "Use GitHub, Docker, .NET, C++, REST and a pull request.")
+        XCTAssertEqual(vocabulary.relevantTerms(in: ["Сравнили ASP.NET, C++11 и CI/CD_internal."]), "")
+    }
+
+    func testBranchTargetBufferAndBusinessToBusinessKeepDistinctPronunciations() {
+        let vocabulary = SpokenVocabulary("")
+        let text = "Для процессора нужен би ти би, а для продаж — би ту би. Сверили BTB и B2B."
+        XCTAssertEqual(vocabulary.apply(to: text), "Для процессора нужен BTB, а для продаж — B2B. Сверили BTB и B2B.")
+        XCTAssertEqual(vocabulary.relevantTerms(in: ["Проверили би ти би в процессоре."]), "BTB")
+    }
+
+    func testConfusableCyrillicNumericAcronymProvidesOnlyALocalRereadHint() throws {
+        let vocabulary = SpokenVocabulary("")
+        let text = "Мы делаем бит-бить продукт. Это сервис для бизнеса."
+        let hint = try XCTUnwrap(vocabulary.technologyRereadHint(in: text))
+        XCTAssertEqual(hint.term, "B2B")
+        XCTAssertEqual(text[hint.range], "бит-бить")
+        XCTAssertEqual(vocabulary.apply(to: text), text)
+        XCTAssertNil(vocabulary.technologyRereadHint(in: "Это бетубипродукт для бизнеса."))
+        XCTAssertNil(SpokenVocabulary("би ту би").technologyRereadHint(in: text))
+        XCTAssertNil(SpokenVocabulary("Бит-бить").technologyRereadHint(in: text))
+    }
+
+    func testRereadHintRequiresBusinessContextWithoutWrittenOrPhoneticCompetitors() {
+        let vocabulary = SpokenVocabulary("")
+        for text in ["В бизнесе проверили BDB продукт.", "Компания делает BTB продукт.",
+                     "Проверили би-ти-би продукт для бизнеса.", "Собрали бит-бить продукт для буфера переходов.",
+                     "Мы будем бить биты. Это наш сервис для бизнеса.", "Это «бит-бить» продукт для бизнеса.",
+                     "Сверили бит-бить продукт. Клиент произнёс «бизнес»."] {
+            XCTAssertNil(vocabulary.technologyRereadHint(in: text), text)
+        }
+    }
+
+    func testBuiltInCompanyPronunciationsRecognizeNamesWithEmptySettings() {
+        let vocabulary = SpokenVocabulary("")
+        XCTAssertEqual(vocabulary.apply(to: "Обсудили майкрософт, гугл, эппл и сейлс форс. Для тинькофф, наумен и позитив текнолоджиз подготовим план."),
+                       "Обсудили Microsoft, Google, Apple и Salesforce. Для Тинькофф, Naumen и Positive Technologies подготовим план.")
+        XCTAssertEqual(vocabulary.apply(to: "С компанией озон, сервисом зум и в компании точка обсудили поставку."),
+                       "С компанией Ozon, сервисом Zoom и в компании Точка обсудили поставку.")
+        XCTAssertEqual(SpokenVocabulary("Майкрософт").apply(to: "Обсудили майкрософт и гугл."), "Обсудили Майкрософт и Google.")
+    }
+
+    func testBuiltInCompanyPronunciationsKeepOrdinaryWordsAndQuotedNames() {
+        let vocabulary = SpokenVocabulary("")
+        let text = "Озон защищает от ультрафиолета. Мы поправили контур, увеличили зум и поставили точку. Название компании «Dropbox». My office is down the hall."
+        XCTAssertEqual(vocabulary.apply(to: text), text)
+        XCTAssertEqual(vocabulary.relevantTerms(in: ["Встречаемся с компанией зум, потом обсудим майкрософт."]), "Zoom, Microsoft")
+        XCTAssertEqual(vocabulary.relevantTerms(in: ["Прочитал про «майкрософт» и контур фигуры."]), "")
+    }
+
+    func testBuiltInTechnologyTermsRespectCustomSpellingAndUseOnlyObservedHints() {
+        let userVocabulary = SpokenVocabulary("Битуби, внутренний апи, b2c, 2СИНК")
+        XCTAssertEqual(userVocabulary.apply(to: "Отложили битуби, внутренний апи и би ту си, сверили эн пи эс."),
+                       "Отложили Битуби, внутренний апи и b2c, сверили NPS.")
+        XCTAssertEqual(userVocabulary.apply(to: "Уточнили бэктуби, битуби'ом и апи."),
+                       "Уточнили бэктуби, Битуби'ом и API.")
+        XCTAssertEqual(userVocabulary.apply(to: "Для би ту би и би-ту-би'ом."), "Для би ту би и би-ту-би'ом.")
+        XCTAssertEqual(userVocabulary.contextualVocabulary(in: ["Уточнили битуби, PRD и эн пи эс."]),
+                       "Битуби, внутренний апи, b2c, 2СИНК, PRD, NPS")
+        let empty = SpokenVocabulary("")
+        XCTAssertEqual(empty.decodingVocabulary, "")
+        XCTAssertEqual(empty.contextualVocabulary(in: ["Обычная реплика. It was a rest day. «API»."]), "")
+        XCTAssertEqual(empty.relevantTerms(in: ["Сверили би ту би и NPS.", "Здесь ещё NPS и IAM."]), "B2B, NPS, IAM")
+        XCTAssertEqual(empty.contextualVocabulary(in: ["B2B MVP PRD API SDK OKR NPS IAM SSO JWT Kubernetes"]).components(separatedBy: ", ").count, 8)
+    }
+
     func testPhoneticAbbreviationFormsKeepObservedEndings() {
         let vocabulary = SpokenVocabulary("LLM, AI, API, GR")
         XCTAssertEqual(vocabulary.apply(to: "с элэлэмом, об AIем и к джиару"), "с LLM'ом, об AI'ем и к GR'у")

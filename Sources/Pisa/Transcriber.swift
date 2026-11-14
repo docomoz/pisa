@@ -423,7 +423,7 @@ actor Transcriber {
         files: [(URL, Double)], bounds: [UUID: Range<Double>], hypotheses: [UUID: RecognitionAcousticResult], model: Qwen3ASRModel,
         russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance, collectDiagnostics: Bool,
         selected: Set<UUID>? = nil, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
-        guard let russian, !vocabulary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let russian else {
             try Task.checkCancellation()
             await progress(1, "Расшифровка готова")
             return segments
@@ -440,6 +440,10 @@ actor Transcriber {
             guard let name = segment.audioFile, let (url, offset) = files.first(where: { $0.0.lastPathComponent == name }),
                   let audioRange = bounds[segment.id] else { continue }
             let duration = segment.end - segment.start
+            guard duration <= 30 else { continue }
+            let neighbors = snapshot.neighbors(around: segment)
+            let vocabulary = spokenVocabulary.contextualVocabulary(in:
+                [segment.text, hypotheses[segment.id]?.text ?? ""] + neighbors.preceding + neighbors.following)
             let decodeCache = RecognitionDecodeCache<STTOutput>()
             defer { performanceDiagnostics?["qwenCacheHits", default: 0] += Double(decodeCache.hitCount) }
             if duration < 2 {
@@ -480,6 +484,55 @@ actor Transcriber {
             }
             guard duration <= 30 else { continue }
             let independent = hypotheses[segment.id]?.text
+            // Lexical disagreements at the region's first/last words have no
+            // glossary term and no second text anchor. Re-listen without a
+            // prompt, then require exact agreement with the other recognizer.
+            if duration <= 12, let independent,
+               RecognitionConsensus.hasBoundaryDisagreement(original: segment.text,
+                    corroboration: independent, vocabulary: vocabulary),
+               let samples = try? Self.contextSamples(url, start: audioRange.lowerBound, end: audioRange.upperBound),
+               !samples.isEmpty {
+                let boundaryBegan = ContinuousClock.now
+                try Task.checkCancellation()
+                let audio = MLXArray(samples)
+                let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
+                let output = decodeCache.value(samples: samples, context: "", language: "Russian", maxTokens: maxTokens) {
+                    measureRecognition("qwen") {
+                        model.generate(audio: audio, maxTokens: maxTokens, context: "", language: "Russian",
+                            chunkDuration: 30, repetitionPenalty: 1.1)
+                    }
+                }
+                let candidate = spokenVocabulary.apply(to: output.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                if collectDiagnostics {
+                    contextDiagnostics.append(["start": String(segment.start), "kind": "boundary-consensus",
+                        "source": segment.text, "independent": independent, "candidate": candidate])
+                }
+                let phrases = RecognitionConsensus.hasBoundaryOnsetShape(original: segment.text, corroboration: independent)
+                    ? snapshot.establishedPhrases(around: segment) : []
+                var expandedEvidence: String?
+                if RecognitionConsensus.needsBoundaryOnsetVerification(original: segment.text,
+                    corroboration: independent, vocabulary: vocabulary, establishedPhrases: phrases),
+                   let expanded = try? Self.contextSamples(url, start: max(0, audioRange.lowerBound - 1.5),
+                                                          end: audioRange.upperBound + 1.5) {
+                    expandedEvidence = acousticRecognition(expanded, using: russian)?.text
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["start": String(segment.start), "kind": "boundary-expanded-acoustic",
+                            "independent": expandedEvidence ?? ""])
+                    }
+                }
+                try await performance.pace(after: boundaryBegan)
+                try Task.checkCancellation()
+                if let accepted = RecognitionConsensus.revisedBoundaryText(original: segment.text,
+                    candidate: candidate, corroboration: independent, vocabulary: vocabulary,
+                    establishedPhrases: phrases, expandedCorroboration: expandedEvidence) {
+                    revised[index].text = accepted
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["start": String(segment.start), "kind": "accepted",
+                            "source": segment.text, "candidate": accepted])
+                    }
+                    continue
+                }
+            }
             let retry = snapshot.plan(for: segment, independent: independent,
                                       vocabulary: vocabulary, spokenVocabulary: spokenVocabulary)
             let tailDiffers = independent.map {
@@ -547,7 +600,8 @@ actor Transcriber {
                         "timedWords": String(evidence.words.count), "targets": targets.map { String(segment.text[$0]) }.joined(separator: " | "),
                         "ranges": ranges.map { "\($0.lowerBound)..<\($0.upperBound)" }.joined(separator: ", ")])
                 }
-                for range in ranges.prefix(2) {
+                var approved: [String] = []
+                probe: for range in ranges.prefix(2) {
                     try Task.checkCancellation()
                     let lower = max(0, min(samples.count, Int(range.lowerBound * 16000)))
                     let upper = max(lower, min(samples.count, Int(range.upperBound * 16000)))
@@ -560,9 +614,53 @@ actor Transcriber {
                             contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-boundary",
                                 "source": segment.text, "independent": heard.text, "candidate": joined])
                         }
-                        return joined
+                        approved.append(joined)
+                        continue probe
                     }
-                    if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: retry.hints, kind: kind) { return revised }
+                    var cropApproved = false
+                    if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: retry.hints, kind: kind) {
+                        approved.append(revised)
+                        cropApproved = true
+                    }
+                    if let revised = RecognitionContext.revisedAnchoredDictionaryText(original: segment.text,
+                        candidate: lastCandidate, corroboration: evidence.text, retry: retry, vocabulary: vocabulary) {
+                        approved.append(revised)
+                        cropApproved = true
+                        if collectDiagnostics {
+                            contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-anchored-dictionary",
+                                "source": segment.text, "candidate": revised, "independent": evidence.text])
+                        }
+                    }
+                    if let revised = RecognitionContext.revisedAnchoredDictionaryText(original: segment.text,
+                        candidate: evidence.text, corroboration: lastCandidate, retry: retry, vocabulary: vocabulary,
+                        candidateFromIndependentAudio: true) {
+                        approved.append(revised)
+                        cropApproved = true
+                        if collectDiagnostics {
+                            contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-independent-dictionary",
+                                "source": segment.text, "candidate": revised, "independent": evidence.text])
+                        }
+                    }
+                    // Either acoustic model can supply the exact glossary
+                    // spelling. When the independent model hears an already
+                    // established term, corroborate it with an unprompted
+                    // reread, rather than requiring Qwen to spell it first.
+                    if let heard {
+                        let canonical = spokenVocabulary.apply(to: heard.text)
+                        if retry.hasEstablishedAcousticTerm(in: canonical) {
+                            let unprompted = try decode("", samples: clip, retry: retry)
+                            if collectDiagnostics {
+                                contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-independent",
+                                    "source": segment.text, "candidate": canonical, "independent": unprompted])
+                            }
+                            if let revised = RecognitionContext.revisedText(original: segment.text, candidate: canonical,
+                                corroboration: unprompted, retry: retry, vocabulary: vocabulary) {
+                                approved.append(revised)
+                                cropApproved = true
+                            }
+                        }
+                    }
+                    if cropApproved { continue probe }
                     let checkEnding = retry.canDisambiguateInitialismEnding(in: segment.text)
                     let checkBoundary = retry.canProbePhoneticBoundary(in: segment.text, corroboration: evidence.text)
                     if checkEnding {
@@ -601,7 +699,8 @@ actor Transcriber {
                                     contextDiagnostics.append(["start": String(segment.start), "kind": "contextual-spelling",
                                         "source": segment.text, "candidate": disambiguated])
                                 }
-                                return disambiguated
+                                approved.append(disambiguated)
+                                continue probe
                             }
                         }
                     }
@@ -620,17 +719,18 @@ actor Transcriber {
                                 corroboration: heard.text, retry: retry, vocabulary: vocabulary, boundaryEvidence: [observed, narrow])
                                 ?? RecognitionContext.reconcilePhoneticBoundary(original: segment.text, corroboration: heard.text,
                                     unprompted: [wide, narrow], retry: retry, vocabulary: vocabulary) {
-                                return boundary
+                                approved.append(boundary)
+                                continue probe
                             }
                         }
                     }
                     if let heard, !heard.text.isEmpty {
                         let prompt = RussianRecognition.context(vocabulary: retry.hints,
                             hypothesis: spokenVocabulary.promptHypothesis(heard.text))
-                        if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: prompt, kind: kind + "-acoustic") { return revised }
+                        if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: prompt, kind: kind + "-acoustic") { approved.append(revised); continue probe }
                     }
                 }
-                return nil
+                return RecognitionContext.mergeIndependentRevisions(original: segment.text, revisions: approved)
             }
             var accepted: String?
             if let retry {
@@ -840,6 +940,16 @@ actor Transcriber {
                 promptVocabulary: decodingVocabulary)
             let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
             if let revised = RussianRecognition.restoringNumericEndings(original: text, candidate: candidate, vocabulary: vocabulary) {
+                text = revised
+            }
+        }
+        if result.language?.lowercased() == "russian", duration >= 2, let acoustic,
+           let hint = spokenVocabulary.technologyRereadHint(in: text) {
+            let checked = try generate(language: "Russian", context: hint.term, promptVocabulary: hint.term)
+            let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let revised = RecognitionContext.revisedTechnicalTerm(original: text, candidate: candidate,
+                corroboration: spokenVocabulary.apply(to: acoustic.text), term: hint.term,
+                sourceRange: hint.range, vocabulary: vocabulary) {
                 text = revised
             }
         }

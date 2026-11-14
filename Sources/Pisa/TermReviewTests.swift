@@ -28,6 +28,20 @@ enum TermReviewTests {
         return try state.library.read(meeting.id)
     }
 
+    private static func technologyFixture(_ state: AppState) throws -> Meeting {
+        state.preferences.vocabulary = ""
+        state.preferences.automaticRecording = false
+        try state.library.savePreferences(state.preferences)
+        var meeting = Meeting(title: "Встроенные термины", source: "Проверка словаря")
+        meeting.status = .ready
+        meeting.segments = [TranscriptSegment(start: 0, end: 7, speaker: "Участник",
+            text: "🎙 С битуби работали вчера. Обсудили с Б2Б'ом и проверили B2B. «битуби» было в цитате."),
+            TranscriptSegment(start: 8, end: 17, speaker: "Участник",
+                text: "Для пи ар ди сверили API. О документации договорились с представителями компании Apple.")]
+        state.update(meeting)
+        return try state.library.read(meeting.id)
+    }
+
     static func run() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Term-Review-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -108,7 +122,26 @@ enum TermReviewTests {
         let restarted = AppState(rootURL: root)
         try check(restarted.preferences.vocabulary == "Сбер\n2ГИС", "Dictionary base changed after restart")
         try check(restarted.meetings.first { $0.id == original.id }?.segments == original.segments, "Restored transcript changed after restart")
-        print("TERM_REVIEW_TEST_OK grouped_family persisted_replacement preserved_endings stale_rejection no_op undo dictionary_base restart")
+
+        let builtInMeeting = try technologyFixture(state)
+        let builtIn = TranscriptTerms.candidates(in: builtInMeeting.segments, vocabulary: state.preferences.vocabulary)
+        let business = try unwrap(builtIn.first { $0.text == "B2B" }, "Built-in term missing from empty-vocabulary meeting")
+        try check(business.occurrences.map(\.text) == ["битуби", "Б2Б'ом", "B2B"], "Built-in candidate spans were not grouped")
+        try state.replaceTerms(business.occurrences, with: "B2B", meetingID: builtInMeeting.id)
+        try check(try state.library.read(builtInMeeting.id).segments[0].text ==
+            "🎙 С B2B работали вчера. Обсудили с B2B'ом и проверили B2B. «битуби» было в цитате.",
+            "Built-in term replacement changed surrounding text or lost a spoken ending")
+        try state.undoTermReplacement(meetingID: builtInMeeting.id)
+        try check(try state.library.read(builtInMeeting.id).segments == builtInMeeting.segments, "Built-in replacement could not be undone")
+        try check(try state.library.preferences().vocabulary.isEmpty, "Built-in terms changed personal dictionary")
+        try state.addRecognitionTerm("B2B")
+        try check(try state.library.preferences().vocabulary == "B2B", "Explicit manual addition of a built-in term was not saved")
+        print("TERM_REVIEW_TEST_OK grouped_family persisted_replacement preserved_endings stale_rejection no_op undo dictionary_base restart built_in_terms")
+    }
+
+    private static func unwrap<T>(_ value: T?, _ message: String) throws -> T {
+        guard let value else { throw PisaError.message(message) }
+        return value
     }
 
     static func preview(dictionary: Bool = false) throws {
@@ -117,7 +150,8 @@ enum TermReviewTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Term-Review-Preview-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let state = AppState(rootURL: root)
-        let meeting = try fixture(state)
+        let meeting = try !dictionary && CommandLine.arguments.contains("--technology-terms-preview")
+            ? technologyFixture(state) : fixture(state)
         let large = CommandLine.arguments.contains("--large-text") || CommandLine.arguments.contains("--large-text-preview")
         let content: AnyView = dictionary
             ? AnyView(SettingsView(initialSection: "Словарь"))

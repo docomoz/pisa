@@ -1,7 +1,7 @@
 import Foundation
 
-/// Prepared once per user vocabulary. Only explicit dictionary entries are
-/// eligible; pronunciations are derived locally, never saved as extra entries.
+/// Prepared once per user vocabulary. Built-in terms are matched locally and
+/// never saved as extra preference entries.
 struct SpokenVocabulary {
     private struct Entry {
         var term: String
@@ -18,10 +18,12 @@ struct SpokenVocabulary {
     private let explicitTerms: Set<String>
     private let cyrillicInitialisms: [(term: String, latin: String)]
     private let nameInstrumentals: [String]
+    private let technologyVocabulary: TechnologyVocabulary
     private static let standaloneWords: Set<String> = ["в", "во", "с", "со", "к", "и", "а", "у", "о", "на", "из", "от", "я", "ты", "мы", "он", "она", "они", "вы", "да", "но", "не", "же", "ли", "бы", "для", "по", "за"]
 
     init(_ vocabulary: String, pronunciations: String = "") {
         self.vocabulary = vocabulary
+        technologyVocabulary = TechnologyVocabulary(personalVocabulary: vocabulary)
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         self.terms = terms
@@ -92,7 +94,7 @@ struct SpokenVocabulary {
 
     func apply(to text: String) -> String {
         let original = RecognitionVocabulary.apply(to: text, vocabulary: vocabulary)
-        guard !entries.isEmpty else { return original }
+        guard !entries.isEmpty else { return technologyVocabulary.apply(to: original) }
         let ns = original as NSString
         let words = Self.words(original)
         let protected = TranscriptOrthography.literalRanges(in: original)
@@ -119,7 +121,7 @@ struct SpokenVocabulary {
         }
         let output = NSMutableString(string: original)
         for (range, replacement) in replacements.reversed() { output.replaceCharacters(in: range, with: replacement) }
-        return output as String
+        return technologyVocabulary.apply(to: output as String)
     }
 
     func needsNumericEndingCheck(in text: String) -> Bool {
@@ -168,7 +170,21 @@ struct SpokenVocabulary {
             if seen.insert(term.lowercased()).inserted { relevant.append(term) }
             if relevant.count == 8 { break }
         }
+        if relevant.count < 8 {
+            relevant += technologyVocabulary.observedTerms(in: texts, limit: 8 - relevant.count)
+        }
         return relevant.joined(separator: ", ")
+    }
+
+    func contextualVocabulary(in texts: [String]) -> String {
+        let observed = technologyVocabulary.observedTerms(in: texts, limit: 8)
+        guard !observed.isEmpty else { return vocabulary }
+        return ([vocabulary].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } + observed)
+            .joined(separator: ", ")
+    }
+
+    func technologyRereadHint(in text: String) -> (term: String, range: Range<String.Index>)? {
+        technologyVocabulary.rereadHint(in: text)
     }
 
     /// These conservative hints must not authorize a rewrite of an entire turn.
@@ -442,7 +458,7 @@ struct SpokenVocabulary {
     private static func joinable(_ source: String) -> Bool {
         source.allSatisfy { $0.isLetter || $0.isNumber || $0.isWhitespace || "-'’".contains($0) }
     }
-    private static func distance(_ a: String, _ b: String) -> Int {
+    static func distance(_ a: String, _ b: String) -> Int {
         let left = Array(a), right = Array(b)
         var row = Array(0...right.count)
         for (i, character) in left.enumerated() {

@@ -40,6 +40,10 @@ targets:
         buildPhase: resources
       - path: Sources/PisaCore/Resources/PisaCommonForms.deflate
         buildPhase: resources
+      - path: Sources/PisaCore/Resources/PisaTechnologyCompanies.deflate
+        buildPhase: resources
+      - path: Sources/PisaCore/Resources/PisaTechnologyCompanies-LICENSE.txt
+        buildPhase: resources
       - path: Sources/PisaCore/Resources/PisaYoWords-LICENSE.txt
         buildPhase: resources
       - path: Resources/silero_vad.onnx

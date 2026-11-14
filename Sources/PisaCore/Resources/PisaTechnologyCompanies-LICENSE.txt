@@ -1,0 +1,11 @@
+Company labels and identifiers: Wikidata structured data
+License: Creative Commons CC0 1.0 Universal (CC0-1.0)
+https://www.wikidata.org/wiki/Wikidata:Licensing
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Source queries and refresh procedure:
+scripts/update-technology-companies.py
+docs/technology-vocabulary.md
+
+This directory is a dated selection, not an exhaustive or authoritative
+register of active companies. Labels can include historic organizations.

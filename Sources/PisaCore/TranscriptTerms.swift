@@ -54,6 +54,7 @@ public enum TranscriptTerms {
             .filter { !$0.isEmpty }
         let known = Set(terms.flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }.map(key))
         let families = AbbreviationFamilies(vocabulary)
+        let technology = TechnologyVocabulary(personalVocabulary: vocabulary)
         let speakers = speakerNameForms(in: segments)
         let tagger = NLTagger(tagSchemes: [.nameType])
         struct Group {
@@ -62,10 +63,17 @@ public enum TranscriptTerms {
             var occurrences: [TermOccurrence] = []
         }
         var groups: [String: Group] = [:]
+        var technologyGroups: [String: Group] = [:]
 
         for segment in segments {
             let text = segment.text
-            let literals = TranscriptOrthography.literalRanges(in: text)
+            let builtIn = technology.matches(in: text).filter { !speakers.contains(entityKey($0.term)) }
+            for match in builtIn {
+                let normalized = key(match.term)
+                technologyGroups[normalized, default: Group(text: match.term, score: 4)]
+                    .occurrences.append(technologyOccurrence(match, in: segment))
+            }
+            let literals = TranscriptOrthography.literalRanges(in: text) + builtIn.map(\.range)
             var taggedNames: [NSRange]?
             for match in word.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
                 guard let range = Range(match.range, in: text),
@@ -99,7 +107,7 @@ public enum TranscriptTerms {
             }
         }
 
-        return groups
+        return groups.merging(technologyGroups) { _, validated in validated }
             .filter { $0.value.score >= 3 || ($0.value.score > 0 && $0.value.occurrences.count >= 2) }
             .sorted { lhs, rhs in
                 if lhs.value.score != rhs.value.score { return lhs.value.score > rhs.value.score }
@@ -114,6 +122,17 @@ public enum TranscriptTerms {
 
     public static func matches(_ term: String, in segments: [TranscriptSegment], vocabulary: String = "") -> [TermOccurrence] {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard TechnologyVocabulary.isCanonical(trimmed),
+              !VocabularyDictionary.entries(in: vocabulary).contains(where: { key($0.text) == key(trimmed) }) else {
+            return literalMatches(trimmed, in: segments, vocabulary: vocabulary)
+        }
+        let technology = TechnologyVocabulary(personalVocabulary: vocabulary)
+        return segments.flatMap { segment in
+            technology.matches(in: segment.text).filter { $0.term == trimmed }.map { technologyOccurrence($0, in: segment) }
+        }
+    }
+
+    private static func literalMatches(_ trimmed: String, in segments: [TranscriptSegment], vocabulary: String) -> [TermOccurrence] {
         let families = AbbreviationFamilies(vocabulary)
         let knownQuery = families.known(trimmed)
         let base = knownQuery.flatMap { $0.ending.isEmpty ? $0.base : nil } ?? trimmed
@@ -137,7 +156,7 @@ public enum TranscriptTerms {
                 }
             }
         }
-        let words = term.split(whereSeparator: \.isWhitespace)
+        let words = trimmed.split(whereSeparator: \.isWhitespace)
         guard !words.isEmpty else { return [] }
         let body = words.map { word in
             word.replacingOccurrences(of: "’", with: "'")
@@ -293,6 +312,11 @@ public enum TranscriptTerms {
     private static func occurrence(_ range: NSRange, in segment: TranscriptSegment, text: String,
                                    family: AbbreviationFamilies.Form? = nil) -> TermOccurrence {
         TermOccurrence(segmentID: segment.id, range: range, text: text, family: family, source: segment.text)
+    }
+
+    private static func technologyOccurrence(_ match: TechnologyVocabulary.Match, in segment: TranscriptSegment) -> TermOccurrence {
+        let family = AbbreviationFamilies.isBase(match.term) ? AbbreviationFamilies.Form(base: match.term, ending: match.ending) : nil
+        return occurrence(match.range, in: segment, text: (segment.text as NSString).substring(with: match.range), family: family)
     }
 
     private static func signal(for token: String, normalized: String, preceding: Substring) -> Int {

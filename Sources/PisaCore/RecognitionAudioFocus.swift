@@ -34,17 +34,58 @@ enum RecognitionAudioFocus {
         }
         var result: [Range<Double>] = []
         for target in targetRanges {
+            if result.count == 3 { break }
             let selected = matches.indices.filter { NSIntersectionRange(matches[$0].range, target).length > 0 }
             guard let first = selected.first, let last = selected.last,
-                  selected.count <= 3, first >= 2, last + 2 < source.count,
+                  selected.count <= 3,
                   NSUnionRange(matches[first].range, matches[last].range) == target else { continue }
-            let left2 = Array(sourceKeys[(first - 2)..<first])
-            let right2 = Array(sourceKeys[(last + 1)...(last + 2)])
-            let left3 = first >= 3 ? Array(sourceKeys[(first - 3)..<first]) : []
-            let right3 = last + 3 < source.count ? Array(sourceKeys[(last + 1)...(last + 3)]) : []
-            guard let left = anchor(left3, fallback: left2), let right = anchor(right3, fallback: right2) else { continue }
+            // At a region edge, use its real audio boundary and three unique
+            // words on the other side. Requiring two anchors on both sides
+            // silently excluded the first and last words from every reread.
+            // This only chooses audio; callers still require independent
+            // agreement before changing any transcript text.
+            if first < 2, last + 3 < source.count {
+                let right = Array(sourceKeys[(last + 1)...(last + 3)])
+                let found = occurrences(right)
+                if found.count == 1, let index = found.first,
+                   (first...(first + 4)).contains(index),
+                   audioKeys.prefix(first).elementsEqual(sourceKeys.prefix(first)) {
+                    let end = min(duration, words[index + 2].end + 0.5)
+                    if (1...12).contains(end), !result.contains(0..<end) { result.append(0..<end) }
+                }
+                continue
+            }
+            let trailing = source.count - last - 1
+            if trailing < 2, first >= 3 {
+                let left = Array(sourceKeys[(first - 3)..<first])
+                let found = occurrences(left)
+                if found.count == 1, let index = found.first,
+                   (trailing...(trailing + 4)).contains(words.count - index - 3),
+                   audioKeys.suffix(trailing).elementsEqual(sourceKeys.suffix(trailing)) {
+                    let start = max(0, words[index].start - 0.5)
+                    if (1...12).contains(duration - start), !result.contains(start..<duration) { result.append(start..<duration) }
+                }
+                continue
+            }
+            guard first >= 2, last + 2 < source.count else { continue }
+            // Adjacent words can share the same recognition error (a fused
+            // name/preposition, for example). Search a bounded distance for
+            // real, unique acoustic anchors instead of guessing timestamps.
+            let left = (0...4).lazy.compactMap { gap -> (Int, Int)? in
+                let end = first - gap
+                guard end >= 2 else { return nil }
+                return anchor(end >= 3 ? Array(sourceKeys[(end - 3)..<end]) : [],
+                              fallback: Array(sourceKeys[(end - 2)..<end]))
+            }.first
+            let right = (0...4).lazy.compactMap { gap -> (Int, Int)? in
+                let start = last + 1 + gap
+                guard start + 1 < source.count else { return nil }
+                return anchor(start + 2 < source.count ? Array(sourceKeys[start...(start + 2)]) : [],
+                              fallback: Array(sourceKeys[start...(start + 1)]))
+            }.first
+            guard let left, let right else { continue }
             let gap = right.0 - (left.0 + left.1)
-            guard (0...4).contains(gap) else { continue }
+            guard (0...10).contains(gap) else { continue }
             let start = max(0, words[left.0].start - 0.5)
             let end = min(duration, words[right.0 + right.1 - 1].end + 0.5)
             guard end - start >= 1, end - start <= 12 else { continue }
