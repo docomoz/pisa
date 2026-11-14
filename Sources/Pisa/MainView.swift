@@ -306,7 +306,7 @@ struct MeetingView: View {
             ) { state.deleteAudio(meeting) }
         }
         .sheet(item: $editing) { segment in
-            SegmentEditor(segment: segment) { text in
+            SegmentEditor(segment: segment, meeting: meeting) { text in
                 if text != segment.displayText {
                     state.editSegmentText(text, from: segment, meetingID: meeting.id)
                 }
@@ -746,9 +746,13 @@ private struct SegmentEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text: String
     private let speaker: String
+    private let segment: TranscriptSegment
+    private let meeting: Meeting
     private let save: (String) -> Void
 
-    init(segment: TranscriptSegment, save: @escaping (String) -> Void) {
+    init(segment: TranscriptSegment, meeting: Meeting, save: @escaping (String) -> Void) {
+        self.segment = segment
+        self.meeting = meeting
         speaker = segment.speaker
         _text = State(initialValue: segment.displayText)
         self.save = save
@@ -759,6 +763,7 @@ private struct SegmentEditor: View {
             SectionHeading("Исправить реплику", style: .dialog)
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                 screenText(speaker).textStyle(PisaDesign.Typography.detailStrong)
+                SegmentAudioPlayer(segment: segment, meeting: meeting)
                 FormTextEditor(text: $text).accessibilityLabel("Текст реплики")
             }
             HStack(spacing: PisaDesign.Spacing.related) {

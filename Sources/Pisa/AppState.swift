@@ -87,6 +87,7 @@ final class AppState: ObservableObject {
     private var playbackEnd: Double = 0
     private var playbackTimer: Timer?
     private var audioExports: Set<UUID> = []
+    var segmentAudioPreviews: Set<UUID> = []
     private var audioArchiveTask: Task<Void, Never>?
     private var audioArchiveRetryAfter: [UUID: Date] = [:]
     private static let audioArchiveLog = Logger(subsystem: "com.docomoz.pisa", category: "audio-archive")
@@ -970,7 +971,7 @@ final class AppState: ObservableObject {
     }
 
     private func audioArchiveIsInUse(_ meeting: Meeting) -> Bool {
-        audioExports.contains(meeting.id) || voiceAssignmentRequests[meeting.id] != nil ||
+        audioExports.contains(meeting.id) || segmentAudioPreviews.contains(meeting.id) || voiceAssignmentRequests[meeting.id] != nil ||
             (selection == meeting.id && savedAudioPlayer.timeControlStatus != .paused) ||
             meeting.segments.contains { $0.id == playingSegmentID }
     }
