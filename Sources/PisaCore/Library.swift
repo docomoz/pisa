@@ -108,6 +108,17 @@ struct AudioCleanupPlan: Identifiable {
 }
 
 extension MeetingLibrary {
+    func audioSize(for meeting: Meeting) -> Int64? {
+        var total: Int64 = 0
+        for name in Set(meeting.audioFiles) {
+            guard let url = try? audioURL(name),
+                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize else { return nil }
+            total += Int64(size)
+        }
+        return total
+    }
+
     func storageUsage() throws -> LibraryStorageUsage {
         let manager = FileManager.default
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .totalFileAllocatedSizeKey,
@@ -388,4 +399,13 @@ public enum MarkdownExporter {
         result = result.trimmingCharacters(in: trim)
         return result.isEmpty ? "Встреча" : result
     }
+}
+
+func meetingAudioSizeLabel(_ bytes: Int64) -> String {
+    let gigabytes = bytes >= 1_000_000_000
+    let amount = Double(bytes) / (gigabytes ? 1_000_000_000 : 1_000_000)
+    let digits = gigabytes || amount < 1 ? 1 : 0
+    let value = max(bytes > 0 ? 0.1 : 0, amount)
+        .formatted(.number.precision(.fractionLength(0...digits)).locale(Locale(identifier: "ru_RU")))
+    return "\(value)\u{00a0}\(gigabytes ? "ГБ" : "МБ")"
 }

@@ -667,7 +667,8 @@ struct MeetingView: View {
             ? [actions.rename.nativeItem, .separator(), actions.transcribe.nativeItem, .separator(), actions.trash.nativeItem]
             : [actions.restore.nativeItem, actions.deletePermanently.nativeItem]
         if meeting.deletedAt == nil && !meeting.audioFiles.isEmpty {
-            items.append(NativeActionMenuItem("Удалить аудио") {
+            let size = state.library.audioSize(for: meeting).map { " (\(meetingAudioSizeLabel($0)))" } ?? ""
+            items.append(NativeActionMenuItem("Удалить аудио\(size)") {
                 showsMeetingDetails = false
                 confirmDeleteAudio = true
             })
