@@ -88,11 +88,20 @@ enum RecognitionConsensus {
               heard.filter(isRussian).count * 2 > heard.count,
               canChange(first, range: old, protected: protectedWords(in: first, vocabulary: vocabulary)),
               heard[new].allSatisfy({ isReplaceable($0) && !affirmations.contains($0) }),
-              !first[old].contains(where: isNumberWord), !heard[new].contains(where: isNumberWord),
-              !zip(first[old], heard[new]).contains(where: { before, after in
-                  ["не", "ни", "без"].contains { before == $0 + after || after == $0 + before }
-              }),
-              soundsCompatible(Array(first[old]), Array(heard[new])) else { return nil }
+              !first[old].contains(where: isNumberWord), !heard[new].contains(where: isNumberWord) else { return nil }
+        let previousWords: [String] = Array(first[old])
+        let proposedWords: [String] = Array(heard[new])
+        let negativePrefixes: [String] = ["не", "ни", "без"]
+        for pair in zip(previousWords, proposedWords) {
+            let before: String = pair.0
+            let after: String = pair.1
+            for prefix in negativePrefixes {
+                let prefixedBefore: String = prefix + before
+                let prefixedAfter: String = prefix + after
+                if before == prefixedAfter || after == prefixedBefore { return nil }
+            }
+        }
+        guard soundsCompatible(previousWords, proposedWords) else { return nil }
         let oldRange = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
         let newRange = evidence[new.lowerBound].range.lowerBound..<evidence[new.upperBound - 1].range.upperBound
         guard !intersectsLiteral(oldRange, in: original), !intersectsLiteral(newRange, in: corroboration) else { return nil }

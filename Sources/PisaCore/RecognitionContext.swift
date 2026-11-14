@@ -512,11 +512,25 @@ struct RecognitionContext {
         guard replacement == term else { return nil }
         let spelling = evidence[heard.lowerBound].text
         guard !terms(in: vocabulary).contains(where: { $0 != term && isTermForm(spelling, of: $0) }) else { return nil }
-        let letters = Array(spelling), expected = Array(term)
+        let letters: [Character] = Array(spelling)
+        let expected: [Character] = Array(term)
         let same = RecognitionVocabulary.contains(term, in: spelling)
-        let digitSound = letters.count == expected.count && spelling == spelling.uppercased()
-            && zip(letters, expected).filter({ $0 != $1 }).count == 1
-            && zip(letters, expected).allSatisfy({ $0 == $1 || ($0 == "T" && $1 == "2") })
+        var compatibleLetters: Bool = letters.count == expected.count && spelling == spelling.uppercased()
+        var differences: Int = 0
+        if compatibleLetters {
+            for index in letters.indices {
+                let observedLetter: Character = letters[index]
+                let expectedLetter: Character = expected[index]
+                if observedLetter != expectedLetter {
+                    differences += 1
+                    if observedLetter != "T" || expectedLetter != "2" {
+                        compatibleLetters = false
+                        break
+                    }
+                }
+            }
+        }
+        let digitSound: Bool = compatibleLetters && differences == 1
         guard same || digitSound else { return nil }
         var result = original
         result.replaceSubrange(sourceRange, with: replacement)
