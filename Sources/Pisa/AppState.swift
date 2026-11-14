@@ -17,6 +17,7 @@ final class AppState: ObservableObject {
     @Published var newFolderMeeting: Meeting?
     @Published var voiceMeeting: Meeting?
     @Published var reprocessTarget: Meeting?
+    @Published var permanentDeleteTarget: Meeting?
     private var termReplacementUndo: [UUID: (before: [UUID: String], after: [UUID: String])] = [:]
     private let searchIndex = LibrarySearchIndex()
     private var searchGeneration = 0
@@ -257,6 +258,18 @@ final class AppState: ObservableObject {
     }
     var canEmptyTrash: Bool {
         !demo && meetings.contains { $0.deletedAt != nil } && meetings.filter { $0.deletedAt != nil }.allSatisfy { canModify($0) }
+    }
+    func deletePermanently(_ meeting: Meeting) {
+        guard let latest = meetings.first(where: { $0.id == meeting.id }),
+              latest.deletedAt != nil, canModify(latest) else { return }
+        stopPlayback()
+        do {
+            try library.purgeTrashed(latest.id)
+            termReplacementUndo[latest.id] = nil
+            meetings.removeAll { $0.id == latest.id }
+            searchIndex[latest.id] = nil
+            if selection == latest.id { select(filtered.first?.id) }
+        } catch { message = error.localizedDescription }
     }
     func emptyTrash() {
         guard canEmptyTrash else { return }
