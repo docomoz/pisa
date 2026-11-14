@@ -137,7 +137,7 @@ struct SavedAudioPlayer: View {
         .screenHelp(label)
     }
 
-    private static func drawWaveform(_ context: GraphicsContext, size: CGSize, peaks: [Float], fraction: Double) {
+    static func drawWaveform(_ context: GraphicsContext, size: CGSize, peaks: [Float], fraction: Double) {
         guard size.width > 0 else { return }
         let center = size.height / 2
         let cursor = min(size.width - 1, max(1, size.width * fraction))

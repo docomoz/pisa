@@ -29,6 +29,7 @@
 		1E9D0A42770530C80FB7144C /* TranscriptionPerformance.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB763672C0F4D3588895F796 /* TranscriptionPerformance.swift */; };
 		1F25AB284DDA1AEC20C6DD95 /* EchoReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38C1A8E594A73300F1080C5 /* EchoReference.swift */; };
 		2136909BE7A95CFEEE101B92 /* AudioPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2EC6CCDB888FABD0FA5E88 /* AudioPreview.swift */; };
+		224EDA62EA1256A020F88B14 /* SegmentAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF3BEDD8CDBA151455DDDE26 /* SegmentAudioPlayer.swift */; };
 		247485382CBC1E91351E29DB /* HorizontalWheelScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = E362F69823EB290411A34C68 /* HorizontalWheelScroll.swift */; };
 		26257421E87E68B6C1788144 /* RecognitionVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 786046F58651B62B0F30E5BD /* RecognitionVocabulary.swift */; };
 		273F23E998353FA404DE5B54 /* MCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143DE9CCB6B59663695D3993 /* MCP.swift */; };
@@ -70,6 +71,7 @@
 		693EB07FE0A717E87BC546B9 /* ModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C15CB351413AB8A913001F5 /* ModelSetup.swift */; };
 		695855DF5703964015B93E5E /* PisaPlain.icns in Resources */ = {isa = PBXBuildFile; fileRef = 4F84B0E9A784477656CB5A6A /* PisaPlain.icns */; };
 		6B4501074D7C327C907A4E03 /* cmudict.dict in Resources */ = {isa = PBXBuildFile; fileRef = 1135B75B7FCF1E01E612D873 /* cmudict.dict */; };
+		6B6E6644F17ABE4203BBF1FE /* SegmentAudioRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17C7F1A4A8D18B933CA84C0 /* SegmentAudioRange.swift */; };
 		6C3D4A93A8C36151588DF87B /* SavedAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65ADF6186BEFA77C171DFEAE /* SavedAudioPlayer.swift */; };
 		6DCB5F72DD655859615917CB /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C32370FFB07D91BF7F9E0D08 /* CaptureWindow.swift */; };
 		6FC2B91F93F2BA005D56288F /* ScreenTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C356774CFAF6F48F19F436D /* ScreenTypography.swift */; };
@@ -109,6 +111,7 @@
 		942CCFFAAEB9BE3C30C42A2C /* RecognitionTimedWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17B3A2E5D6CB7484B235B837 /* RecognitionTimedWords.swift */; };
 		9529D5BB0A3EAA5B9D0CA744 /* RussianRecognition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11076B2E54B2005BDFD63793 /* RussianRecognition.swift */; };
 		96EFD859521E8478CB64D222 /* RecognitionTimedWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17B3A2E5D6CB7484B235B837 /* RecognitionTimedWords.swift */; };
+		99A0EC605E0D122F03EDE747 /* SegmentAudioRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17C7F1A4A8D18B933CA84C0 /* SegmentAudioRange.swift */; };
 		9AD593CAF8395C0A23D9D32D /* SpeechCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D88E5581A59E47F6AD8E2A /* SpeechCoverage.swift */; };
 		9B1A1805CBD5FF0A6848D3E8 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A5D2C49053F8B24C85FC899 /* Library.swift */; };
 		9D44977CF3D9293332EE2269 /* TranscriptOrthography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F2320FEC329CB186F897CC /* TranscriptOrthography.swift */; };
@@ -299,6 +302,7 @@
 		CDD9718759457A97C6A09438 /* ModelSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSetupTests.swift; sourceTree = "<group>"; };
 		CF55BF197E16B69F41FAC495 /* Pisa.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pisa.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF7EC9BC88334474E23D9EE2 /* MeetingAudioExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingAudioExport.swift; sourceTree = "<group>"; };
+		D17C7F1A4A8D18B933CA84C0 /* SegmentAudioRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentAudioRange.swift; sourceTree = "<group>"; };
 		D1B4AF05F54CE86A74607D1F /* InterfacePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfacePreview.swift; sourceTree = "<group>"; };
 		D51B6C940C98537F8DD98594 /* SpeechDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDetector.swift; sourceTree = "<group>"; };
 		D5A1C20763968A48B9EF8C89 /* VoiceProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProfileTests.swift; sourceTree = "<group>"; };
@@ -312,6 +316,7 @@
 		E98B392D76D70282F794112C /* TermReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermReview.swift; sourceTree = "<group>"; };
 		E9EC25E600FF1EF0F5F28529 /* Launcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Launcher.swift; sourceTree = "<group>"; };
 		EE2EC6CCDB888FABD0FA5E88 /* AudioPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPreview.swift; sourceTree = "<group>"; };
+		EF3BEDD8CDBA151455DDDE26 /* SegmentAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentAudioPlayer.swift; sourceTree = "<group>"; };
 		F030621FC30FB917D6F662A0 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
 		F3531AF4D3773F1FCEAACBF7 /* SpokenVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenVocabulary.swift; sourceTree = "<group>"; };
 		F5F6C98F227D1F37D18F11DD /* Silero-LICENSE */ = {isa = PBXFileReference; path = "Silero-LICENSE"; sourceTree = "<group>"; };
@@ -447,6 +452,7 @@
 				24B8FD99503B461BBF41C66E /* SavedVoiceAudio.swift */,
 				0D627A579172463AA325042E /* SavedVoicesSettings.swift */,
 				2C356774CFAF6F48F19F436D /* ScreenTypography.swift */,
+				EF3BEDD8CDBA151455DDDE26 /* SegmentAudioPlayer.swift */,
 				A1AAEAA51A57FFF68DF378F9 /* SettingsSectionPicker.swift */,
 				627AE7B2515D927A148C3718 /* SettingsView.swift */,
 				8D914A6B3157FBA63372BE23 /* SlimScrollbars.swift */,
@@ -493,6 +499,7 @@
 				17B3A2E5D6CB7484B235B837 /* RecognitionTimedWords.swift */,
 				786046F58651B62B0F30E5BD /* RecognitionVocabulary.swift */,
 				11076B2E54B2005BDFD63793 /* RussianRecognition.swift */,
+				D17C7F1A4A8D18B933CA84C0 /* SegmentAudioRange.swift */,
 				6F857C18E71DDC6C4FF38955 /* SpeakerClustering.swift */,
 				9756103EBE979F632A21B531 /* SpeakerEmbeddingInput.swift */,
 				E766938E4181D500740B5173 /* SpeechChunking.swift */,
@@ -707,6 +714,7 @@
 				942CCFFAAEB9BE3C30C42A2C /* RecognitionTimedWords.swift in Sources */,
 				D49FE42B91C6D025EEB3CAB6 /* RecognitionVocabulary.swift in Sources */,
 				9529D5BB0A3EAA5B9D0CA744 /* RussianRecognition.swift in Sources */,
+				99A0EC605E0D122F03EDE747 /* SegmentAudioRange.swift in Sources */,
 				160D158657D5ACD7AB2C1938 /* SpeakerClustering.swift in Sources */,
 				0D2E6F9A3C8B9A99746E71FC /* SpeakerEmbeddingInput.swift in Sources */,
 				BC0CA1D56B6E526ADA973BE1 /* SpeechChunking.swift in Sources */,
@@ -804,6 +812,8 @@
 				E925ED8407307684FDC5EA20 /* SavedVoiceAudio.swift in Sources */,
 				7CB43C9D90FAD68EB1AB40ED /* SavedVoicesSettings.swift in Sources */,
 				6FC2B91F93F2BA005D56288F /* ScreenTypography.swift in Sources */,
+				224EDA62EA1256A020F88B14 /* SegmentAudioPlayer.swift in Sources */,
+				6B6E6644F17ABE4203BBF1FE /* SegmentAudioRange.swift in Sources */,
 				CBCACA8DC3C3993E65EFB2E8 /* SettingsSectionPicker.swift in Sources */,
 				839E7C5C10D4E31450CCE3B6 /* SettingsView.swift in Sources */,
 				CB209FEF981B123B3DD0BB0B /* SlimScrollbars.swift in Sources */,
