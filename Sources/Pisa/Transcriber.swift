@@ -87,11 +87,11 @@ actor Transcriber {
         if let limit = previousLiveCacheLimit { Memory.cacheLimit = limit; previousLiveCacheLimit = nil }
     }
 
-    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, retainProcessedMicrophone: Bool = true, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
         try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
             profiles: profiles, performance: performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal), live: live,
             russianVerification: russianVerification, contextualVerification: contextualVerification, preceding: preceding,
-            collectDiagnostics: collectDiagnostics, progress: progress).segments
+            collectDiagnostics: collectDiagnostics, retainProcessedMicrophone: retainProcessedMicrophone, progress: progress).segments
     }
 
     func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
@@ -105,7 +105,7 @@ actor Transcriber {
                                  profiles: [VoiceProfile]? = nil, performance: TranscriptionPerformance, live: Bool,
                                  russianVerification: Bool = true, contextualVerification: Bool = true,
                                  preceding: [TranscriptSegment], collectDiagnostics: Bool = false,
-                                 boundaryCheck: WindowBoundaryCheck? = nil,
+                                 boundaryCheck: WindowBoundaryCheck? = nil, retainProcessedMicrophone: Bool = false,
                                  progress: @escaping @Sendable (Double, String) async -> Void) async throws -> WindowPass {
         contextDiagnostics = []
         guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path), FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("model.safetensors").path) else { throw PisaError.message("Выберите папку модели Qwen3-ASR с config.json и model.safetensors") }
@@ -115,16 +115,29 @@ actor Transcriber {
         defer { if !live { Memory.clearCache(); Memory.cacheLimit = previousCacheLimit } }
         prepareVocabulary(context)
         var generated: URL?
+        var originalMicrophone: String?
+        var scratch: URL?
         var keepGenerated = false
-        defer { if !keepGenerated, let generated { try? FileManager.default.removeItem(at: generated) } }
+        defer {
+            if let scratch { try? FileManager.default.removeItem(at: scratch) }
+            else if !keepGenerated, let generated { try? FileManager.default.removeItem(at: generated) }
+        }
         var preparedFiles = files.filter { !$0.0.lastPathComponent.contains(".clean.") }
         if let mic = preparedFiles.first(where: { $0.0.lastPathComponent.contains("-mic.") }),
            let remote = preparedFiles.first(where: { $0.0.lastPathComponent.contains("-remote.") }) {
             await progress(0, "Подготавливаю подавление эха")
-            let clean = try await AcousticEcho.clean(microphone: mic.0, offset: mic.1, reference: remote.0, referenceOffset: remote.1) { fraction, phase in
+            if !retainProcessedMicrophone {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pisa-transcription-" + UUID().uuidString)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                        attributes: [.posixPermissions: 0o700])
+                scratch = directory
+            }
+            let clean = try await AcousticEcho.clean(microphone: mic.0, offset: mic.1, reference: remote.0,
+                                                     referenceOffset: remote.1, outputDirectory: scratch) { fraction, phase in
                 await progress(fraction * 0.12, phase)
             }
             generated = clean
+            originalMicrophone = mic.0.lastPathComponent
             preparedFiles = preparedFiles.map { $0.0 == mic.0 ? (clean, mic.1) : $0 }
         }
         await progress(0.12, "Загружаю модель в память")
@@ -330,6 +343,9 @@ actor Transcriber {
             preceding: live ? recentLanguageSegments : [], vocabulary: context).map { segment in
                 var revised = segment
                 revised.text = TranscriptOrthography.normalize(segment.text, vocabulary: context)
+                if !retainProcessedMicrophone, let generated, revised.audioFile == generated.lastPathComponent {
+                    revised.audioFile = originalMicrophone
+                }
                 return revised
             }
         if live, let end = localized.map(\.end).max() {

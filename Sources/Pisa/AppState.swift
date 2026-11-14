@@ -79,6 +79,9 @@ final class AppState: ObservableObject {
     private var playbackEnd: Double = 0
     private var playbackTimer: Timer?
     private var audioExports: Set<UUID> = []
+    private var audioArchiveTask: Task<Void, Never>?
+    private var audioArchiveRetryAfter: [UUID: Date] = [:]
+    private static let audioArchiveLog = Logger(subsystem: "com.docomoz.pisa", category: "audio-archive")
     private let capture = AudioCapture()
     let recordingMonitor = RecordingMonitor()
     private var meterTask: Task<Void, Never>?
@@ -365,6 +368,7 @@ final class AppState: ObservableObject {
         modelSetupObservation = modelSetup.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         capture.onFailure = { [weak self] error in Task { @MainActor in self?.message = error; if self?.recording == true { await self?.stopRecording() } } }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in Task { @MainActor in self?.pollCall() } }
+        runAudioArchive()
     }
     func hasAudio(_ meeting: Meeting) -> Bool {
         meeting.audioFiles.contains { name in
@@ -410,6 +414,7 @@ final class AppState: ObservableObject {
     private func pollCall() {
         if let player, player.isPlaying, player.currentTime >= playbackEnd { player.stop(); playingSegmentID = nil }
         if let player, !player.isPlaying { playingSegmentID = nil }
+        runAudioArchive()
         guard preferences.automaticRecording, !demo, !modelSetup.presented, !modelSetup.busy else { return }
         Task {
             let active = await Task.detached(priority: .utility) { CallAudioProbe.isActive() }.value
@@ -436,6 +441,7 @@ final class AppState: ObservableObject {
         var m = Meeting(title: "", source: selectedSource)
         m.title = m.defaultTitle; m.automaticTitle = m.title
         // Journal expected paths before capture, so interrupted sessions remain discoverable.
+        m.audioArchive = .waitingForTranscription
         m.audioFiles = ["\(m.id.uuidString)-mic.caf", "\(m.id.uuidString)-remote.caf"]
         do {
             try await capture.prepare()
@@ -603,7 +609,7 @@ final class AppState: ObservableObject {
                             }
                             meeting.segments = SpeakerClustering.assign(meeting.segments.sorted { $0.start < $1.start }, profiles: voiceProfiles)
                             meeting.duration = max(meeting.duration, available)
-                            meeting.status = .ready; meeting.error = nil; meeting.liveCommittedUntil = nil
+                            meeting.finishTranscription()
                         }
                         setTurboEnabled(false)
                         Analytics.transcriptionCompleted(mode: mode, reprocess: reprocess, duration: latest.duration)
@@ -688,6 +694,7 @@ final class AppState: ObservableObject {
         await transcriber.finishLive()
         if granted { model.stopAccessingSecurityScopedResource() }
         liveTask = nil; liveStatus = ""; liveAudioDuration = nil; processingID = nil; phase = ""; runNext()
+        runAudioArchive()
     }
 
     private func withLiveMeetingAccess<Value>(_ access: () throws -> Value) async throws -> Value {
@@ -798,11 +805,15 @@ final class AppState: ObservableObject {
                 if granted { model.stopAccessingSecurityScopedResource() }
                 isReprocessing = false
                 processingID = nil; processingTask = nil; phase = ""; runNext()
+                runAudioArchive()
             }
             do {
-                let files = try m.audioFiles.map { (try library.audioURL($0), m.audioOffsets[$0] ?? 0) }.filter { FileManager.default.fileExists(atPath: $0.0.path) }
+                let files = try m.audioFiles.filter { !$0.contains(".clean.") }.map { (try library.audioURL($0), m.audioOffsets[$0] ?? 0) }
+                    .filter { FileManager.default.fileExists(atPath: $0.0.path) }
                 guard !files.isEmpty else { throw PisaError.message("Аудио этой встречи недоступно") }
-                let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance) { [self] fraction, description in
+                let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary,
+                    speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance,
+                    retainProcessedMicrophone: m.audioArchive == nil) { [self] fraction, description in
                     await self.updateProcessingProgress(fraction, description)
                 }
                 let generated = try Set(result.compactMap(\.audioFile)).filter { $0.contains(".clean.") && !m.audioFiles.contains($0) }.map { try library.audioURL($0) }
@@ -817,8 +828,7 @@ final class AppState: ObservableObject {
                 })
                 // Use the current profiles even if a name changed during recognition.
                 latest.segments = SpeakerClustering.assign(result, profiles: voiceProfiles)
-                latest.status = .ready; latest.error = nil
-                latest.liveCommittedUntil = nil
+                latest.finishTranscription()
                 let referenced = Set(result.compactMap(\.audioFile))
                 let obsolete = latest.audioFiles.filter { $0.contains(".clean.") && !referenced.contains($0) }
                 latest.audioFiles.removeAll { obsolete.contains($0) }
@@ -851,6 +861,63 @@ final class AppState: ObservableObject {
             }
         }
     }
+    private func runAudioArchive() {
+        guard audioArchiveTask == nil, !demo, !recording, !starting, processingID == nil else { return }
+        let now = Date()
+        guard let meeting = meetings.last(where: {
+            $0.audioArchive == .pending && $0.status == .ready && $0.deletedAt == nil &&
+            (audioArchiveRetryAfter[$0.id] ?? .distantPast) <= now
+        }) else { return }
+        let library = self.library
+        audioArchiveTask = Task { @MainActor [weak self] in
+            defer {
+                self?.audioArchiveTask = nil
+                self?.runAudioArchive()
+            }
+            do {
+                let worker = Task.detached(priority: .background) {
+                    try await MeetingAudioArchive.prepare(meeting, in: library)
+                }
+                let replacements = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                defer { for replacement in replacements { replacement.discard() } }
+                while let self {
+                    try Task.checkCancellation()
+                    let id = meeting.id
+                    guard let current = self.meetings.first(where: { $0.id == id }), current.deletedAt == nil,
+                          current.audioArchive == .pending, current.audioFiles == meeting.audioFiles,
+                          current.audioOffsets == meeting.audioOffsets, current.status == .ready else { return }
+                    if !replacements.isEmpty && self.audioArchiveIsInUse(current) {
+                        try await Task.sleep(for: .seconds(2))
+                        continue
+                    }
+                    var latest = try library.read(id)
+                    try MeetingAudioArchive.install(replacements, for: meeting, in: library)
+                    latest.audioArchive = .complete
+                    try library.save(latest)
+                    self.audioArchiveRetryAfter[id] = nil
+                    self.upsert(latest)
+                    return
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.audioArchiveRetryAfter[meeting.id] = Date().addingTimeInterval(60)
+                let failure = error as NSError
+                Self.audioArchiveLog.error("Audio archive deferred: \(failure.domain, privacy: .public) \(failure.code, privacy: .public)")
+            }
+        }
+    }
+
+    private func audioArchiveIsInUse(_ meeting: Meeting) -> Bool {
+        audioExports.contains(meeting.id) || voiceAssignmentRequests[meeting.id] != nil ||
+            (selection == meeting.id && savedAudioPlayer.timeControlStatus != .paused) ||
+            meeting.segments.contains { $0.id == playingSegmentID }
+    }
+
     private func updateProcessingProgress(_ fraction: Double, _ description: String) {
         progress = fraction; phase = description
     }
@@ -1127,6 +1194,7 @@ final class AppState: ObservableObject {
     private func preservingAudioFiles(in value: Meeting) -> Meeting {
         var meeting = value
         if let previous = meetings.first(where: { $0.id == meeting.id }) {
+            meeting.audioArchive = previous.audioArchive
             let originals = Dictionary(uniqueKeysWithValues: previous.segments.map { ($0.id, $0) })
             for i in meeting.segments.indices where meeting.segments[i].audioFile == nil {
                 let original = originals[meeting.segments[i].id] ?? meeting.segments[i]

@@ -34,6 +34,8 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
 }
 public enum MeetingStatus: String, Codable, Sendable { case recorded, processing, ready, failed }
 public enum MeetingTitleOrigin: String, Codable, Sendable { case generated, custom }
+enum MeetingAudioArchiveState: String, Codable, Sendable { case waitingForTranscription, pending, complete }
+
 public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public enum InterruptedTranscriptionProgress: Equatable, Sendable {
         case savedAudio(Double)
@@ -51,6 +53,16 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public var liveCommittedUntil: Double?
     /// Last reported pipeline progress for an interrupted batch attempt.
     public var interruptedBatchProgress: Double?
+    // Only recordings created by versions with AAC archiving have this field.
+    var audioArchive: MeetingAudioArchiveState?
+
+    mutating func finishTranscription() {
+        status = .ready
+        error = nil
+        liveCommittedUntil = nil
+        interruptedBatchProgress = nil
+        if audioArchive == .waitingForTranscription { audioArchive = .pending }
+    }
     public var interruptedTranscriptionProgress: InterruptedTranscriptionProgress? {
         guard status == .failed else { return nil }
         if let interruptedBatchProgress, (0...1).contains(interruptedBatchProgress) {

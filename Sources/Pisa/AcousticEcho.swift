@@ -25,7 +25,7 @@ final class AcousticEcho {
         return output
     }
     static func clean(microphone: URL, offset: Double, reference: URL, referenceOffset: Double,
-                      progress: @escaping @Sendable (Double, String) async -> Void) async throws -> URL {
+                      outputDirectory: URL? = nil, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> URL {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("pisa-aec-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -33,7 +33,8 @@ final class AcousticEcho {
         try await normalize(microphone, to: micURL)
         try await normalize(reference, to: refURL)
         let mic = try AVAudioFile(forReading: micURL), ref = try AVAudioFile(forReading: refURL)
-        let result = microphone.deletingPathExtension().appendingPathExtension("clean." + UUID().uuidString + ".caf")
+        let result = (outputDirectory?.appendingPathComponent(microphone.lastPathComponent) ?? microphone)
+            .deletingPathExtension().appendingPathExtension("clean." + UUID().uuidString + ".caf")
         let staged = temporary.appendingPathComponent("clean.caf")
         let format = mic.processingFormat
         let writer = try AVAudioFile(forWriting: staged, settings: format.settings)

@@ -4,6 +4,8 @@ import Foundation
 struct RecordingAudioSource: Hashable, Sendable {
     let url: URL
     let offset: TimeInterval
+    // The URL stays stable when the archive installs a new file at the same path.
+    var fileNumber: UInt64? = nil
 }
 
 enum MeetingAudioExport {
@@ -22,7 +24,7 @@ enum MeetingAudioExport {
                   let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
                   attributes[.type] as? FileAttributeType == .typeRegular,
                   url.resolvingSymlinksInPath().deletingLastPathComponent() == directory else { return nil }
-            return RecordingAudioSource(url: url, offset: offset)
+            return RecordingAudioSource(url: url, offset: offset, fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
         }
     }
 

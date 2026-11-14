@@ -96,6 +96,13 @@ enum Launcher {
             }
             dispatchMain()
         }
+        if CommandLine.arguments.contains("--audio-archive-self-test") {
+            Task { @MainActor in
+                do { try await AudioArchiveTests.run(); print("AUDIO_ARCHIVE_TEST_OK"); exit(0) }
+                catch { print("AUDIO_ARCHIVE_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--website-screenshots") {
             MainActor.assumeIsolated {
                 guard CommandLine.arguments.count > index + 2 else {
