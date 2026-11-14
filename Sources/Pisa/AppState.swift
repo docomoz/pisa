@@ -18,7 +18,11 @@ final class AppState: ObservableObject {
     @Published var voiceMeeting: Meeting?
     @Published var reprocessTarget: Meeting?
     private var termReplacementUndo: [UUID: (before: [UUID: String], after: [UUID: String])] = [:]
-    private var searchIndex: [UUID: String] = [:]
+    private let searchIndex = LibrarySearchIndex()
+    private var searchGeneration = 0
+    private var searchMatches: Set<UUID> = []
+    private var selectAfterSearch = false
+    @Published private(set) var searchInProgress = false
     @Published var preferences = Preferences() {
         didSet {
             if preferences.usesQuietProcessing != oldValue.usesQuietProcessing {
@@ -29,7 +33,9 @@ final class AppState: ObservableObject {
             }
         }
     }
-    @Published var search = ""
+    @Published var search = "" {
+        didSet { if search != oldValue { refreshSearch() } }
+    }
     @Published var recording = false
     @Published var starting = false
     @Published var recordingStarted: Date?
@@ -105,8 +111,41 @@ final class AppState: ObservableObject {
         meetings.filter { m in
             (showingTrash ? m.deletedAt != nil : m.deletedAt == nil) &&
             (showingTrash || (folderFilter == nil || m.folderID == folderFilter) && (!unfiledOnly || m.folderID == nil)) &&
-            (search.isEmpty || (searchIndex[m.id] ?? m.title).localizedCaseInsensitiveContains(search))
+            (search.isEmpty || searchMatches.contains(m.id))
         }
+    }
+    private func refreshSearch() {
+        searchGeneration += 1
+        let generation = searchGeneration
+        let query = search
+        guard !query.isEmpty else {
+            searchIndex.cancelSearch()
+            searchMatches = []
+            searchInProgress = false
+            if selectAfterSearch {
+                selectAfterSearch = false
+                select(filtered.first?.id)
+            }
+            return
+        }
+        searchInProgress = true
+        searchIndex.search(query) { [weak self] matches in
+            guard let self, self.searchGeneration == generation, self.search == query else { return }
+            self.searchMatches = matches
+            self.searchInProgress = false
+            if self.selectAfterSearch {
+                self.selectAfterSearch = false
+                self.select(self.filtered.first?.id)
+            }
+        }
+    }
+    private func replaceSearchIndex() {
+        searchIndex.replace(meetings)
+        if !search.isEmpty { refreshSearch() }
+    }
+    private func selectFirstMatching() {
+        select(filtered.first?.id)
+        if searchInProgress { selectAfterSearch = true }
     }
     func openSource(_ url: URL) {
         sourceRequestID = UUID()
@@ -132,7 +171,7 @@ final class AppState: ObservableObject {
                 notice("Не удалось открыть библиотеку встреч"); return
             }
             demo = false; meetings = actualMeetings
-            searchIndex = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0.searchableText) })
+            replaceSearchIndex()
         }
         upsert(meeting)
         showingTrash = false; folderFilter = nil; unfiledOnly = false; search = ""
@@ -151,10 +190,10 @@ final class AppState: ObservableObject {
         }
         if !notices.isEmpty { notice(notices.joined(separator: "\n\n")) }
     }
-    func select(_ id: UUID?) { stopPlayback(); selection = id }
+    func select(_ id: UUID?) { selectAfterSearch = false; stopPlayback(); selection = id }
     func openFolder(_ id: UUID? = nil, trash: Bool = false, unfiled: Bool = false) {
         folderFilter = id; showingTrash = trash; unfiledOnly = unfiled
-        select(filtered.first?.id)
+        selectFirstMatching()
     }
     func canModify(_ m: Meeting, allowQueued: Bool = false) -> Bool {
         !demo && activeMeeting?.id != m.id && processingID != m.id && (allowQueued || !isQueued(m.id))
@@ -190,7 +229,7 @@ final class AppState: ObservableObject {
         do {
             try library.save(latest)
             upsert(latest)
-            if !filtered.contains(where: { $0.id == selection }) { select(filtered.first?.id) }
+            if !filtered.contains(where: { $0.id == selection }) { selectFirstMatching() }
         } catch { message = error.localizedDescription }
     }
     func trash(_ m: Meeting, restore: Bool = false) {
@@ -201,7 +240,7 @@ final class AppState: ObservableObject {
             try library.save(latest)
             if !restore { cancelQueued(latest.id) }
             upsert(latest)
-            select(filtered.first?.id)
+            selectFirstMatching()
         } catch {
             message = error.localizedDescription
             return
@@ -236,8 +275,8 @@ final class AppState: ObservableObject {
                     catch { message = "Не удалось сохранить новое название: " + error.localizedDescription }
                 }
             }
-            searchIndex = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0.searchableText) })
-            select(filtered.first?.id)
+            replaceSearchIndex()
+            selectFirstMatching()
         } catch { message = error.localizedDescription }
     }
     @discardableResult
@@ -315,7 +354,7 @@ final class AppState: ObservableObject {
                 }
             }
             folders = try library.folders()
-            searchIndex = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0.searchableText) })
+            replaceSearchIndex()
             for index in meetings.indices where meetings[index].status == .processing {
                 meetings[index].status = .failed
                 meetings[index].error = "Обработка прервалась. Аудио сохранено — можно повторить"
@@ -445,7 +484,7 @@ final class AppState: ObservableObject {
         automaticallyStarted = automatic; recordingStartedAutomatically = automatic
         recordingMonitor.reset()
         showingTrash = false; folderFilter = nil; unfiledOnly = false
-        upsert(meeting); selection = meeting.id
+        upsert(meeting); selectAfterSearch = false; selection = meeting.id
     }
     func stopRecording(manual: Bool = false) async {
         guard recording, var m = activeMeeting else { return }
@@ -494,7 +533,7 @@ final class AppState: ObservableObject {
                 m.duration = Double(file.length) / file.processingFormat.sampleRate
                 let name = "\(m.id.uuidString)-import.\(url.pathExtension)"
                 try FileManager.default.copyItem(at: url, to: library.audioURL(name))
-                m.audioFiles = [name]; try library.save(m); upsert(m); selection = m.id
+                m.audioFiles = [name]; try library.save(m); upsert(m); selectAfterSearch = false; selection = m.id
                 Analytics.audioImported(duration: m.duration)
                 if modelReady { enqueue(m.id) }
             } catch { message = error.localizedDescription }
@@ -1249,8 +1288,9 @@ final class AppState: ObservableObject {
         }
     }
     private func upsert(_ m: Meeting) {
-        searchIndex[m.id] = m.searchableText
         if let index = meetings.firstIndex(where: { $0.id == m.id }) { meetings[index] = m } else { meetings.insert(m, at: 0) }
+        searchIndex.upsert(m)
+        if !search.isEmpty { refreshSearch() }
     }
     func modelURL() -> URL? {
         if let data = preferences.modelBookmark { var stale = false; return try? URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale) }
@@ -1417,8 +1457,8 @@ final class AppState: ObservableObject {
         demo.toggle()
         if !demo {
             meetings = (try? library.all(includeDeleted: true)) ?? []
-            searchIndex = Dictionary(uniqueKeysWithValues: meetings.map { ($0.id, $0.searchableText) })
-            selection = filtered.first?.id
+            replaceSearchIndex()
+            selectFirstMatching()
             return
         }
         var m = Meeting(title: "Планы на неделю", source: "Толк"); m.duration = 1842; m.status = .ready
@@ -1427,7 +1467,7 @@ final class AppState: ObservableObject {
             .init(start: 29, end: 48, speaker: "Даша", text: "Да, я подготовлю несколько примеров к среде. Посмотрим, где людям приходится делать лишние шаги."),
             .init(start: 49, end: 70, speaker: "Я", text: "Отлично. Тогда в четверг вместе посмотрим результаты. Если что-то не успеваем, сразу обсудим, что можно упростить."),
             .init(start: 72, end: 94, speaker: "Даша", text: "Договорились. Ещё соберу обратную связь от команды и принесу короткий список вопросов.")]
-        meetings = [m]; selection = m.id
+        meetings = [m]; replaceSearchIndex(); selectAfterSearch = false; selection = m.id
     }
 }
 

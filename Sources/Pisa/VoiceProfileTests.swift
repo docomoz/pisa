@@ -4,6 +4,13 @@ import SwiftUI
 
 @MainActor
 enum VoiceProfileTests {
+    private static func waitForSearch(_ state: AppState) async throws {
+        for _ in 0..<500 {
+            if !state.searchInProgress { return }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        throw PisaError.message("Search did not finish")
+    }
     static func run() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Voice-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -64,12 +71,34 @@ enum VoiceProfileTests {
         try check(renamed.samples == original.samples && renamed.examples?.map(\.file) == original.examples?.map(\.file), "Rename changed training data")
         try check(VoiceMatcher.identify([1, 0], profiles: state.voiceProfiles) == newName, "Recognition still uses the old name")
         state.search = newName
+        try await waitForSearch(state)
         try check(state.filtered.map(\.id) == [active.id], "Search did not index the new active transcript label")
         state.showingTrash = true
         try check(state.filtered.map(\.id) == [trashed.id], "Search did not index the new trashed transcript label")
         state.search = original.name
+        try await waitForSearch(state)
         try check(state.filtered.isEmpty, "Search still indexes the old trashed transcript label")
         state.showingTrash = false
+        // An older request must never overwrite the newest one, even if it completes later.
+        state.search = "отсутствующее совпадение"
+        state.search = newName
+        try await waitForSearch(state)
+        try check(state.filtered.map(\.id) == [active.id], "An older search replaced the latest result")
+        state.search = ""
+        try check(!state.searchInProgress && state.filtered.contains(where: { $0.id == active.id }), "Clearing search did not restore the library")
+
+        // Demo mode has a different library and must not retain entries from the real one.
+        state.search = "несуществующий запрос"
+        state.openFolder()
+        state.showDemo()
+        try await waitForSearch(state)
+        try check(state.selection == state.meetings.first?.id, "Pending folder selection replaced the demo selection")
+        state.search = "Даша"
+        try await waitForSearch(state)
+        try check(state.filtered.count == 1 && state.filtered[0].title == "Планы на неделю", "Demo search used an outdated library")
+        state.showDemo()
+        try await waitForSearch(state)
+        try check(state.filtered.isEmpty, "Returning from demo retained demo search entries")
         state.search = ""
         for invalid in [" \n", other.name.uppercased()] {
             var rejected = false
