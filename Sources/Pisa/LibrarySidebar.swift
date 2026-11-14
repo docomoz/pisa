@@ -36,11 +36,11 @@ struct LibrarySidebar: View {
                 folderScrollGeometry = geometry
             }
             .task(id: folderScrollDirection) { await scrollDuringFolderDrag() }
-            HStack(spacing: PisaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); screenText("\(state.filtered.count)") }.textStyle(PisaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
+            HStack(spacing: PisaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); if !state.searchInProgress { screenText("\(state.filtered.count)") } }.textStyle(PisaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
             ScrollViewReader { proxy in
               ScrollView {
               LazyVStack(spacing: PisaDesign.Spacing.compact) {
-                ForEach(state.filtered) { meeting in
+                ForEach(state.searchInProgress ? [] : state.filtered) { meeting in
                     let isAutomatic = meeting.hasAutomaticTitle
                     VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                         if isAutomatic {
@@ -94,12 +94,18 @@ struct LibrarySidebar: View {
               }.focusable().focusEffectDisabled().focused($recordingsFocused)
                 .onMoveCommand { direction in
                     let rows = state.filtered
-                    guard !rows.isEmpty, direction == .up || direction == .down else { return }
+                    guard !state.searchInProgress, !rows.isEmpty, direction == .up || direction == .down else { return }
                     let index = rows.firstIndex { $0.id == state.selection } ?? 0
                     let next = min(rows.count - 1, max(0, index + (direction == .down ? 1 : -1)))
                     state.select(rows[next].id); proxy.scrollTo(rows[next].id)
                 }
-                .overlay { if state.filtered.isEmpty { screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk) } }
+                .overlay {
+                    if state.searchInProgress {
+                        ProgressView().controlSize(.small)
+                    } else if state.filtered.isEmpty {
+                        screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk)
+                    }
+                }
             }
         }.padding(.horizontal, PisaDesign.Spacing.content).padding(.top, PisaDesign.Spacing.content).padding(.bottom, PisaDesign.Spacing.content).background(Color.sidebarTint)
         .sheet(isPresented: $confirmEmptyTrash) {

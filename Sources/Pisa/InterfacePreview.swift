@@ -74,6 +74,21 @@ final class InterfacePreview: NSObject {
             state.update(older)
             fixture.date = Date.now.addingTimeInterval(-10 * 86_400)
         }
+        if CommandLine.arguments.contains("--library-search-stress-preview") {
+            for index in 0..<160 {
+                var sample = Meeting(title: "Тестовая встреча \(index + 1)", source: "Тестовое аудио")
+                sample.status = .ready
+                let speaker = index == 159 ? "Уникальный участник" : "Анна"
+                for segment in 0..<200 {
+                    let text = index == 159 && segment == 199
+                        ? "Ключевая фраза для проверки поиска"
+                        : "Обсудили планы команды, результаты и следующие шаги. Проверили детали проекта и договорились продолжить работу."
+                    let start = Double(segment * 4)
+                    sample.segments.append(TranscriptSegment(start: start, end: start + 3, speaker: speaker, text: text))
+                }
+                state.update(sample)
+            }
+        }
         meeting = fixture
         state.update(fixture)
         state.select(fixture.id)

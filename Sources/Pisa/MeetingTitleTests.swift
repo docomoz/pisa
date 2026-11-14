@@ -102,6 +102,11 @@ enum MeetingTitleTests {
         try check(reopened.meetings.first(where: { $0.id == named.id })?.title == "Мой обзор запуска", "Manual title changed on restart")
         try check(reopened.meetings.first(where: { $0.id == english.id })?.title == englishNamed.title, "Generated title changed on restart")
         state.search = "Мой обзор запуска"
+        for _ in 0..<500 {
+            if !state.searchInProgress { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try check(!state.searchInProgress, "Search did not finish")
         try check(state.filtered.contains(where: { $0.id == named.id }) && !state.filtered.contains(where: { $0.id == english.id || $0.id == long.id }), "Search did not use title")
         let exports = root.appendingPathComponent("Exports")
         try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
