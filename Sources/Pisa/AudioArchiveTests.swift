@@ -91,7 +91,7 @@ enum AudioArchiveTests {
                       "Archived CAF could not report its AAC payload")
             // CAF reserves header space, which skews size-derived bitrate for a three-second recording.
             let approximateBitRate = Double(bytes * 8) * sampleRate / Double(frames)
-            try check(encodedSize < originalBytes[index].count && (94_000...100_000).contains(approximateBitRate),
+            try check(encodedSize < originalBytes[index].count && (188_000...196_000).contains(approximateBitRate),
                       "Archived track did not shrink to the target bitrate")
         }
 

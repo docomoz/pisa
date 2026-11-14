@@ -3,7 +3,7 @@ import AVFoundation
 import Foundation
 
 enum AudioArchiveCodec {
-    private static let bitRate = 96_000
+    private static let bitRate = 192_000
     private static let framesPerBuffer: AVAudioFrameCount = 65_536
 
     /// Writes a verified smaller CAF to an unused path in the caller's private staging directory.
@@ -20,31 +20,29 @@ enum AudioArchiveCodec {
         let channels = original.mChannelsPerFrame
         let frames = input.length
         guard original.mFormatID == kAudioFormatLinearPCM, (1...2).contains(channels), frames > 0,
-              let factor = rateFactor(for: sourceRate, channels: channels) else { return false }
-        let outputRate = sourceRate * Double(factor)
-        let (expectedFrames, overflow) = frames.multipliedReportingOverflow(by: factor)
-        guard !overflow else { return false }
+              let outputRate = encodingRate(for: sourceRate, channels: channels) else { return false }
+        let sourceDuration = CMTime(value: frames, timescale: CMTimeScale(sourceRate))
+        let encodedDuration = CMTimeConvertScale(sourceDuration, timescale: outputRate, method: .default)
+        guard encodedDuration == sourceDuration else { return false }
 
         var keepOutput = false
         defer { if !keepOutput { try? files.removeItem(at: destination) } }
-        try write(input, to: destination, frames: frames, sampleRate: outputRate)
+        try write(input, to: destination, frames: frames, sampleRate: Double(outputRate))
         let originalSize = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         let compressedSize = try destination.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard compressedSize > 0, compressedSize < originalSize else { return false }
-        try await validate(destination, frames: expectedFrames, sampleRate: outputRate, channels: channels)
+        try await validate(destination, duration: encodedDuration, channels: channels)
         try Task.checkCancellation()
         keepOutput = true
         return true
     }
 
-    private static func rateFactor(for sampleRate: Double, channels: AVAudioChannelCount) -> Int64? {
-        // Low-rate inputs cannot reach 96 kbps with Apple's AAC encoder. Use integer factors so the end time stays exact.
+    private static func encodingRate(for sampleRate: Double, channels: AVAudioChannelCount) -> CMTimeScale? {
+        // Apple's AAC encoder accepts 192 kbps CBR only at these output rates.
         switch sampleRate {
-        case 8_000: return 6
-        case 11_025, 12_000: return 4
-        case 16_000: return channels == 1 ? 3 : 1
-        case 22_050, 24_000: return channels == 1 ? 2 : 1
-        case 32_000, 44_100, 48_000: return 1
+        case 8_000, 12_000, 16_000, 24_000, 48_000: return 48_000
+        case 11_025, 22_050, 44_100: return 44_100
+        case 32_000: return channels == 2 ? 32_000 : 48_000
         default: return nil
         }
     }
@@ -99,20 +97,20 @@ enum AudioArchiveCodec {
         guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
     }
 
-    private static func validate(_ url: URL, frames: AVAudioFramePosition, sampleRate: Double, channels: AVAudioChannelCount) async throws {
+    private static func validate(_ url: URL, duration: CMTime, channels: AVAudioChannelCount) async throws {
         let encoded = try AVAudioFile(forReading: url)
         let format = encoded.fileFormat.streamDescription.pointee
         guard format.mFormatID == kAudioFormatMPEG4AAC,
-              format.mSampleRate == sampleRate, format.mChannelsPerFrame == channels,
-              encoded.length == frames else { throw ValidationError.format }
+              format.mSampleRate == Double(duration.timescale), format.mChannelsPerFrame == channels,
+              encoded.length == duration.value else { throw ValidationError.format }
         // Decode every valid frame including the last partial AAC packet.
-        try read(encoded, frames: frames) { _ in }
+        try read(encoded, frames: duration.value) { _ in }
         // Playback through AVAsset uses the CAF packet table to trim encoder priming and padding.
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard tracks.count == 1 else { throw ValidationError.timeline }
         let range = try await tracks[0].load(.timeRange)
-        guard range.start == .zero, range.duration == CMTime(value: frames, timescale: CMTimeScale(sampleRate)) else {
+        guard range.start == .zero, range.duration == duration else {
             throw ValidationError.timeline
         }
     }
