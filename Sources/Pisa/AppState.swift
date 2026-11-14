@@ -267,8 +267,8 @@ final class AppState: ObservableObject {
             try library.purgeTrashed(latest.id)
             termReplacementUndo[latest.id] = nil
             meetings.removeAll { $0.id == latest.id }
-            searchIndex[latest.id] = nil
-            if selection == latest.id { select(filtered.first?.id) }
+            replaceSearchIndex()
+            if selection == latest.id { selectFirstMatching() }
         } catch { message = error.localizedDescription }
     }
     func emptyTrash() {
