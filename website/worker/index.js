@@ -35,7 +35,7 @@ export async function handleRequest(request, fetchFeed = fetch) {
       return new Response(request.method === 'HEAD' ? null : body, { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '60' } });
     }
   }
-  const asset = ASSETS[pathname === '/' ? '/index.html' : pathname === '/migration' ? '/migration.html' : pathname];
+  const asset = ASSETS[pathname === '/' ? '/index.html' : pathname];
   if (!asset) return new Response('Not found', { status: 404 });
   const bytes = Uint8Array.from(atob(asset.data), character => character.charCodeAt(0));
   return new Response(request.method === 'HEAD' ? null : bytes, {

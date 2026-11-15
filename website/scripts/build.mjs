@@ -6,7 +6,6 @@ import { measurementIdFromConfig } from './analytics-config.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const publicFiles = {
   '/index.html': 'text/html; charset=utf-8',
-  '/migration.html': 'text/html; charset=utf-8',
   '/style.css': 'text/css; charset=utf-8',
   '/script.js': 'application/javascript; charset=utf-8',
   '/analytics.js': 'application/javascript; charset=utf-8',
@@ -21,7 +20,7 @@ const analyticsConfig = JSON.parse(await readFile(path.join(root, 'analytics.jso
 const measurementId = measurementIdFromConfig(analyticsConfig);
 for (const [name, type] of Object.entries(publicFiles)) {
   let data = await readFile(path.join(root, 'dist', name.slice(1)));
-  if ((name === '/index.html' || name === '/migration.html') && measurementId) {
+  if (name === '/index.html' && measurementId) {
     data = Buffer.from(data.toString('utf8').replace('</head>', `  <meta name="pisa-ga-measurement-id" content="${measurementId}">\n</head>`));
   }
   assets[name] = { type, data: data.toString('base64') };

@@ -50,14 +50,8 @@ test('the built page uses the configured measurement ID', async () => {
   assert.equal(meta?.[1] ?? '', id);
 });
 
-test('migration guide serves the verified source and destination paths', async () => {
-  const response = await worker.fetch(request('/migration'));
-  assert.equal(response.status, 200);
-  const page = await response.text();
-  assert.match(page, /com\.docomoz\.pisya/);
-  assert.match(page, /com\.docomoz\.pisa/);
-  assert.match(page, /Pisa-before-migration/);
-  assert.match(page, /href="\/#install-guide"/);
-  assert.match(page, /выполните только шаги 1 и 2/);
-  assert.match(page, /вернитесь сюда до первого запуска Pisa/);
+test('the retired migration guide is unavailable', async () => {
+  for (const path of ['/migration', '/migration.html']) {
+    assert.equal((await worker.fetch(request(path))).status, 404);
+  }
 });
