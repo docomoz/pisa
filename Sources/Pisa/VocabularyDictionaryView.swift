@@ -26,7 +26,8 @@ struct VocabularyDictionaryView: View {
 
     private var entries: [VocabularyDictionary.Entry] { VocabularyDictionary.entries(in: state.preferences.vocabulary) }
     private var filtered: [VocabularyDictionary.Entry] {
-        search.isEmpty ? entries : entries.filter { $0.text.localizedCaseInsensitiveContains(search) }
+        entries.filter { search.isEmpty || $0.text.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.text.localizedStandardCompare($1.text) == .orderedAscending }
     }
 
     var body: some View {
