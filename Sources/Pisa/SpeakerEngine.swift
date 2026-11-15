@@ -7,6 +7,8 @@ struct VoiceRegion {
     var embeddingDuration: Double? = nil
     var speakerEvidenceIsMixed: Bool? = nil
     var recoveredSpeech = false
+    // Recognition context may cross an acoustic cut, never the original VAD gap.
+    var recoveryRange: Range<Int>? = nil
     var embeddingExclusions: [Range<Int>] = []
     // Keep integer bounds independently of displayed/recognition timestamps.
     var embeddingRange: Range<Int>? = nil
@@ -51,28 +53,44 @@ final class SpeakerEngine {
         let count = Int(SherpaOnnxOfflineSpeakerDiarizationResultGetNumSegments(result))
         guard count > 0, let sorted = SherpaOnnxOfflineSpeakerDiarizationResultSortByStartTime(result) else { return [] }
         defer { SherpaOnnxOfflineSpeakerDiarizationDestroySegment(sorted) }
-        let turns: [(range: Range<Int>, speaker: Int32)] = (0..<count).compactMap { index in
+        let turns: [SpeakerTurnPartition.Turn] = (0..<count).compactMap { index in
             let segment = sorted[index]
             let lower = max(0, Int(segment.start * Float(sampleRate)))
             let upper = min(samples.count, Int(segment.end * Float(sampleRate)))
             guard upper > lower else { return nil }
-            return (lower..<upper, segment.speaker)
+            return SpeakerTurnPartition.Turn(range: lower..<upper, speaker: Int(segment.speaker))
         }
-        return turns.compactMap { turn in
-            guard turn.range.count >= sampleRate / 2 else { return nil }
-            // Local speaker IDs can contain different voices. Extract evidence
-            // from this turn alone and exclude audio shared with another ID.
-            let overlaps = turns.prefix { $0.range.lowerBound < turn.range.upperBound }
-                .filter { $0.speaker != turn.speaker && $0.range.overlaps(turn.range) }
-                .map(\.range)
-            let evidence = extractEmbeddings ? embedding(samples, in: turn.range, excluding: overlaps) : nil
-            let mixed: Bool? = extractEmbeddings ? SpeakerEmbeddingInput(range: turn.range, exclusions: overlaps)
-                .hasSustainedOverlap(sampleCount: samples.count, sampleRate: sampleRate) : nil
-            return VoiceRegion(start: Double(turn.range.lowerBound) / Double(sampleRate),
-                end: Double(turn.range.upperBound) / Double(sampleRate),
+        let regions = SpeakerTurnPartition.partition(turns, sampleCount: samples.count, sampleRate: sampleRate)
+        return regions.compactMap { region in
+            // Preserve even a short edge carved from a sustained overlap: losing
+            // it here would let VAD recover it again with no conflict evidence.
+            guard region.partitioned || region.range.count >= sampleRate / 2 else { return nil }
+            // Local IDs are only used to locate overlap. Each clean interval has
+            // its own acoustic evidence; no pooled audio can mix separate voices.
+            let evidence = extractEmbeddings ? embedding(samples, in: region.range, excluding: region.exclusions) : nil
+            let mixed: Bool? = extractEmbeddings || region.partitioned
+                ? SpeakerEmbeddingInput(range: region.range, exclusions: region.exclusions)
+                    .hasSustainedOverlap(sampleCount: samples.count, sampleRate: sampleRate) : nil
+            return VoiceRegion(start: Double(region.range.lowerBound) / Double(sampleRate),
+                end: Double(region.range.upperBound) / Double(sampleRate),
                 embedding: evidence?.vector, embeddingDuration: evidence?.duration,
                 speakerEvidenceIsMixed: mixed,
-                embeddingExclusions: overlaps, embeddingRange: turn.range)
+                embeddingExclusions: region.exclusions, embeddingRange: region.range)
+        }
+    }
+
+    /// Recover voices from VAD speech missed by segmentation. Independent
+    /// acoustic probes determine boundaries; text and saved names are not used.
+    func recoveredRegions(_ samples: [Float], in range: Range<Int>) -> [VoiceRegion] {
+        let sampleRate = SpeakerEmbeddingExtractor.sampleRate
+        return SpeakerRecovery.recover(in: samples, range: range, sampleRate: sampleRate) { excerpt in
+            self.vector(Array(samples[excerpt]))
+        }.map { evidence in
+            VoiceRegion(start: Double(evidence.range.lowerBound) / Double(sampleRate),
+                end: Double(evidence.range.upperBound) / Double(sampleRate),
+                embedding: evidence.vector,
+                embeddingDuration: evidence.vector == nil ? nil : Double(evidence.range.count) / Double(sampleRate),
+                recoveredSpeech: true, recoveryRange: range)
         }
     }
 

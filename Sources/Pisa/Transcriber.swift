@@ -161,6 +161,7 @@ actor Transcriber {
         var backchannels: [UUID: String] = [:]
         var acousticHypotheses: [UUID: RecognitionAcousticResult] = [:]
         var audioBounds: [UUID: Range<Double>] = [:]
+        var recoveredAudio: [UUID: (gap: Range<Double>, evidence: Range<Double>)] = [:]
         var startedRecognition = false
         for (fileIndex, item) in preparedFiles.sorted(by: { !$0.0.lastPathComponent.contains("-mic.") && $1.0.lastPathComponent.contains("-mic.") }).enumerated() {
             try Task.checkCancellation()
@@ -226,9 +227,9 @@ actor Transcriber {
                             ? [VoiceRegion(start: max(0, range.start - start), end: min(duration, range.end - start), embedding: nil)]
                             : voices?.regions(samples, extractEmbeddings: false) ?? []
                         if !isMic {
-                            // Diarization deliberately ignores very short turns. VAD
-                            // can still recover an isolated "да" without inventing a
-                            // speaker embedding or recognizing the same turn twice.
+                            // VAD recovers speech that segmentation missed. Acoustic
+                            // probes can recover a voice only when independent parts
+                            // agree; short or conflicting evidence stays unidentified.
                             let speech = activity.regions(samples)
                             func sampleRange(_ region: VoiceRegion) -> Range<Int> {
                                 Int((region.start * 16000).rounded())..<Int((region.end * 16000).rounded())
@@ -246,14 +247,20 @@ actor Transcriber {
                             let missing = SpeechCoverage.uncovered(speech: speech.map(sampleRange),
                                 covered: covered, sampleCount: samples.count,
                                 minimumPartialLength: 4800)
-                            regions += missing.map { VoiceRegion(start: Double($0.lowerBound) / 16000,
-                                end: Double($0.upperBound) / 16000, embedding: nil, recoveredSpeech: true) }
+                            regions += missing.flatMap { gap in
+                                voices?.recoveredRegions(samples, in: gap) ?? [VoiceRegion(
+                                    start: Double(gap.lowerBound) / 16000, end: Double(gap.upperBound) / 16000,
+                                    embedding: nil, recoveredSpeech: true)]
+                            }
                             regions.sort { $0.start < $1.start }
                         }
                         regions = regions.flatMap { region -> [VoiceRegion] in
                             let lower = max(0, Int(region.start * 16000))
                             let upper = min(samples.count, Int(region.end * 16000))
                             guard upper > lower else { return [] }
+                            // Recovery already bounds recognition chunks and retains
+                            // the verified vectors used to determine their boundaries.
+                            if region.recoveredSpeech, upper - lower <= 24 * 16_000 + 1 { return [region] }
                             let chunks = SpeechChunking.ranges(in: samples, range: lower..<upper)
                             return chunks.map { chunk in
                                 let input = SpeakerEmbeddingInput.forChunk(chunk, chunkCount: chunks.count,
@@ -276,14 +283,25 @@ actor Transcriber {
                             let trailingDivisor = isMic && index == regions.count - 1 ? 1.0 : 2.0
                             let leading = region.recoveredSpeech ? 0 : min(0.25, max(0, (region.start - previous) / leadingDivisor))
                             let trailing = region.recoveredSpeech ? 0 : min(0.25, max(0, (next - region.end) / trailingDivisor))
-                            let lower = max(0, Int((region.start - leading) * 16000))
-                            let upper = min(samples.count, Int((region.end + trailing) * 16000))
+                            var lower = max(0, Int((region.start - leading) * 16000))
+                            var upper = min(samples.count, Int((region.end + trailing) * 16000))
+                            if let gap = region.recoveryRange {
+                                let evidence = Int((region.start * 16000).rounded())..<Int((region.end * 16000).rounded())
+                                let context = SpeakerRecovery.recognitionRange(for: evidence, in: gap, padding: 1920)
+                                lower = max(0, context.lowerBound)
+                                upper = min(samples.count, context.upperBound)
+                            }
                             guard upper > lower else { continue }
                             let regionSamples = Array(samples[lower..<upper])
-                            // A continuous VAD interval may bridge a brief pause.
-                            // Confirm speech within the recovered gap itself so
-                            // the language model never decodes a padded silence.
-                            if region.recoveredSpeech, activity.regions(regionSamples).isEmpty { continue }
+                            // Confirm speech in the exact recovered evidence, not
+                            // the recognition padding borrowed across an acoustic cut.
+                            // Neighboring speech must not turn a silent part into text.
+                            if region.recoveredSpeech {
+                                let evidenceLower = max(0, Int((region.start * 16000).rounded()))
+                                let evidenceUpper = min(samples.count, Int((region.end * 16000).rounded()))
+                                guard evidenceUpper > evidenceLower,
+                                      !activity.regions(Array(samples[evidenceLower..<evidenceUpper])).isEmpty else { continue }
+                            }
                             let speech = (offset + start + region.start)..<(offset + start + region.end)
                             if !startedRecognition, case .lookahead(let window) = boundaryCheck, window.speechBlocksCut(speech) {
                                 // A single early turn leaves no useful pause before
@@ -310,6 +328,9 @@ actor Transcriber {
                             let speaker = isMic ? "Я" : TranscriptSegment.unidentifiedSpeaker
                             var segment = TranscriptSegment(start: speech.lowerBound, end: speech.upperBound, speaker: speaker, text: recognized.text)
                             segment.audioFile = url.lastPathComponent
+                            segment.embedding = region.embedding
+                            segment.embeddingDuration = region.embeddingDuration
+                            segment.speakerEvidenceIsMixed = region.speakerEvidenceIsMixed
                             if let range = region.embeddingRange {
                                 let input = SpeakerEmbeddingInput(range: range, exclusions: region.embeddingExclusions)
                                 segment.speakerEvidenceIsMixed = input.hasSustainedOverlap(sampleCount: samples.count,
@@ -321,6 +342,11 @@ actor Transcriber {
                             backchannels[segment.id] = recognized.russianBackchannel
                             acousticHypotheses[segment.id] = recognized.acoustic
                             audioBounds[segment.id] = (start + Double(lower) / 16000)..<(start + Double(upper) / 16000)
+                            if let gap = region.recoveryRange {
+                                recoveredAudio[segment.id] = (
+                                    (start + Double(gap.lowerBound) / 16000)..<(start + Double(gap.upperBound) / 16000),
+                                    (start + region.start)..<(start + region.end))
+                            }
                             segments.append(segment)
 
                         }
@@ -344,7 +370,7 @@ actor Transcriber {
                 performance: performance, collectDiagnostics: collectDiagnostics, progress: progress)
         }
         if let first = sorted.first, let previous = recentLanguageSegments.first, first.start <= previous.start { recentLanguageSegments = [] }
-        let localized = BackchannelLanguage.resolve(sorted, alternatives: backchannels,
+        var localized = BackchannelLanguage.resolve(sorted, alternatives: backchannels,
             preceding: live ? recentLanguageSegments : [], vocabulary: context).map { segment in
                 var revised = segment
                 revised.text = TranscriptOrthography.normalize(segment.text, vocabulary: context)
@@ -353,6 +379,46 @@ actor Transcriber {
                 }
                 return revised
             }
+        // Shared context at a recovered acoustic cut may decode one physical
+        // word twice. Preserve text unless a full-context acoustic replay proves
+        // one occurrence, with matching neighboring words and crossing timing.
+        if let russian {
+            for index in localized.indices.dropFirst() {
+                let left = localized[index - 1], right = localized[index]
+                guard RecognitionBoundaryOverlap.candidate(left: left.text, right: right.text) != nil,
+                      let a = recoveredAudio[left.id], let b = recoveredAudio[right.id], a.gap == b.gap,
+                      abs(a.evidence.upperBound - b.evidence.lowerBound) < 1.0 / 16000,
+                      left.audioFile == right.audioFile, let fileName = left.audioFile,
+                      let url = preparedFiles.first(where: { $0.0.lastPathComponent == fileName })?.0,
+                      let leftBounds = audioBounds[left.id], let rightBounds = audioBounds[right.id],
+                      let leftHypothesis = acousticHypotheses[left.id], let rightHypothesis = acousticHypotheses[right.id],
+                      leftHypothesis.words.count >= 2, rightHypothesis.words.count >= 2 else { continue }
+                let lower = max(leftBounds.lowerBound, rightBounds.lowerBound)
+                let upper = min(leftBounds.upperBound, rightBounds.upperBound)
+                guard upper > lower else { continue }
+                let union = a.gap.upperBound - a.gap.lowerBound <= 30
+                    ? a.gap : leftBounds.lowerBound..<rightBounds.upperBound
+                guard union.upperBound - union.lowerBound <= 30 else { continue }
+                try Task.checkCancellation()
+                guard let samples = try? Self.contextSamples(url, start: union.lowerBound, end: union.upperBound) else { continue }
+                let began = ContinuousClock.now
+                let evidence = acousticRecognition(samples, using: russian)
+                try await performance.pace(after: began)
+                func shifted(_ words: [RecognitionTimedWord], by offset: Double) -> [RecognitionTimedWord] {
+                    words.map { RecognitionTimedWord(text: $0.text, start: $0.start + offset, end: $0.end + offset) }
+                }
+                guard let evidence, let revised = RecognitionBoundaryOverlap.revisedRight(left: left.text, right: right.text,
+                    leftWords: shifted(leftHypothesis.words, by: leftBounds.lowerBound),
+                    rightWords: shifted(rightHypothesis.words, by: rightBounds.lowerBound),
+                    unionWords: shifted(evidence.words, by: union.lowerBound), cut: b.evidence.lowerBound,
+                    sharedAudio: lower..<upper) else { continue }
+                localized[index].text = revised
+                if collectDiagnostics {
+                    contextDiagnostics.append(["kind": "shared-boundary-word", "start": String(right.start),
+                        "source": right.text, "candidate": revised])
+                }
+            }
+        }
         if live, let end = localized.map(\.end).max() {
             recentLanguageSegments = (recentLanguageSegments + localized).filter { $0.end >= end - 60 }
         }

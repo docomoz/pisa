@@ -115,15 +115,19 @@ final class SpeakerClusteringTests: XCTestCase {
         XCTAssertEqual(SpeakerClustering.assign([segment], profiles: [])[0].speaker, "Спикер 1")
     }
 
-    func testInheritedNameCannotOverrideACloserSavedCompetitor() {
-        let radians = 47.0 * Double.pi / 180
-        let turns = [turn(start: 0, duration: 5, embedding: [1, 0]),
-                     turn(start: 6, duration: 5, embedding: [0.985, 0.174]),
-                     turn(start: 12, duration: 3, embedding: [Float(cos(radians)), Float(sin(radians))])]
-        let result = SpeakerClustering.assign(turns, profiles: [VoiceProfile(name: "Анна", samples: [[1, 0]]),
-                                                              VoiceProfile(name: "Борис", samples: [[0, 1]])])
-        XCTAssertNotEqual(result[2].speaker, "Анна")
-        XCTAssertNotEqual(result[2].speaker, "Борис")
+    func testUniqueClusterKeepsAnAnonymousLabelWhenInheritedNameIsRejected() {
+        let weak: [Float] = [0.682, 0.731, 0]
+        var mixed = turn(start: 23, duration: 3, embedding: weak)
+        mixed.speakerEvidenceIsMixed = true
+        let turns = [turn(start: 0, duration: 5, embedding: [1, 0, 0]),
+                     turn(start: 6, duration: 5, embedding: [0.985, 0.174, 0]),
+                     turn(start: 12, duration: 2, embedding: weak),
+                     turn(start: 15, duration: 2, embedding: [0.669, 0.743, 0]),
+                     turn(start: 18, duration: 4, embedding: [0, 0, 1]), mixed]
+        let result = SpeakerClustering.assign(turns, profiles: [VoiceProfile(name: "Анна", samples: [[1, 0, 0]]),
+                                                              VoiceProfile(name: "Борис", samples: [[0, 1, 0]])])
+        XCTAssertEqual(result.map(\.speaker), ["Анна", "Анна", "Спикер 1", "Спикер 1", "Спикер 2",
+                                               TranscriptSegment.unidentifiedSpeaker])
     }
 
     func testMatureClusterCannotAbsorbAnUnsupportedSingleVoice() {
