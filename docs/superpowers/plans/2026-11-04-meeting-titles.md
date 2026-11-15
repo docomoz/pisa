@@ -26,7 +26,7 @@
 
 ### Task 1: Core title policy and composition
 
-Files: Sources/PisyaCore/Models.swift, Sources/PisyaCore/MeetingTitles.swift, Tests/PisyaCoreTests/MeetingTitleTests.swift.
+Files: Sources/[прежнее-имя]Core/Models.swift, Sources/[прежнее-имя]Core/MeetingTitles.swift, Tests/[прежнее-имя]CoreTests/MeetingTitleTests.swift.
 
 - [x] Add failing tests for provenance, persistence, invalid output, all chunks and provider failure
 - [x] Run swift test --filter MeetingTitleTests; confirm expected failures
@@ -35,7 +35,7 @@ Files: Sources/PisyaCore/Models.swift, Sources/PisyaCore/MeetingTitles.swift, Te
 
 ### Task 2: Native inference and completion integration
 
-Files: Sources/Pisya/MeetingTitleModel.swift, Sources/Pisya/MeetingTitleTests.swift, Sources/Pisya/AppState.swift, Sources/Pisya/Launcher.swift, project.yml, scripts/title-model.json, dependencies.resolved.json.
+Files: Sources/[прежнее-имя]/MeetingTitleModel.swift, Sources/[прежнее-имя]/MeetingTitleTests.swift, Sources/[прежнее-имя]/AppState.swift, Sources/[прежнее-имя]/Launcher.swift, project.yml, scripts/title-model.json, dependencies.resolved.json.
 
 - [x] Pin a compatible MLX text runtime; add verified model manifest
 - [x] Generate a title from a local model, with bounded tokens and cancellation
