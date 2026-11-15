@@ -131,6 +131,8 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
 public struct Preferences: Codable, Sendable {
     public var automaticRecording = false
     public var mcpEnabled = true
+    public var summaryOnboardingAcknowledged: Bool?
+    public var showsSummaryOnboarding: Bool { summaryOnboardingAcknowledged != true }
     public var exportBookmark: Data?
     public var exportDisplayPath: String?
     public var modelBookmark: Data?

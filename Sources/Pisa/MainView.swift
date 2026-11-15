@@ -174,6 +174,7 @@ struct MeetingView: View {
     let dateReference: Date
     @State private var editing: TranscriptSegment?
     @State private var reviewingTerms = false
+    @State private var showingSummaryOnboarding = false
     @State private var title = ""
     @State private var confirmDeleteAudio = false
     @State private var transcriptSearch = ""
@@ -314,6 +315,7 @@ struct MeetingView: View {
             }
         }
         .sheet(isPresented: $reviewingTerms) { TermReview(meeting: meeting).environmentObject(state) }
+        .sheet(isPresented: $showingSummaryOnboarding) { MeetingSummaryOnboarding().environmentObject(state) }
     }
 
     @ViewBuilder
@@ -448,6 +450,12 @@ struct MeetingView: View {
                             .measuredForInterfaceTest(.transcriptSearch)
                     }
                     if showsDetailsButton { detailsButton }
+                    if !state.demo && meeting.deletedAt == nil && !meeting.segments.isEmpty
+                        && state.preferences.showsSummaryOnboarding {
+                        screenButton("Саммари встречи") { showingSummaryOnboarding = true }
+                            .actionButton()
+                            .fixedSize()
+                    }
                 }.frame(maxWidth: .infinity, alignment: .trailing)
             }
             HStack(spacing: PisaDesign.Spacing.inline) {

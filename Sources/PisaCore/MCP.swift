@@ -1,6 +1,20 @@
 import Foundation
 import CoreFoundation
 
+public enum MCPClientConfiguration {
+    public static func toml(commandPath: String) -> String {
+        let escaped = commandPath.unicodeScalars.map { scalar -> String in
+            switch scalar.value {
+            case 0x22: return "\\\""
+            case 0x5C: return "\\\\"
+            case 0...0x1F, 0x7F: return String(format: "\\u%04X", scalar.value)
+            default: return String(scalar)
+            }
+        }.joined()
+        return "[mcp_servers.pisa]\ncommand = \"\(escaped)\""
+    }
+}
+
 public final class MCPHandler {
     private let library: MeetingLibrary
     private var initialized = false

@@ -65,7 +65,7 @@ struct SettingsView: View {
                         } right: {
                             VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
                         block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента:") {
-                            screenText(verbatim: "[mcp_servers.pisa]\ncommand = \"\(state.mcpPath)\"")
+                            screenText(verbatim: MCPClientConfiguration.toml(commandPath: state.mcpPath))
                                 .textStyle(PisaDesign.Typography.code)
                                 .foregroundStyle(PisaDesign.Colors.paper)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -73,7 +73,7 @@ struct SettingsView: View {
                                 .padding(PisaDesign.Spacing.content)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(PisaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
-                            screenButton("Скопировать конфигурацию") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString("[mcp_servers.pisa]\ncommand = \"\(state.mcpPath)\"", forType: .string) }.actionButton()
+                            screenButton("Скопировать конфигурацию") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(MCPClientConfiguration.toml(commandPath: state.mcpPath), forType: .string) }.actionButton()
                             SupportingText("Доступны встречи, папки, поиск реплик и сведения о полноте расшифровки. Выключатель отзывает доступ и у уже запущенного клиента.")
                         }
                             }
