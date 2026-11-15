@@ -4,6 +4,7 @@ import AppKit
 struct MeetingSummaryOnboarding: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTextScale) private var textScale
     @State private var saveError: String?
 
     private var configuration: String {
@@ -11,9 +12,9 @@ struct MeetingSummaryOnboarding: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
             HStack(alignment: .top, spacing: PisaDesign.Spacing.inline) {
-                SectionHeading("Саммари встречи — у вашего AI-ассистента", style: .dialog)
+                SectionHeading("Саммари встречи — у вашего AI‑ассистента", style: .dialog)
                 Spacer(minLength: PisaDesign.Spacing.none)
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -25,46 +26,9 @@ struct MeetingSummaryOnboarding: View {
                 .accessibilityLabel("Закрыть")
                 .keyboardShortcut(.cancelAction)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-                    SupportingText("Pisa сознательно не делает саммари: она записывает и расшифровывает встречи, а их осмысление оставляет вашему настроенному AI-ассистенту. Он знает ваши задачи и лучше подстроит результат под вас — будь это Claude, ChatGPT, Hermes, BB или другой ассистент на выбранной вами локальной или облачной модели.")
-
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                        SectionHeading("Подключите встречи один раз")
-                        SupportingText("Сделайте скриншот этих настроек и попросите своего AI-ассистента: «Настрой подключение к MCP-серверу Pisa». MCP даёт ассистенту доступ к расшифровкам. Для подключения нужен клиент с поддержкой локальных MCP-серверов (stdio).")
-                    }
-
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-                        screenToggle("Разрешить MCP читать библиотеку", isOn: Binding(
-                            get: { state.preferences.mcpEnabled },
-                            set: { setMCPEnabled($0) }
-                        ))
-                        screenText("Локальный MCP-сервер · stdio")
-                            .textStyle(PisaDesign.Typography.detailStrong)
-                        screenText(verbatim: configuration)
-                            .textStyle(PisaDesign.Typography.code)
-                            .foregroundStyle(PisaDesign.Colors.paper)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
-                            .padding(PisaDesign.Spacing.content)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(PisaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
-                        screenButton("Скопировать конфигурацию") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(configuration, forType: .string)
-                        }.actionButton()
-                        SupportingText(state.preferences.mcpEnabled
-                            ? "Ассистент сможет читать и искать встречи. Менять библиотеку и получать аудиофайлы через MCP нельзя. При выборе облачной модели прочитанный текст может отправляться ей."
-                            : "Доступ выключен. Включите его здесь, чтобы ассистент мог читать и искать встречи.",
-                            style: PisaDesign.Typography.detail)
-                    }
-
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                        SectionHeading("Дальше просто спрашивайте")
-                        SupportingText("Попросите ассистента: «Сделай саммари последней встречи», «О чём мы договорились?» или «Какие задачи остались за мной?». Можно задавать любые вопросы по прошедшим встречам. Настройки подключения всегда доступны в Pisa: Настройки → MCP.")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ViewThatFits(in: .vertical) {
+                instructions.fixedSize(horizontal: false, vertical: true)
+                ScrollView { instructions }
             }
             HStack(alignment: .center, spacing: PisaDesign.Spacing.section) {
                 SupportingText(saveError ?? "«Я понял» скроет кнопку во всех расшифровках", style: PisaDesign.Typography.detail)
@@ -75,7 +39,45 @@ struct MeetingSummaryOnboarding: View {
             }
         }
         .dialogContent()
-        .frame(width: 720, height: 640)
+        .frame(width: 750 * max(1, textScale))
+        .frame(maxHeight: 640)
+    }
+
+    private var instructions: some View {
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+            SupportingText("Pisa расшифровывает встречи и сознательно оставляет саммари вашему AI‑ассистенту. Ассистент знает, над чем вы работаете, и выделит главное для текущих задач. Claude, ChatGPT, Hermes, BB или другой — на локальной или облачной модели по вашему\u{00a0}выбору.")
+
+            SectionHeading("Подключите Pisa к ассистенту", subtitle: "Сделайте скриншот настроек ниже и попросите своего AI‑ассистента подключить MCP‑сервер Pisa. Нужна поддержка локального MCP (stdio).")
+
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+                HStack(spacing: PisaDesign.Spacing.related) {
+                    screenToggle("Разрешить MCP читать библиотеку", isOn: Binding(
+                        get: { state.preferences.mcpEnabled },
+                        set: { setMCPEnabled($0) }
+                    ))
+                    Spacer(minLength: PisaDesign.Spacing.none)
+                    screenButton("Скопировать настройки") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(configuration, forType: .string)
+                    }.actionButton()
+                        .fixedSize()
+                }
+                screenText(verbatim: configuration)
+                    .textStyle(PisaDesign.Typography.code)
+                    .foregroundStyle(PisaDesign.Colors.paper)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(PisaDesign.Spacing.related)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(PisaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
+                if !state.preferences.mcpEnabled {
+                    SupportingText("Включите доступ, чтобы ассистент мог читать встречи", style: PisaDesign.Typography.detail)
+                }
+            }
+
+            SupportingText("После подключения просите саммари любой встречи и уточняйте детали\u{00a0}— о чём договорились, кто за что отвечает и что осталось сделать. Можно задавать вопросы сразу по нескольким встречам или делать саммари по итогу дня.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func acknowledge() {
