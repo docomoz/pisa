@@ -10,7 +10,7 @@ enum InterfaceLayoutElement: Hashable {
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
-    case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit
+    case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
     case voiceMergeList, voiceMergeCandidate(UUID)
@@ -192,7 +192,7 @@ private final class LayoutSuite {
         state.phase = "Распознавание"
         state.progress = 0.42
         state.enqueue(queued.id)
-        state.preferences.vocabulary = "Писая"
+        state.preferences.vocabulary = "Писая\nЯндекс"
 
         for (size, scale) in [(CGSize(width: 980, height: 660), 1.0), (CGSize(width: 1200, height: 800), 1.2),
                               (CGSize(width: 1200, height: 800), 1.0), (CGSize(width: 980, height: 660), 1.2)] {
@@ -337,6 +337,19 @@ private final class LayoutSuite {
             }
             if let measured = frames([.dictionarySearch, .dictionaryEntry, .dictionaryAdd, .dictionaryResult], in: host) {
                 checkFormRow(measured.prefix(3))
+                if let heading = frames([.dictionaryHeading], in: host)?.first {
+                    equal(measured[0].minY - heading.maxY, PisaDesign.Spacing.content,
+                          "dictionary search starts directly below the heading")
+                }
+                let rows = VocabularyDictionary.entries(in: state.preferences.vocabulary).map {
+                    InterfaceLayoutElement.dictionaryRow($0.id)
+                }
+                if let rowFrames = frames(rows, in: host) {
+                    let expectedHeight = PisaDesign.Metrics.smallHeight + 2 * PisaDesign.Spacing.compact
+                    equal(rowFrames[0].height, expectedHeight, "a short dictionary row uses compact vertical padding")
+                    equal(rowFrames[1].minY - rowFrames[0].maxY, PisaDesign.Spacing.compact,
+                          "dictionary rows have compact spacing")
+                }
                 checkField(.dictionarySearch, placeholder: true, value: "ПППППП", in: host)
                 checkField(.dictionaryEntry, placeholder: true, value: "ПППППП", in: host)
                 if let field = host.field(in: measured[0]) {

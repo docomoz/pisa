@@ -33,7 +33,7 @@ struct VocabularyDictionaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
             SectionHeading("Словарь распознавания", subtitle: "Нужное написание имён, названий и специальных слов")
-            SupportingText(search.isEmpty ? "Записей: \(entries.count)" : "Найдено: \(filtered.count) из \(entries.count)")
+                .measuredForInterfaceTest(.dictionaryHeading)
             HStack(spacing: PisaDesign.Spacing.related) {
                 SearchField(title: typographicText("Поиск по словарю"), text: $search)
                     .measuredForInterfaceTest(.dictionarySearch)
@@ -63,15 +63,17 @@ struct VocabularyDictionaryView: View {
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+                    LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
                         if entries.isEmpty {
                             SupportingText("Добавьте имена и названия, которые Pisa записывает неточно")
                         } else if filtered.isEmpty {
-                            SectionHeading("Ничего не найдено")
-                            screenButton("Очистить поиск") { search = "" }.actionButton()
+                            VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+                                SectionHeading("Ничего не найдено")
+                                screenButton("Очистить поиск") { search = "" }.actionButton()
+                            }
                         }
                         ForEach(filtered) { entry in
-                            HStack(alignment: .top, spacing: PisaDesign.Spacing.related) {
+                            HStack(spacing: PisaDesign.Spacing.related) {
                                 screenText(verbatim: entry.text, highlighting: search).fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                                     .measuredForInterfaceTest(.dictionaryResult)
@@ -81,9 +83,11 @@ struct VocabularyDictionaryView: View {
                                 }
                                 .fixedSize(horizontal: true, vertical: false)
                             }
-                            .padding(PisaDesign.Spacing.related)
+                            .padding(.horizontal, PisaDesign.Spacing.related)
+                            .padding(.vertical, PisaDesign.Spacing.compact)
                             .background(highlighted == entry.id ? Color.moss.opacity(0.14) : Color.clear,
                                         in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
+                            .measuredForInterfaceTest(.dictionaryRow(entry.id))
                             .id(entry.id)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
