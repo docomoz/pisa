@@ -43,6 +43,13 @@ final class TechnologyVocabularyCatalogTests: XCTestCase {
         XCTAssertEqual(vocabulary.apply(to: source), expected)
     }
 
+    func testPlanningTermsAreRecognizedByTheSystemVocabulary() {
+        let source = "Обсудили роудмап и челлендж на кью один, кью два, кью три и q4. Через первый квартал сверим результаты."
+        XCTAssertEqual(vocabulary.apply(to: source),
+                       "Обсудили roadmap и challenge на Q1, Q2, Q3 и Q4. Через первый квартал сверим результаты.")
+        XCTAssertEqual(vocabulary.observedTerms(in: [source], limit: 8), ["roadmap", "challenge", "Q1", "Q2", "Q3", "Q4"])
+    }
+
     func testOrdinaryWordsAndLiteralPathsArePreserved() {
         let source = "We hired a headhunter. Наняли хедхантера и встретились с хедхантером. Прочли Отелло. Обсудили НИР и ОКР. Изучили симптомы ОКР. В отчёте есть СРМ. Не меняем B2S, `white label` и https://otello.ru."
         XCTAssertEqual(vocabulary.apply(to: source), source)

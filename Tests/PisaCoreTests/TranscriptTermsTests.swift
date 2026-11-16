@@ -173,6 +173,20 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(TranscriptTerms.matches("что-то", in: segments).count, 2)
     }
 
+    func testCandidatesSkipSystemPlanningTermsAndKeepManualSearch() {
+        let segments = [segment("Обсудили Q1, Q2, Q3 и q4, затем Roadmap и Challenge. Сравнили роудмап, челлендж и кью три. Открыли API и Qwen3-ASR.")]
+        XCTAssertEqual(Set(TranscriptTerms.candidates(in: segments, vocabulary: "").map(\.text)), ["API", "Qwen3-ASR"])
+        XCTAssertEqual(TranscriptTerms.matches("Q3", in: segments).map(\.text), ["Q3", "кью три"])
+        XCTAssertEqual(TranscriptTerms.matches("roadmap", in: segments).map(\.text), ["Roadmap", "роудмап"])
+        XCTAssertEqual(TranscriptTerms.matches("challenge", in: segments).map(\.text), ["Challenge", "челлендж"])
+    }
+
+    func testCandidatesSkipRussianOrdinalNumeralsWithoutDroppingModelNames() {
+        let segments = [segment("Встречи с 21-го по 25-го, к 3‐му и на 4‑й день. Обсудили 1-е и 5-х, 6-м и 7-ми, а также 8-я, 9-ю и 10-МУ. Проверили Qwen3-ASR, 2ГИС, Wi-Fi 6 и 1-Wire.")]
+        XCTAssertEqual(Set(TranscriptTerms.candidates(in: segments, vocabulary: "").map(\.text)), ["Qwen3-ASR", "2ГИС", "Wi-Fi", "1-Wire"])
+        XCTAssertEqual(TranscriptTerms.matches("21-го", in: segments).map(\.text), ["21-го"])
+    }
+
     func testCandidatesKeepRussianFunctionWordsOutOfAcronymGroups() {
         let segments = [
             segment("По дороге поговорили по сути и по старинке. Решили делать по-новому, а не по-старому."),

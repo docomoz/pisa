@@ -4,7 +4,8 @@ enum TechnologyVocabularyCatalog {
     // aliases with a common meaning. c requires an adjacent company/service cue.
     // ic also permits regular Russian case endings for that company name.
     // w requires a technical cue only for English spoken aliases; i permits
-    // observed endings on a company name. Flags can be combined (e.g. ic).
+    // observed endings on a company name. h hides an entry from term candidates.
+    // Flags can be combined (e.g. ic).
     // = marks a written alias with exact case.
     // Plain written terms are useful for extraction even without spoken aliases.
     static let entries = """
@@ -194,6 +195,12 @@ enum TechnologyVocabularyCatalog {
     точка безубыточности
     дисконтированный денежный поток
     # Product, analytics and working methods
+    Q1|h|кью один;кью 1;=q1
+    Q2|h|кью два;кью 2;=q2
+    Q3|h|кью три;кью 3;=q3
+    Q4|h|кью четыре;кью 4;=q4
+    roadmap|h|роудмап;роадмап
+    challenge|h|челлендж
     MVP|+|эм вэ пэ
     MLP|+
     MMP|+

@@ -240,6 +240,17 @@ struct TechnologyVocabulary {
         inflectableKeys.contains(key(term))
     }
 
+    static func isHiddenFromCandidates(_ term: String) -> Bool {
+        hiddenCandidateKeys.contains(key(term))
+    }
+
+    private static let hiddenCandidateKeys: Set<String> = Set(
+        TechnologyVocabularyCatalog.entries.split(whereSeparator: \.isNewline).compactMap { line in
+            let fields = line.split(separator: "|", omittingEmptySubsequences: false)
+            guard fields.count > 1, fields[1].contains("h") else { return nil }
+            return key(String(fields[0]))
+        })
+
     /// Curated homonyms need their own context and ending rules even when the
     /// user has saved the canonical brand spelling in their dictionary.
     static func requiresCompanyContext(_ term: String) -> Bool {

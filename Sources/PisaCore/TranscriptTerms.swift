@@ -23,6 +23,9 @@ public enum TranscriptTerms {
     private static let word = try! NSRegularExpression(
         pattern: leadingBoundary + #"[\p{L}\p{N}][\p{L}\p{M}\p{N}\-‐‑]*(?:['’][\p{L}\p{M}\p{N}]+)*"# + trailingBoundary
     )
+    private static let russianOrdinalNumeral = try! NSRegularExpression(
+        pattern: #"\A\p{Nd}+[-‐‑](?:[йяеюмх]|го|му|ми)\z"#, options: .caseInsensitive
+    )
     private static let sentenceBreaks = Set<Character>(".!?…\n\r")
     private static let commonLatin: Set<String> = [
         "and", "but", "for", "from", "have", "hello", "into", "just", "like",
@@ -74,7 +77,7 @@ public enum TranscriptTerms {
             let builtIn = technology.matches(in: text).filter { !speakers.contains(entityKey($0.term)) }
             for match in builtIn {
                 let normalized = key(match.term)
-                guard !known.contains(normalized) else { continue }
+                guard !known.contains(normalized), !TechnologyVocabulary.isHiddenFromCandidates(match.term) else { continue }
                 technologyGroups[normalized, default: Group(text: match.term, score: 4)]
                     .occurrences.append(technologyOccurrence(match, in: segment))
             }
@@ -90,7 +93,9 @@ public enum TranscriptTerms {
                     // join an uppercase acronym through the case-folded key.
                     let plainFunctionWord = AbbreviationFamilies.isRussianFunctionWord(token) && token != token.uppercased()
                     if (2...48).contains(token.count), token.contains(where: \.isLetter),
-                       !plainFunctionWord, !known.contains(key(token)), families.known(token) == nil {
+                       !plainFunctionWord, !known.contains(key(token)), families.known(token) == nil,
+                       !TechnologyVocabulary.isHiddenFromCandidates(token),
+                       russianOrdinalNumeral.firstMatch(in: token, range: NSRange(location: 0, length: match.range.length)) == nil {
                         let family = families.form(token)
                         eligibleForms.updateValue((key(family?.base ?? token), family), forKey: token)
                     } else {
@@ -143,14 +148,15 @@ public enum TranscriptTerms {
         let validated = collectMatches(in: segments) { segment in
             technology.matches(in: segment.text).filter { key($0.term) == normalized }.map { technologyOccurrence($0, in: segment) }
         }
-        guard VocabularyDictionary.entries(in: vocabulary).contains(where: { key($0.text) == normalized }) else {
+        guard TechnologyVocabulary.isHiddenFromCandidates(trimmed)
+                || VocabularyDictionary.entries(in: vocabulary).contains(where: { key($0.text) == normalized }) else {
             return validated
         }
-        // The matcher protects personal spellings during normalization. Search
-        // includes those literal spans along with its validated aliases.
-        let personal = literalMatches(trimmed, in: segments, vocabulary: vocabulary)
+        // Include case variants of hidden terms and personal spellings that
+        // the normalizer protects, alongside the validated aliases.
+        let literal = literalMatches(trimmed, in: segments, vocabulary: vocabulary)
         var bySegment: [UUID: [NSRange: TermOccurrence]] = [:]
-        for occurrence in personal + validated {
+        for occurrence in literal + validated {
             bySegment[occurrence.segmentID, default: [:]][occurrence.range] = occurrence
         }
         return collectMatches(in: segments) { segment in

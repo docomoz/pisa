@@ -42,7 +42,7 @@ enum TermReviewTests {
         meeting.segments = [TranscriptSegment(start: 0, end: 7, speaker: "Участник",
             text: "🎙 С битуби работали вчера. Обсудили с Б2Б'ом и проверили B2B. «битуби» было в цитате."),
             TranscriptSegment(start: 8, end: 17, speaker: "Участник",
-                text: "Для пи ар ди сверили API. О документации договорились с представителями компании Apple.")]
+                text: "Для пи ар ди сверили API. О документации договорились с представителями компании Apple. Обсудили Roadmap и Challenge на Q3 и Q4. Встречи с 21-го по 25-го.")]
         state.update(meeting)
         return try state.library.read(meeting.id)
     }
@@ -130,6 +130,8 @@ enum TermReviewTests {
 
         let builtInMeeting = try technologyFixture(state)
         let builtIn = TranscriptTerms.candidates(in: builtInMeeting.segments, vocabulary: state.preferences.vocabulary)
+        try check(Set(builtIn.map(\.text)).isDisjoint(with: ["Q3", "Q4", "roadmap", "challenge", "Roadmap", "Challenge", "21-го", "25-го"]),
+                  "Candidate list included hidden planning terms or ordinal numerals")
         let business = try unwrap(builtIn.first { $0.text == "B2B" }, "Built-in term missing from empty-vocabulary meeting")
         try check(business.occurrences.map(\.text) == ["битуби", "Б2Б'ом", "B2B"], "Built-in candidate spans were not grouped")
         try state.replaceTerms(business.occurrences, with: "B2B", meetingID: builtInMeeting.id)
