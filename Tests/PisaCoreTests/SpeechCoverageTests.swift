@@ -27,6 +27,88 @@ final class SpeechCoverageTests: XCTestCase {
                                                 sampleCount: 40, minimumPartialLength: 5), [])
         XCTAssertEqual(SpeechCoverage.uncovered(speech: [0..<30], covered: [], sampleCount: 0, minimumPartialLength: 5), [])
     }
+
+    func testShortIsolatedSpeechSurvivesPaddingThatWouldDropItsRemainder() {
+        let turn = 12_697..<18_420
+        let diarized = [0..<10_000, 22_420..<40_000]
+        let padded = [0..<14_000, 20_420..<40_000]
+        XCTAssertEqual(SpeechCoverage.uncovered(speech: [turn], covered: padded,
+                                                sampleCount: 40_000, minimumPartialLength: 4_800), [])
+        let protected = SpeechCoverage.shortSpeechHiddenByPadding(speech: [turn], diarized: diarized,
+            padded: padded, sampleCount: 40_000, maximumLength: 8_000, minimumPartialLength: 4_800) {
+                $0 == turn
+            }
+        XCTAssertEqual(protected, [turn])
+        XCTAssertEqual(SpeechCoverage.trimPadding(padded[0], around: diarized[0], avoiding: protected), 0..<12_697)
+        XCTAssertEqual(SpeechCoverage.trimPadding(17_500..<40_000, around: diarized[1], avoiding: protected), 18_420..<40_000)
+    }
+
+    func testOneSidedPaddingCanSuppressShortSpeechBeforeDiarizedContinuation() {
+        let speech = [101_472..<119_328]
+        let diarized = [0..<98_775, 111_195..<119_835]
+        let padded = [0..<102_775, 107_195..<123_835]
+        let shortTurn = 101_472..<107_195
+        XCTAssertEqual(SpeechCoverage.uncovered(speech: speech, covered: padded,
+                                                sampleCount: 960_000, minimumPartialLength: 4_800), [])
+        var checked: [Range<Int>] = []
+        let protected = SpeechCoverage.shortSpeechHiddenByPadding(speech: speech, diarized: diarized,
+            padded: padded, sampleCount: 960_000, maximumLength: 8_000, minimumPartialLength: 4_800) {
+                checked.append($0)
+                return true
+            }
+        XCTAssertEqual(checked, [shortTurn])
+        XCTAssertEqual(protected, [shortTurn])
+        XCTAssertEqual(SpeechCoverage.trimPadding(padded[0], around: diarized[0], avoiding: protected), 0..<101_472)
+        XCTAssertEqual(SpeechCoverage.trimPadding(padded[1], around: diarized[1], avoiding: protected), padded[1])
+    }
+
+    func testShortSpeechProtectionLeavesOrdinaryRecoveryAndDiarizedOverlapAlone() {
+        let diarized = [0..<10_000, 30_000..<40_000]
+        let padded = [0..<14_000, 26_000..<40_000]
+        let weakCases = [
+            9_500..<14_500,   // Overlaps diarization and the true gap is too short.
+            11_000..<16_000,  // Isolated geometry passes, local VAD does not.
+            11_000..<13_000,  // Entire excerpt already reaches neighboring recognition.
+            13_000..<19_000,  // Ordinary coverage preserves the remainder.
+            13_000..<22_000,  // Longer than the short-turn limit.
+            17_000..<20_000,  // Ordinary coverage preserves the entire turn.
+        ]
+        for turn in weakCases {
+            var checks: [Range<Int>] = []
+            let selected = SpeechCoverage.shortSpeechHiddenByPadding(speech: [turn], diarized: diarized,
+                padded: padded, sampleCount: 40_000, maximumLength: 8_000, minimumPartialLength: 4_800) {
+                    checks.append($0)
+                    return turn != 11_000..<16_000
+                }
+            XCTAssertEqual(selected, [], "\(turn)")
+            XCTAssertEqual(checks, turn == 11_000..<16_000 ? [turn] : [], "\(turn)")
+        }
+        XCTAssertEqual(SpeechCoverage.trimPadding(padded[0], around: diarized[0], avoiding: []), padded[0])
+    }
+
+    func testTwoSidedPaddingNeedsAnUnambiguousShortSpeechWindow() {
+        let padded = [0..<6_000, 8_500..<15_000]
+        let speech = [3_000..<12_000]
+        var checked: [Range<Int>] = []
+        let ambiguous = SpeechCoverage.shortSpeechHiddenByPadding(speech: speech,
+            diarized: [0..<3_000, 12_000..<15_000], padded: padded,
+            sampleCount: 15_000, maximumLength: 8_000, minimumPartialLength: 4_800) {
+                checked.append($0)
+                return true
+            }
+        XCTAssertEqual(ambiguous, [])
+        XCTAssertEqual(checked, [])
+
+        let combined = SpeechCoverage.shortSpeechHiddenByPadding(speech: speech,
+            diarized: [0..<3_000, 11_000..<15_000], padded: padded,
+            sampleCount: 15_000, maximumLength: 8_000, minimumPartialLength: 4_800) {
+                checked.append($0)
+                return true
+            }
+        XCTAssertEqual(combined, [3_000..<11_000])
+        XCTAssertEqual(checked, combined)
+    }
+
     func testJoinNearbySortsAndMergesGapsWithinLimit() {
         XCTAssertEqual(SpeechCoverage.joinNearby([90..<110, 0..<20, 27..<50, 50..<65], maximumGap: 7, maximumLength: 70),
                        [0..<65, 90..<110])

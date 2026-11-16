@@ -226,14 +226,15 @@ actor Transcriber {
                         var regions = isMic
                             ? [VoiceRegion(start: max(0, range.start - start), end: min(duration, range.end - start), embedding: nil)]
                             : voices?.regions(samples, extractEmbeddings: false) ?? []
+                        var protectedShortSpeech: [Range<Int>] = []
                         if !isMic {
                             // VAD recovers speech that segmentation missed. Acoustic
                             // probes can recover a voice only when independent parts
                             // agree; short or conflicting evidence stays unidentified.
-                            let speech = activity.regions(samples)
                             func sampleRange(_ region: VoiceRegion) -> Range<Int> {
                                 Int((region.start * 16000).rounded())..<Int((region.end * 16000).rounded())
                             }
+                            let speech = activity.regions(samples).map(sampleRange)
                             // Reserve the audio padding already used to decode
                             // each speaker turn. Recovered gaps must not steal
                             // its syllables or change its recognition context.
@@ -244,13 +245,22 @@ actor Transcriber {
                                 let trailing = min(0.25, max(0, (next - region.end) / 2))
                                 return Int((region.start - leading) * 16000)..<min(samples.count, Int((region.end + trailing) * 16000))
                             }
-                            let missing = SpeechCoverage.uncovered(speech: speech.map(sampleRange),
+                            let missing = SpeechCoverage.uncovered(speech: speech,
                                 covered: covered, sampleCount: samples.count,
                                 minimumPartialLength: 4800)
+                            protectedShortSpeech = SpeechCoverage.shortSpeechHiddenByPadding(speech: speech,
+                                diarized: regions.map(sampleRange), padded: covered, sampleCount: samples.count,
+                                maximumLength: 8000, minimumPartialLength: 4800) { turn in
+                                    !activity.regions(Array(samples[turn])).isEmpty
+                                }
                             regions += missing.flatMap { gap in
                                 voices?.recoveredRegions(samples, in: gap) ?? [VoiceRegion(
                                     start: Double(gap.lowerBound) / 16000, end: Double(gap.upperBound) / 16000,
                                     embedding: nil, recoveredSpeech: true)]
+                            }
+                            regions += protectedShortSpeech.map { turn in
+                                VoiceRegion(start: Double(turn.lowerBound) / 16000, end: Double(turn.upperBound) / 16000,
+                                    embedding: nil, recoveredSpeech: true, recoveryRange: turn)
                             }
                             regions.sort { $0.start < $1.start }
                         }
@@ -292,6 +302,12 @@ actor Transcriber {
                                 upper = min(samples.count, context.upperBound)
                             }
                             guard upper > lower else { continue }
+                            if !region.recoveredSpeech, !protectedShortSpeech.isEmpty {
+                                let evidence = Int((region.start * 16000).rounded())..<Int((region.end * 16000).rounded())
+                                let trimmed = SpeechCoverage.trimPadding(lower..<upper, around: evidence, avoiding: protectedShortSpeech)
+                                lower = trimmed.lowerBound
+                                upper = trimmed.upperBound
+                            }
                             let regionSamples = Array(samples[lower..<upper])
                             // Confirm speech in the exact recovered evidence, not
                             // the recognition padding borrowed across an acoustic cut.

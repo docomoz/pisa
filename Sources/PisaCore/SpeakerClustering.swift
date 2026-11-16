@@ -137,6 +137,7 @@ public enum SpeakerClustering {
             }
             return independentPair ? name : nil
         }
+        let soleUnidentifiedVoice = clusters.count == 1 && known.allSatisfy { $0 == nil }
         var result = input, names: [Int: String] = [:]
         var reservedNames = Set(profiles.map(\.name))
         var nextAnonymous = 1
@@ -172,6 +173,14 @@ public enum SpeakerClustering {
                 // voice inside this named acoustic cluster. Keep the uncertainty
                 // explicit until this turn independently supports its name.
                 result[i].speaker = supportedName ?? TranscriptSegment.unidentifiedSpeaker
+                continue
+            }
+            // One isolated observation cannot establish another person in a
+            // multi-voice recording. Require independent clean evidence before
+            // introducing a numbered identity; keep a sole clear voice usable.
+            let independent = clusters[best.0].independentAnchors
+            guard soleUnidentifiedVoice || (independent.count >= 2 && independent.reduce(0, { $0 + $1.duration }) >= 6) else {
+                result[i].speaker = TranscriptSegment.unidentifiedSpeaker
                 continue
             }
             if names[best.0] == nil {

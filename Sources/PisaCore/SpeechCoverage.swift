@@ -71,6 +71,45 @@ enum SpeechCoverage {
         return result
     }
 
+    /// Give a short VAD fragment its own recognition window when neighboring
+    /// padding alone brings it below the regular gap threshold.
+    static func shortSpeechHiddenByPadding(speech: [Range<Int>], diarized: [Range<Int>],
+                                          padded: [Range<Int>], sampleCount: Int, maximumLength: Int,
+                                          minimumPartialLength: Int,
+                                          confirmsSpeech: (Range<Int>) -> Bool) -> [Range<Int>] {
+        let minimum = max(1, minimumPartialLength)
+        guard maximumLength >= minimum else { return [] }
+        let rawGaps = uncovered(speech: speech, covered: diarized, sampleCount: sampleCount, minimumPartialLength: 1)
+        let paddedGaps = uncovered(speech: speech, covered: padded, sampleCount: sampleCount, minimumPartialLength: 1)
+        return paddedGaps.compactMap { remnant in
+            guard remnant.count < minimum, let original = rawGaps.first(where: {
+                $0.lowerBound <= remnant.lowerBound && $0.upperBound >= remnant.upperBound
+            }) else { return nil }
+            let candidates = [original.lowerBound..<remnant.upperBound, remnant.lowerBound..<original.upperBound]
+                .filter { (minimum...maximumLength).contains($0.count) }
+            // If either edge could be reclaimed, require the full gap to fit.
+            // Choosing a side in a larger gap could cut through the same word.
+            guard let candidate = candidates.first, candidates.count == 1 || original.count <= maximumLength else { return nil }
+            let turn = candidates.count == 2 ? original : candidate
+            return confirmsSpeech(turn) ? turn : nil
+        }
+    }
+
+    /// Stop a neighbor's recognition context at independently recovered speech.
+    static func trimPadding(_ padded: Range<Int>, around region: Range<Int>,
+                            avoiding speech: [Range<Int>]) -> Range<Int> {
+        var lower = padded.lowerBound
+        var upper = padded.upperBound
+        for turn in speech {
+            if turn.upperBound <= region.lowerBound {
+                lower = max(lower, turn.upperBound)
+            } else if turn.lowerBound >= region.upperBound {
+                upper = min(upper, turn.lowerBound)
+            }
+        }
+        return lower..<upper
+    }
+
     private static func clippedUnion(_ ranges: [Range<Int>], sampleCount: Int) -> [Range<Int>] {
         let clipped = ranges.compactMap { range -> Range<Int>? in
             let lower = max(0, range.lowerBound)

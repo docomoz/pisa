@@ -8,7 +8,8 @@ final class SpeakerClusteringTests: XCTestCase {
             turn(start: 4, duration: 10, embedding: [1, 1]),
             turn(start: 15, duration: 3, embedding: [0, 1]),
             turn(start: 19, duration: 2, embedding: [1, 0]),
-            turn(start: 22, duration: 2, embedding: [0, 1])
+            turn(start: 22, duration: 2, embedding: [0, 1]),
+            turn(start: 25, duration: 3, embedding: [0.03, 1])
         ]
 
         let assigned = SpeakerClustering.assign(turns, profiles: [])
@@ -50,8 +51,8 @@ final class SpeakerClusteringTests: XCTestCase {
     }
 
     func testLongDistinctVoicesKeepTheirStrongerContradictionGuard() {
-        let angles = [30.0, 0.0, 60.0]
-        let durations = [10.0, 8.0, 7.0]
+        let angles = [30.0, 0.0, 60.0, 58.0]
+        let durations = [10.0, 8.0, 7.0, 6.0]
         let turns = angles.indices.map { index in
             let radians = angles[index] * .pi / 180
             return turn(start: Double(index * 12), duration: durations[index],
@@ -124,7 +125,7 @@ final class SpeakerClusteringTests: XCTestCase {
                      turn(start: 12, duration: 2, embedding: weak),
                      turn(start: 15, duration: 2, embedding: [0.669, 0.743, 0]),
                      turn(start: 18, duration: 4, embedding: [0, 0, 1]), mixed,
-                     turn(start: 27, duration: 2, embedding: [0, 0, 1])]
+                     turn(start: 27, duration: 3, embedding: [0.04, 0, 0.999])]
         let result = SpeakerClustering.assign(turns, profiles: [VoiceProfile(name: "Анна", samples: [[1, 0, 0]]),
                                                               VoiceProfile(name: "Борис", samples: [[0, 1, 0]])])
         XCTAssertEqual(result.map(\.speaker), ["Анна", "Анна", TranscriptSegment.unidentifiedSpeaker,
@@ -196,6 +197,54 @@ final class SpeakerClusteringTests: XCTestCase {
             turn(start: Double(index * 6), duration: 4, embedding: vector(angle))
         } + [turn(start: 36, duration: 2, embedding: [0.95, 0, 0.3122499])]
         return (turns, [VoiceProfile(name: "Анна", samples: [vector(-50), vector(50)])])
+    }
+
+    func testAnonymousSingletonDoesNotInventANewIdentityAlongsideRecognizedSpeech() {
+        let turns = [turn(start: 0, duration: 2, embedding: [1, 0]),
+                     turn(start: 3, duration: 4, embedding: [0, 1])]
+        let result = SpeakerClustering.assign(turns, profiles: [VoiceProfile(name: "Анна", samples: [[1, 0]])])
+        XCTAssertEqual(result.map(\.speaker), ["Анна", TranscriptSegment.unidentifiedSpeaker])
+        XCTAssertEqual(result.map(\.text), turns.map(\.text))
+        XCTAssertEqual(result.map(\.start), turns.map(\.start))
+        XCTAssertEqual(result.map(\.end), turns.map(\.end))
+    }
+
+    func testSingleClearUnidentifiedVoiceKeepsItsAnonymousIdentity() {
+        let turns = [turn(start: 0, duration: 4, embedding: [0, 1])]
+        XCTAssertEqual(SpeakerClustering.assign(turns, profiles: []).map(\.speaker), ["Спикер 1"])
+    }
+
+    func testSeveralIsolatedUnidentifiedFragmentsCannotInventSeveralIdentities() {
+        let turns = [turn(start: 0, duration: 4, embedding: [1, 0, 0]),
+                     turn(start: 5, duration: 4, embedding: [0, 1, 0]),
+                     turn(start: 10, duration: 4, embedding: [0, 0, 1])]
+        XCTAssertEqual(SpeakerClustering.assign(turns, profiles: []).map(\.speaker),
+                       Array(repeating: TranscriptSegment.unidentifiedSpeaker, count: 3))
+    }
+
+    func testIndependentReliableTurnsCorroborateOneAnonymousIdentity() {
+        let turns = [turn(start: 0, duration: 4, embedding: [1, 0]),
+                     turn(start: 5, duration: 3, embedding: [0, 1]),
+                     turn(start: 9, duration: 3, embedding: [0.05, 0.999])]
+        let result = SpeakerClustering.assign(turns, profiles: [VoiceProfile(name: "Анна", samples: [[1, 0]])])
+        XCTAssertEqual(result.map(\.speaker), ["Анна", "Спикер 1", "Спикер 1"])
+    }
+
+    func testDuplicatedOverlappingMixedOrInsufficientEvidenceCannotCorroborateAnonymousIdentity() {
+        let first = turn(start: 5, duration: 3, embedding: [0, 1])
+        var mixed = turn(start: 9, duration: 6, embedding: [0.05, 0.999])
+        mixed.speakerEvidenceIsMixed = true
+        var unreliable = turn(start: 9, duration: 6, embedding: [0.05, 0.999])
+        unreliable.embeddingDuration = 1.5
+        let alternatives = [turn(start: 9, duration: 3, embedding: [0, 1]),
+                            turn(start: 6, duration: 3, embedding: [0.05, 0.999]),
+                            turn(start: 9, duration: 2.5, embedding: [0.05, 0.999]), mixed, unreliable]
+        for second in alternatives {
+            let turns = [turn(start: 0, duration: 4, embedding: [1, 0]), first, second]
+            let result = SpeakerClustering.assign(turns, profiles: [VoiceProfile(name: "Анна", samples: [[1, 0]])])
+            XCTAssertEqual(result.map(\.speaker), ["Анна", TranscriptSegment.unidentifiedSpeaker,
+                                                  TranscriptSegment.unidentifiedSpeaker])
+        }
     }
 
     func testMatureClusterCannotAbsorbAnUnsupportedSingleVoice() {
