@@ -89,6 +89,9 @@ extension View {
             }
         }
     }
+    func settingsRowHighlight(_ highlighted: Bool = false) -> some View {
+        modifier(SettingsRowHighlight(highlighted: highlighted))
+    }
     func actionControls() -> some View { buttonStyle(ActionButtonStyle()).focusEffectDisabled() }
     func actionButton(_ role: ActionButtonRole = .secondary, size: ActionButtonSize = .regular) -> some View {
         buttonStyle(ActionButtonStyle(role: role, size: size))
@@ -100,6 +103,19 @@ extension View {
     }
     func controlKeyboardFocus() -> some View { modifier(ControlKeyboardFocus()) }
     func pointingHandCursor() -> some View { modifier(PointingHandCursor()) }
+}
+
+private struct SettingsRowHighlight: ViewModifier {
+    let highlighted: Bool
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        let fill = highlighted ? Color.moss.opacity(0.14) : PisaDesign.Colors.secondary.opacity(hovered ? 1 : 0)
+        content
+            .background(fill, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 }
+    }
 }
 
 private struct PointingHandCursor: ViewModifier {

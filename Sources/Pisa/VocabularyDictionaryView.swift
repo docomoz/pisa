@@ -84,8 +84,7 @@ struct VocabularyDictionaryView: View {
                             }
                             .padding(.horizontal, PisaDesign.Spacing.related)
                             .padding(.vertical, PisaDesign.Spacing.compact)
-                            .background(highlighted == entry.id ? Color.moss.opacity(0.14) : Color.clear,
-                                        in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
+                            .settingsRowHighlight(highlighted == entry.id)
                             .measuredForInterfaceTest(.dictionaryRow(entry.id))
                             .id(entry.id)
                         }

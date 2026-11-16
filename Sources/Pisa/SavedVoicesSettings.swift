@@ -98,7 +98,7 @@ struct SavedVoicesSettings: View {
                     .padding(PisaDesign.Spacing.content)
                     .plainSurface()
             } else {
-                VStack(spacing: PisaDesign.Spacing.compact) {
+                VStack(spacing: PisaDesign.Spacing.related) {
                     ForEach(profiles) { profile in
                         voiceRow(profile)
                             .measuredForInterfaceTest(.savedVoiceRow(profile.id))
@@ -126,7 +126,7 @@ struct SavedVoicesSettings: View {
     private func voiceRow(_ profile: VoiceProfile) -> some View {
         let examples = profile.examples ?? []
         let expanded = expandedVoices.contains(profile.id) && !examples.isEmpty
-        return VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+        return VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
             HStack(spacing: PisaDesign.Spacing.related) {
                 if examples.isEmpty {
                     voiceIdentity(profile, sampleCount: 0)
@@ -156,6 +156,9 @@ struct SavedVoicesSettings: View {
                 }
                 voiceActions(profile)
             }
+            .padding(.horizontal, PisaDesign.Spacing.related)
+            .padding(.vertical, PisaDesign.Spacing.compact)
+            .settingsRowHighlight()
             .id(profile.id)
             if expanded {
                 VStack(spacing: PisaDesign.Spacing.compact) {
@@ -166,10 +169,10 @@ struct SavedVoicesSettings: View {
                 }
                 .padding(PisaDesign.Spacing.inline)
                 .plainSurface()
+                .padding(.horizontal, PisaDesign.Spacing.related)
+                .padding(.bottom, PisaDesign.Spacing.compact)
             }
         }
-        .padding(.horizontal, PisaDesign.Spacing.related)
-        .padding(.vertical, PisaDesign.Spacing.compact)
     }
 
     private func voiceIdentity(_ profile: VoiceProfile, sampleCount: Int) -> some View {

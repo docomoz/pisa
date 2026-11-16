@@ -505,8 +505,8 @@ private final class LayoutSuite {
                       "saved voice search starts directly below the heading")
                 equal(measured[2].minY - measured[1].maxY, PisaDesign.Spacing.content,
                       "saved voice rows start one content gap below the search")
-                equal(measured[3].minY - measured[2].maxY, PisaDesign.Spacing.compact,
-                      "saved voice rows have compact spacing")
+                equal(measured[3].minY - measured[2].maxY, PisaDesign.Spacing.related,
+                      "saved voice rows have room between groups")
             }
             checkField(.savedVoiceSearch, placeholder: true, value: "ПППППП", in: host)
         }
