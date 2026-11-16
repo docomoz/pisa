@@ -108,6 +108,18 @@ final class VocabularyDictionaryTests: XCTestCase {
         XCTAssertEqual(updated.variants, ["C&B": ["CnB", "си эн би", "C and B"], "Яндекс": ["Якс"]])
     }
 
+    func testSavingATermAllowsNoVariantsAndPreservesRegularAcronymEndings() throws {
+        let plain = try VocabularyDictionary.addingVariants("", for: "2ГИС", to: "C&B", variants: [:])
+        XCTAssertEqual(plain.vocabulary, "C&B\n2ГИС")
+        XCTAssertTrue(plain.variants.isEmpty)
+
+        let existing = ["2ГИС": ["тугис"]]
+        let same = try VocabularyDictionary.addingVariants("2ГИС, 2ГИС'а, 2ГИСом", for: "2ГИС",
+                                                           to: plain.vocabulary, variants: existing)
+        XCTAssertEqual(same.vocabulary, plain.vocabulary)
+        XCTAssertEqual(same.variants, existing)
+    }
+
     func testAddingVariantsCreatesNewCanonicalAndRejectsOtherOwners() throws {
         let existing = ["C&B": ["CnB"]]
         let updated = try VocabularyDictionary.addingVariants("RND", for: "R&D", to: "C&B", variants: existing)

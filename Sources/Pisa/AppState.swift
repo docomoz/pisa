@@ -1221,18 +1221,25 @@ final class AppState: ObservableObject {
             before[original.id] = original.text
             after[original.id] = edited.text
         }
-        guard !before.isEmpty else { return }
         let dictionary = try variants.map {
             try VocabularyDictionary.addingVariants($0, for: corrected, to: preferences.vocabulary,
                                                      variants: preferences.vocabularyVariants)
         }
+        let changedDictionary = dictionary.map {
+            $0.vocabulary != preferences.vocabulary || $0.variants != preferences.vocabularyVariants
+        } ?? false
+        if before.isEmpty {
+            if let dictionary, changedDictionary {
+                try saveReviewedVocabulary(dictionary.vocabulary, variants: dictionary.variants)
+            }
+            return
+        }
         var meeting = originalMeeting
         meeting.segments = updated
         try library.save(meeting)
-        if let dictionary, dictionary.vocabulary != preferences.vocabulary ||
-            dictionary.variants != preferences.vocabularyVariants {
+        if let dictionary, changedDictionary {
             do {
-                try saveVocabulary(dictionary.vocabulary, variants: dictionary.variants)
+                try saveReviewedVocabulary(dictionary.vocabulary, variants: dictionary.variants)
             } catch let dictionaryError {
                 do { try library.save(originalMeeting) }
                 catch {
@@ -1267,21 +1274,10 @@ final class AppState: ObservableObject {
         upsert(meeting)
         exportIfConfigured(meeting)
     }
-    func addRecognitionTerm(_ term: String) throws {
-        guard !demo else { return }
-        let canonical = TranscriptTerms.dictionaryTerm(term)
-        if let owner = VocabularyDictionary.variantOwner(of: term, in: preferences.vocabularyVariants)
-            ?? VocabularyDictionary.variantOwner(of: canonical, in: preferences.vocabularyVariants) {
-            throw VocabularyDictionary.Failure.variantConflict(term, owner: owner)
-        }
-        var updated = preferences
-        updated.vocabulary = TranscriptTerms.adding(term, to: preferences.vocabulary)
-        guard updated.vocabulary != preferences.vocabulary else {
-            throw PisaError.message("Введите один новый термин без запятых и точек с запятой")
-        }
-        try library.savePreferences(updated)
-        preferences = updated
-        Analytics.feature(.dictionaryTermAdded)
+    private func saveReviewedVocabulary(_ vocabulary: String, variants: [String: [String]]) throws {
+        let addedTerm = vocabulary != preferences.vocabulary
+        try saveVocabulary(vocabulary, variants: variants)
+        if addedTerm, !demo { Analytics.feature(.dictionaryTermAdded) }
     }
     private func preservingAudioFiles(in value: Meeting) -> Meeting {
         var meeting = value

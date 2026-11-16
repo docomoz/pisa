@@ -35,6 +35,7 @@ enum TermReviewTests {
 
     private static func technologyFixture(_ state: AppState) throws -> Meeting {
         state.preferences.vocabulary = ""
+        state.preferences.vocabularyVariants = [:]
         state.preferences.automaticRecording = false
         try state.library.savePreferences(state.preferences)
         var meeting = Meeting(title: "Встроенные термины", source: "Проверка словаря")
@@ -118,12 +119,17 @@ enum TermReviewTests {
                   "Saved Cyrillic replacement lost the apostrophe or changed an ending")
         try state.undoTermReplacement(meetingID: original.id)
 
-        try state.addRecognitionTerm("2ГИС'ом")
+        try state.replaceTerms(occurrences, with: "2ГИС", meetingID: original.id, remembering: "")
         try check(state.preferences.vocabulary == "Сбер\n2ГИС", "Dictionary saved an inflected form")
         try check(try state.library.preferences().vocabulary == "Сбер\n2ГИС", "Dictionary base was not persisted")
-        var duplicateRejected = false
-        do { try state.addRecognitionTerm("2ГИС'е") } catch { duplicateRejected = true }
-        try check(duplicateRejected && state.preferences.vocabulary == "Сбер\n2ГИС", "Dictionary added another form of the same base")
+        try state.replaceTerms(occurrences, with: "2ГИС", meetingID: original.id, remembering: "2ГИС'е")
+        try check(state.preferences.vocabulary == "Сбер\n2ГИС" && state.preferences.vocabularyVariants.isEmpty,
+                  "Dictionary added another form of the same base")
+        try state.replaceTerms(occurrences, with: "2ГИС", meetingID: original.id, remembering: "ту гис")
+        try check(try state.library.preferences().vocabularyVariants["2ГИС"] == ["ту гис"],
+                  "Saving a variant without replacing the transcript did not persist")
+        try check(try Data(contentsOf: file) == originalData, "Saving the dictionary rewrote an unchanged meeting")
+        try check(!state.canUndoTermReplacement(meetingID: original.id), "Saving the dictionary created transcript undo history")
         let restarted = AppState(rootURL: root)
         try check(restarted.preferences.vocabulary == "Сбер\n2ГИС", "Dictionary base changed after restart")
         try check(restarted.meetings.first { $0.id == original.id }?.segments == original.segments, "Restored transcript changed after restart")
@@ -141,7 +147,7 @@ enum TermReviewTests {
         try state.undoTermReplacement(meetingID: builtInMeeting.id)
         try check(try state.library.read(builtInMeeting.id).segments == builtInMeeting.segments, "Built-in replacement could not be undone")
         try check(try state.library.preferences().vocabulary.isEmpty, "Built-in terms changed personal dictionary")
-        try state.addRecognitionTerm("B2B")
+        try state.replaceTerms([], with: "B2B", meetingID: builtInMeeting.id, remembering: "")
         try check(try state.library.preferences().vocabulary == "B2B", "Explicit manual addition of a built-in term was not saved")
         try checkRememberingVariants(in: state)
         print("TERM_REVIEW_TEST_OK grouped_family persisted_replacement preserved_endings stale_rejection no_op undo dictionary_base restart built_in_terms remembered_variants")

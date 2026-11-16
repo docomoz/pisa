@@ -94,8 +94,22 @@ struct TermReview: View {
             $0.text.range(of: spelling, options: [.anchored, .caseInsensitive]) != nil
         }?.text
     }
-    private var hasVariantInput: Bool {
-        !variantInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private func canSaveDictionary(_ spelling: String) -> Bool {
+        guard rememberVariant, (try? VocabularyDictionary.validatedText(spelling)) != nil else { return false }
+        let preferences = state.preferences
+        do {
+            let updated = try VocabularyDictionary.addingVariants(variantInput, for: spelling,
+                to: preferences.vocabulary, variants: preferences.vocabularyVariants)
+            return updated.vocabulary != preferences.vocabulary || updated.variants != preferences.vocabularyVariants
+        } catch {
+            // Let submission display the specific conflicting or invalid variant.
+            return true
+        }
+    }
+
+    private func actionTitle(canCorrect: Bool) -> String {
+        guard rememberVariant else { return "Исправить все" }
+        return canCorrect ? "Исправить и сохранить в словарь" : "Сохранить в словарь"
     }
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private func canReplace(_ occurrences: [TermOccurrence], with term: String) -> Bool {
@@ -209,7 +223,7 @@ struct TermReview: View {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                     SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)». При замене основы аббревиатуры окончания сохраняются.")
                     FormTextField(title: "Термин", text: $replacement, isFocused: $replacementFocused,
-                                  accessibilityTitle: "Правильное написание", onSubmit: replace)
+                                  accessibilityTitle: "Правильное написание", onSubmit: apply)
                         .measuredForInterfaceTest(.termReplacement)
                     if let suggestion = dictionarySuggestion(for: spelling) {
                         screenButton("Выбрать \(suggestion)") { replacement = suggestion }
@@ -217,28 +231,21 @@ struct TermReview: View {
                     }
                     let occurrences = matches?.occurrences ?? []
                     let canCorrect = canReplace(occurrences, with: spelling)
-                    if !occurrences.isEmpty || rememberVariant {
-                        screenToggle("Запомнить для будущих встреч", isOn: rememberBinding(for: occurrences))
-                            .measuredForInterfaceTest(.termRemember)
-                    }
+                    screenToggle("Сохранить в словарь для будущих встреч", isOn: rememberBinding(for: occurrences))
+                        .disabled(matches == nil)
+                        .measuredForInterfaceTest(.termRemember)
                     if rememberVariant {
                         VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
-                            SupportingText("Варианты распознавания", style: PisaDesign.Typography.caption)
-                            FormTextField(title: "Через запятую", text: $variantInput,
-                                          accessibilityTitle: "Варианты распознавания", onSubmit: replace)
+                            SupportingText("Варианты через запятую · необязательно", style: PisaDesign.Typography.caption)
+                            FormTextField(title: "Например, CnB, си эн би", text: $variantInput,
+                                          accessibilityTitle: "Варианты распознавания через запятую", onSubmit: apply)
                                 .measuredForInterfaceTest(.termVariant)
                         }
                     }
-                    HStack(spacing: PisaDesign.Spacing.inline) {
-                        screenButton(rememberVariant ? "Исправить и запомнить" : "Исправить все", action: replace)
-                            .actionButton(.primary)
-                            .disabled(!canCorrect || (rememberVariant && !hasVariantInput))
-                            .measuredForInterfaceTest(.termApply)
-                        if !canCorrect, !rememberVariant {
-                            screenButton("Добавить в словарь", action: addTerm).actionButton()
-                                .disabled(TranscriptTerms.adding(term, to: state.preferences.vocabulary) == state.preferences.vocabulary)
-                        }
-                    }
+                    screenButton(actionTitle(canCorrect: canCorrect), action: apply)
+                        .actionButton(.primary)
+                        .disabled(matches == nil || !(canCorrect || canSaveDictionary(spelling)))
+                        .measuredForInterfaceTest(.termApply)
                 }
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                     SectionHeading("Вхождения")
@@ -270,8 +277,12 @@ struct TermReview: View {
     private func rememberBinding(for occurrences: [TermOccurrence]) -> Binding<Bool> {
         Binding(get: { rememberVariant }, set: { enabled in
             if enabled {
-                variantInput = occurrences.first { $0.text.caseInsensitiveCompare(term) != .orderedSame }?.text
-                    ?? occurrences.first?.text ?? ""
+                let spelling = term
+                let possibleVariants = occurrences.lazy.filter {
+                    !VocabularyDictionary.isRegularEnding($0.text, of: spelling)
+                }
+                variantInput = possibleVariants.first { $0.text.caseInsensitiveCompare(spelling) != .orderedSame }?.text
+                    ?? possibleVariants.first?.text ?? ""
             }
             rememberVariant = enabled
             notice = nil
@@ -364,24 +375,29 @@ struct TermReview: View {
         return Task.isCancelled ? nil : result
     }
 
-    private func replace() {
+    private func apply() {
         let corrected = term
-        guard let matches = matchResult, matches.request == matchRequest,
-              canReplace(matches.occurrences, with: corrected),
-              !rememberVariant || hasVariantInput else { return }
+        guard let matches = matchResult, matches.request == matchRequest else { return }
         let occurrences = matches.occurrences
-        let chosen = occurrences.filter { TranscriptTerms.replacement(for: $0, with: corrected) != $0.text }
+        let canCorrect = canReplace(occurrences, with: corrected)
+        guard canCorrect || canSaveDictionary(corrected) else { return }
+        let chosen = canCorrect ? occurrences.filter {
+            TranscriptTerms.replacement(for: $0, with: corrected) != $0.text
+        } : []
         do {
-            let original = source
-            let correctedSource = TranscriptTerms.replacementSearchTerm(for: occurrences, with: corrected)
             try state.replaceTerms(chosen, with: corrected, meetingID: meeting.id,
                                    remembering: rememberVariant ? variantInput : nil)
-            if let original { lastReplacement = (original, correctedSource, rememberVariant) }
-            source = correctedSource
-            replacement = corrected
+            let saved = "Запись сохранена в словаре"
+            if canCorrect {
+                let correctedSource = TranscriptTerms.replacementSearchTerm(for: occurrences, with: corrected)
+                if let original = source { lastReplacement = (original, correctedSource, rememberVariant) }
+                source = correctedSource
+                replacement = corrected
+                notice = rememberVariant ? "Исправлено: \(chosen.count). \(saved)." : "Исправлено: \(chosen.count)"
+            } else {
+                notice = saved
+            }
             replacementFocused = false
-            notice = rememberVariant ? "Исправлено: \(chosen.count). Варианты сохранены в словаре."
-                : "Исправлено: \(chosen.count)"
             rememberVariant = false
             variantInput = ""
         } catch { notice = error.localizedDescription }
@@ -397,16 +413,9 @@ struct TermReview: View {
             rememberVariant = false
             variantInput = ""
             notice = lastReplacement?.remembered == true
-                ? "Исправление отменено. Варианты сохранены в словаре."
+                ? "Исправление отменено. Запись осталась в словаре."
                 : "Исправление отменено"
             lastReplacement = nil
-        } catch { notice = error.localizedDescription }
-    }
-
-    private func addTerm() {
-        do {
-            try state.addRecognitionTerm(term)
-            notice = "«\(TranscriptTerms.dictionaryTerm(term))» добавлен в словарь"
         } catch { notice = error.localizedDescription }
     }
 }

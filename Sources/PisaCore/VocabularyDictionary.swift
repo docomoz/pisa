@@ -69,7 +69,7 @@ public enum VocabularyDictionary {
 
     public enum Failure: LocalizedError {
         case empty, invalid, duplicate, stale
-        case emptyVariants, invalidVariant(String), variantConflict(String, owner: String)
+        case invalidVariant(String), variantConflict(String, owner: String)
 
         public var errorDescription: String? {
             switch self {
@@ -77,7 +77,6 @@ public enum VocabularyDictionary {
             case .invalid: return "Запись должна содержать буквы и не должна содержать запятые, точки с запятой или переносы строк"
             case .duplicate: return "Такая запись уже есть в словаре"
             case .stale: return "Словарь изменился. Выберите запись заново."
-            case .emptyVariants: return "Введите хотя бы один вариант, отличный от правильного написания"
             case .invalidVariant(let form): return "Вариант «\(form)» должен содержать буквы"
             case .variantConflict(let form, let owner): return "«\(form)» уже относится к записи «\(owner)»"
             }
@@ -174,10 +173,15 @@ public enum VocabularyDictionary {
         let savedTerm = canonicalTerm(for: requested, in: vocabulary)
         let updatedVocabulary = savedTerm == nil ? TranscriptTerms.adding(requested, to: vocabulary) : vocabulary
         guard let canonical = savedTerm ?? canonicalTerm(for: requested, in: updatedVocabulary) else { throw Failure.invalid }
-        let additions = try parseVariants(input)
-        guard additions.contains(where: { literalKey($0) != literalKey(canonical) }) else { throw Failure.emptyVariants }
+        let additions = try parseVariants(input).filter { !isRegularEnding($0, of: canonical) }
         let forms = variants[canonical, default: []] + additions
         return (updatedVocabulary, try updatingVariants(forms, for: canonical, in: updatedVocabulary, variants: variants))
+    }
+
+    static func isRegularEnding(_ form: String, of canonical: String) -> Bool {
+        guard AbbreviationFamilies.isBase(canonical),
+              let parsed = AbbreviationFamilies.parse(form, as: canonical) else { return false }
+        return !parsed.ending.isEmpty
     }
 
     private static func parseVariants(_ input: String) throws -> [String] {
