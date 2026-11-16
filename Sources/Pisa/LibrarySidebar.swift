@@ -333,7 +333,7 @@ struct MeetingActionSet {
             items.forEach { $0.isEnabled = canModify }
             return items
         }
-        let voices = NativeActionMenuItem("Разметить голоса…", enabled: canModify && !meeting.participantNames.isEmpty) { state.voiceMeeting = meeting }
+        let voices = NativeActionMenuItem("Разметить голоса", enabled: canModify && !meeting.participantNames.isEmpty) { state.voiceMeeting = meeting }
         let move = NSMenuItem(title: "Переместить в папку", action: nil, keyEquivalent: "")
         move.submenu = nativeActionMenu(items: folderMenuItems)
         move.isEnabled = state.canMove(meeting)

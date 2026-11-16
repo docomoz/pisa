@@ -631,7 +631,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         state.voiceMeeting = meeting
                     } label: {
-                        detailsActionLabel("Разметить голоса…", systemImage: "person.wave.2")
+                        detailsActionLabel("Разметить голоса", systemImage: "person.wave.2")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(participants.isEmpty || !state.canModify(meeting))
