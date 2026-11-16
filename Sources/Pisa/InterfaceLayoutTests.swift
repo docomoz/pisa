@@ -6,6 +6,7 @@ import SwiftUI
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
     case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
+    case audioToggleLabel
     case toolbarSettingsTitle, toolbarImportTitle, toolbarRecordLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case setupStatus, setupAction
@@ -287,6 +288,7 @@ private final class LayoutSuite {
     private func checkTranscript(in host: LayoutHost, wide: Bool) {
         let action: InterfaceLayoutElement = wide ? .firstMeetingAction : .detailsButton
         guard let collapsed = frames([.transcriptSearch, action, .meetingContent, .audioToggle], in: host) else { return }
+        checkSavedAudioAlignment(in: host, state: "closed")
         equal(collapsed[0].minY, collapsed[1].minY, "search and meeting actions start on the same horizontal line")
         equal(collapsed[0].minY, collapsed[2].minY, "search starts directly below the title gap when the player is closed")
         check(host.frames[.waveform] == nil, "saved player starts closed")
@@ -294,6 +296,7 @@ private final class LayoutSuite {
 
         host.click(collapsed[3].center)
         if let expanded = frames([.transcriptSearch, action, .meetingContent, .waveform], in: host) {
+            checkSavedAudioAlignment(in: host, state: "open")
             equal(expanded[0].minY, expanded[1].minY, "opening the player moves search and actions together")
             equal(expanded[3].minX, expanded[2].minX, "inline waveform starts at the content's left edge")
             equal(expanded[3].maxX, expanded[2].maxX, "inline waveform reaches the right edge, including above the actions column")
@@ -304,6 +307,16 @@ private final class LayoutSuite {
         if let restored = host.frames[.transcriptSearch] {
             equal(restored.minY, collapsed[0].minY, "closing the player restores the transcript layout")
         }
+    }
+
+    private func checkSavedAudioAlignment(in host: LayoutHost, state: String) {
+        guard let measured = frames([.audioToggle, .audioToggleLabel], in: host) else { return }
+        guard let difference = host.savedAudioInkOffset(toggle: measured[0], label: measured[1]) else {
+            check(false, "saved audio label and chevron are visible with the player \(state)")
+            return
+        }
+        check(abs(difference) <= 1.25,
+              "saved audio chevron is visually centered with the label when the player is \(state) (offset \(difference) pt)")
     }
 
     private func checkSetup(_ setup: ModelSetup, scale: CGFloat) {
@@ -808,6 +821,36 @@ private final class LayoutHost {
         guard let image = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: image)
         return image
+    }
+
+    func savedAudioInkOffset(toggle: CGRect, label: CGRect) -> CGFloat? {
+        guard let image = renderedHost() else { return nil }
+        let sx = CGFloat(image.pixelsWide) / bounds.width
+        let sy = CGFloat(image.pixelsHigh) / bounds.height
+
+        func inkCenter(in rect: CGRect) -> CGFloat? {
+            let left = max(0, Int(floor(rect.minX * sx)))
+            let right = min(image.pixelsWide, Int(ceil(rect.maxX * sx)))
+            let top = max(0, Int(floor(rect.minY * sy)))
+            let bottom = min(image.pixelsHigh, Int(ceil(rect.maxY * sy)))
+            guard left < right, top < bottom else { return nil }
+            var totalY = 0
+            var count = 0
+            for y in top..<bottom {
+                for x in left..<right {
+                    guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                          color.greenComponent - color.redComponent > 0.12,
+                          color.greenComponent - color.blueComponent > 0.10 else { continue }
+                    totalY += y
+                    count += 1
+                }
+            }
+            return count > 0 ? CGFloat(totalY) / CGFloat(count) / sy : nil
+        }
+
+        let chevron = CGRect(x: label.maxX, y: toggle.minY, width: toggle.maxX - label.maxX, height: toggle.height)
+        guard let labelCenter = inkCenter(in: label), let chevronCenter = inkCenter(in: chevron) else { return nil }
+        return chevronCenter - labelCenter
     }
 
     func hasYellowHighlight(in frame: CGRect) -> Bool {

@@ -396,8 +396,10 @@ struct MeetingView: View {
             Button { showsSavedAudio.toggle() } label: {
                 HStack(spacing: PisaDesign.Spacing.compact) {
                     screenLabel("Аудио сохранено", systemImage: "waveform")
+                        .measuredForInterfaceTest(.audioToggleLabel)
                     Image(systemName: showsSavedAudio ? "chevron.up" : "chevron.down")
                         .textStyle(PisaDesign.Typography.footnoteMedium)
+                        .offset(y: 1.5 * textScale)
                         .accessibilityHidden(true)
                 }
                 .padding(.vertical, PisaDesign.Spacing.compact)
