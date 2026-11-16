@@ -2,6 +2,18 @@ import XCTest
 @testable import PisaCore
 
 final class TranscriptTermsTests: XCTestCase {
+    func testInitialCandidatesArriveBeforeLaterOccurrencesAreCounted() {
+        let intro = [segment("Проверили B2B и ЛПР.")] + (0..<7).map { _ in segment("Продолжим разговор.") }
+        let segments = intro + [segment("Ещё раз проверили B2B и сравнили с CI/CD.")]
+        var updates: [[TermCandidate]] = []
+        let complete = TranscriptTerms.candidates(in: segments, vocabulary: "ЛПР") { updates.append($0) }
+
+        XCTAssertEqual(updates.map { $0.map(\.text) }, [["B2B"]])
+        XCTAssertEqual(updates.first?.first?.occurrences.count, 1)
+        XCTAssertEqual(complete.map(\.text), ["B2B", "CI/CD"])
+        XCTAssertEqual(complete.first?.occurrences.count, 2)
+    }
+
     func testCancelledReviewDiscardsCandidatesAndMatches() async {
         let segments = [segment("Обсудили B2B, ЛПР и договор.")]
         let scan = Task {

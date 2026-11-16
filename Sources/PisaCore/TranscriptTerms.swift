@@ -52,6 +52,11 @@ public enum TranscriptTerms {
     }
 
     public static func candidates(in segments: [TranscriptSegment], vocabulary: String) -> [TermCandidate] {
+        candidates(in: segments, vocabulary: vocabulary, onFirstCandidates: nil)
+    }
+
+    static func candidates(in segments: [TranscriptSegment], vocabulary: String,
+                           onFirstCandidates: (([TermCandidate]) -> Void)?) -> [TermCandidate] {
         let terms = vocabulary.components(separatedBy: separators)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -71,7 +76,22 @@ public enum TranscriptTerms {
         // classification is independent of the surrounding sentence.
         var eligibleForms: [String: (normalized: String, family: AbbreviationFamilies.Form?)?] = [:]
 
-        for segment in segments {
+        func rankedCandidates() -> [TermCandidate] {
+            groups.merging(technologyGroups) { _, validated in validated }
+                .filter { $0.value.score >= 3 || ($0.value.score > 0 && $0.value.occurrences.count >= 2) }
+                .sorted { lhs, rhs in
+                    if lhs.value.score != rhs.value.score { return lhs.value.score > rhs.value.score }
+                    if lhs.value.occurrences.count != rhs.value.occurrences.count {
+                        return lhs.value.occurrences.count > rhs.value.occurrences.count
+                    }
+                    return lhs.key < rhs.key
+                }
+                .prefix(16)
+                .map { TermCandidate(id: $0.key, text: $0.value.text, occurrences: $0.value.occurrences) }
+        }
+
+        var sendFirstCandidates = onFirstCandidates
+        for (index, segment) in segments.enumerated() {
             guard !Task.isCancelled else { return [] }
             let text = segment.text
             let builtIn = technology.matches(in: text).filter { !speakers.contains(entityKey($0.term)) }
@@ -123,19 +143,19 @@ public enum TranscriptTerms {
                 }
                 groups[normalized, default: Group(text: family?.base ?? token)].occurrences.append(occurrence(match.range, in: segment, text: token, family: family))
             }
+
+            // Look for an initial list in the first few turns. Continue
+            // straight to the full list if these turns contain no candidates.
+            if let send = sendFirstCandidates, index < 48, index % 8 == 7, index + 1 < segments.count {
+                let first = rankedCandidates()
+                if !first.isEmpty {
+                    send(first)
+                    sendFirstCandidates = nil
+                }
+            }
         }
 
-        return groups.merging(technologyGroups) { _, validated in validated }
-            .filter { $0.value.score >= 3 || ($0.value.score > 0 && $0.value.occurrences.count >= 2) }
-            .sorted { lhs, rhs in
-                if lhs.value.score != rhs.value.score { return lhs.value.score > rhs.value.score }
-                if lhs.value.occurrences.count != rhs.value.occurrences.count {
-                    return lhs.value.occurrences.count > rhs.value.occurrences.count
-                }
-                return lhs.key < rhs.key
-            }
-            .prefix(16)
-            .map { TermCandidate(id: $0.key, text: $0.value.text, occurrences: $0.value.occurrences) }
+        return rankedCandidates()
     }
 
     public static func matches(_ term: String, in segments: [TranscriptSegment], vocabulary: String = "") -> [TermOccurrence] {

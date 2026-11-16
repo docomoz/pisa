@@ -174,6 +174,7 @@ struct MeetingView: View {
     let dateReference: Date
     @State private var editing: TranscriptSegment?
     @State private var reviewingTerms = false
+    @State private var openingTermReview = false
     @State private var termCandidates = TermReview.CandidateList()
     @State private var showingSummaryOnboarding = false
     @State private var title = ""
@@ -210,13 +211,16 @@ struct MeetingView: View {
             state.stageRecordingTitle(value, for: meeting)
         })
     }
+    private var termReviewInput: TermReview.ReviewInput? {
+        guard !reviewingTerms, state.canReviewTerms(meeting) else { return nil }
+        return TermReview.ReviewInput(segments: meeting.segments, vocabulary: state.preferences.vocabulary)
+    }
     var body: some View {
         let hasAudio = presentation.allowsSavedAudio && state.hasAudio(meeting)
         let audioSources = presentation.allowsSavedAudio && !state.demo && (showsAutomaticPlayer || hasAudio)
             ? MeetingAudioExport.playbackSources(for: meeting, in: state.library) : []
-        let termReviewInput = !reviewingTerms && state.canReviewTerms(meeting)
-            ? TermReview.ReviewInput(segments: meeting.segments, vocabulary: state.preferences.vocabulary)
-            : nil
+        let termReviewInput = self.termReviewInput
+        let canOpenRequestedTermReview = openingTermReview && termCandidates.snapshot != nil
         let canToggleAudio = !showsAutomaticPlayer && !audioSources.isEmpty
         let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
@@ -319,13 +323,30 @@ struct MeetingView: View {
             }
         }
         .onChange(of: termReviewInput, initial: true) { _, input in
-            // Give fast navigation a chance to cancel work on meetings the user skips.
-            if let input { termCandidates.prepare(input, after: .milliseconds(250)) }
+            if let input { termCandidates.prepare(input) }
+            else { openingTermReview = false }
+        }
+        .onChange(of: canOpenRequestedTermReview) { _, ready in
+            guard ready, termReviewInput != nil else { return }
+            presentTermReview()
+        }
+        .task(id: openingTermReview) {
+            guard openingTermReview else { return }
+            // Keep manual search within reach even if the first turns
+            // do not contain any candidate or analysis is still warming up.
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+            guard termReviewInput != nil else { return }
+            presentTermReview()
         }
         .sheet(isPresented: $reviewingTerms) {
             TermReview(meeting: meeting, candidateList: termCandidates).environmentObject(state)
         }
         .sheet(isPresented: $showingSummaryOnboarding) { MeetingSummaryOnboarding().environmentObject(state) }
+    }
+
+    private func presentTermReview() {
+        openingTermReview = false
+        reviewingTerms = true
     }
 
     @ViewBuilder
@@ -617,8 +638,13 @@ struct MeetingView: View {
                     .measuredForInterfaceTest(.firstMeetingAction)
 
                     Button {
+                        guard termReviewInput != nil else { return }
                         showsMeetingDetails = false
-                        reviewingTerms = true
+                        if termCandidates.snapshot != nil {
+                            presentTermReview()
+                        } else {
+                            openingTermReview = true
+                        }
                     } label: {
                         detailsActionLabel("Разметить термины", systemImage: "text.magnifyingglass")
                     }

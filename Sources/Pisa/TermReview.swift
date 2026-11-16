@@ -18,25 +18,38 @@ struct TermReview: View {
     @MainActor
     @Observable
     final class CandidateList {
-        private(set) var snapshot: (input: ReviewInput, candidates: [TermCandidate])?
+        private(set) var snapshot: (input: ReviewInput, candidates: [TermCandidate], isComplete: Bool)?
 
         @ObservationIgnored private var requestedInput: ReviewInput?
         @ObservationIgnored private var worker: Task<Void, Never>?
 
-        func prepare(_ input: ReviewInput, after delay: Duration = .zero) {
+        func prepare(_ input: ReviewInput) {
             guard requestedInput != input else { return }
             requestedInput = input
             worker?.cancel()
             worker = nil
-            guard !input.segments.isEmpty, snapshot?.input != input else { return }
+            guard !input.segments.isEmpty, snapshot?.input != input || snapshot?.isComplete == false else { return }
 
+            let needsFirstCandidates = snapshot == nil
             worker = Task(priority: .utility) { [weak self] in
-                do { try await Task.sleep(for: delay) } catch { return }
-                guard let candidates = await TermReview.analyze(priority: .utility, {
-                    TranscriptTerms.candidates(in: input.segments, vocabulary: input.vocabulary)
-                }), !Task.isCancelled else { return }
-                self?.snapshot = (input, candidates)
-                self?.worker = nil
+                let (updates, continuation) = AsyncStream<([TermCandidate], Bool)>.makeStream(
+                    bufferingPolicy: .bufferingNewest(1)
+                )
+                let analyzer = Task.detached(priority: .utility) {
+                    defer { continuation.finish() }
+                    let showFirst: (([TermCandidate]) -> Void)? = needsFirstCandidates
+                        ? { continuation.yield(($0, false)) } : nil
+                    let candidates = TranscriptTerms.candidates(in: input.segments, vocabulary: input.vocabulary,
+                                                                onFirstCandidates: showFirst)
+                    guard !Task.isCancelled else { return }
+                    continuation.yield((candidates, true))
+                }
+                defer { analyzer.cancel() }
+                for await (candidates, isComplete) in updates {
+                    guard !Task.isCancelled else { return }
+                    self?.snapshot = (input, candidates, isComplete)
+                }
+                if !Task.isCancelled { self?.worker = nil }
             }
         }
 
@@ -105,7 +118,8 @@ struct TermReview: View {
             if let currentMeeting {
                 HSplitView {
                     candidatePane(candidateSnapshot?.candidates, input: input,
-                                  snapshotIsCurrent: candidateSnapshot?.input == input)
+                                  snapshotIsComplete: candidateSnapshot?.isComplete == true,
+                                  snapshotIsCurrent: candidateSnapshot?.input == input && candidateSnapshot?.isComplete == true)
                         .frame(minWidth: 275, idealWidth: 300, maxWidth: 360)
                     reviewPane(in: currentMeeting, matches: matches).frame(minWidth: 450)
                 }
@@ -123,7 +137,7 @@ struct TermReview: View {
         .onDisappear { state.stopPlayback() }
     }
 
-    private func candidatePane(_ candidates: [TermCandidate]?, input: ReviewInput,
+    private func candidatePane(_ candidates: [TermCandidate]?, input: ReviewInput, snapshotIsComplete: Bool,
                                snapshotIsCurrent: Bool) -> some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
@@ -154,14 +168,18 @@ struct TermReview: View {
                                         HStack(spacing: PisaDesign.Spacing.related) {
                                             screenText(candidate.text).lineLimit(2)
                                             Spacer(minLength: 0)
-                                            screenText(verbatim: String(candidate.occurrences.count))
-                                                .foregroundStyle(Color.mutedInk)
+                                            if snapshotIsComplete {
+                                                screenText(verbatim: String(candidate.occurrences.count))
+                                                    .foregroundStyle(Color.mutedInk)
+                                            }
                                         }
-                                        let forms = Array(Set(candidate.occurrences.map(\.text))).sorted()
-                                        if Set(forms.map { $0.lowercased() }).count > 1 {
-                                            SupportingText(forms.joined(separator: ", "), style: PisaDesign.Typography.caption)
-                                                .lineLimit(2)
-                                                .help(forms.joined(separator: ", "))
+                                        if snapshotIsComplete {
+                                            let forms = Array(Set(candidate.occurrences.map(\.text))).sorted()
+                                            if Set(forms.map { $0.lowercased() }).count > 1 {
+                                                SupportingText(forms.joined(separator: ", "), style: PisaDesign.Typography.caption)
+                                                    .lineLimit(2)
+                                                    .help(forms.joined(separator: ", "))
+                                            }
                                         }
                                     }
                                     .padding(PisaDesign.Spacing.inline)
