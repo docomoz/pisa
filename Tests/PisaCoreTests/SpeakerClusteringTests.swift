@@ -132,6 +132,72 @@ final class SpeakerClusteringTests: XCTestCase {
                                                TranscriptSegment.unidentifiedSpeaker, "Спикер 1"])
     }
 
+    func testTwoConfidentClustersOfOneNameDoNotCompeteForThatIdentity() {
+        let (turns, profiles) = sameIdentityClusters()
+        XCTAssertEqual(SpeakerClustering.assign(turns, profiles: profiles).last?.speaker, "Анна")
+    }
+
+    func testSameNameAlternativesStillCheckLaterAnonymousCompetitor() {
+        let fixture = sameIdentityClusters()
+        var turns = fixture.0
+        let profiles = fixture.1
+        turns.insert(turn(start: 24, duration: 4, embedding: [0.3, 0, 0.9539392]), at: 4)
+        XCTAssertTrue(VoiceMatcher(profiles: profiles).supportsInheritedName("Анна", embedding: turns.last!.embedding!))
+        XCTAssertEqual(SpeakerClustering.assign(turns, profiles: profiles).last?.speaker,
+                       TranscriptSegment.unidentifiedSpeaker)
+    }
+
+    func testSameNameAlternativesStillCheckLaterDifferentNamedCompetitor() {
+        var (turns, profiles) = sameIdentityClusters()
+        let other: [Float] = [0.3, 0, 0.9539392]
+        turns.insert(turn(start: 24, duration: 4, embedding: other), at: 4)
+        turns.insert(turn(start: 29, duration: 4, embedding: [0.305, 0, 0.9523529]), at: 5)
+        profiles.append(VoiceProfile(name: "Борис", samples: [[0.2, 0, 0.9797959]]))
+        XCTAssertTrue(VoiceMatcher(profiles: profiles).supportsInheritedName("Анна", embedding: turns.last!.embedding!))
+        let result = SpeakerClustering.assign(turns, profiles: profiles)
+        XCTAssertEqual(result[4].speaker, "Борис")
+        XCTAssertEqual(result[5].speaker, "Борис")
+        XCTAssertEqual(result.last?.speaker, TranscriptSegment.unidentifiedSpeaker)
+    }
+
+    func testSharedNamedIdentityStillRequiresTheTurnToSupportItsSavedName() {
+        let fixture = sameIdentityClusters()
+        let turns = fixture.0
+        var profiles = fixture.1
+        profiles.append(VoiceProfile(name: "Борис", samples: [[0.4, 0, 0.9165151]]))
+        let matcher = VoiceMatcher(profiles: profiles)
+        XCTAssertNil(matcher.identify(turns.last!.embedding!))
+        XCTAssertFalse(matcher.supportsInheritedName("Анна", embedding: turns.last!.embedding!))
+        XCTAssertEqual(SpeakerClustering.assign(turns, profiles: profiles).last?.speaker,
+                       TranscriptSegment.unidentifiedSpeaker)
+    }
+
+    func testUnnamedClustersDoNotShareAnIdentityForMarginPurposes() {
+        let (turns, _) = sameIdentityClusters()
+        XCTAssertEqual(SpeakerClustering.assign(turns, profiles: []).last?.speaker,
+                       TranscriptSegment.unidentifiedSpeaker)
+    }
+
+    func testSharedNamedIdentityCannotLabelMixedEvidence() {
+        var (turns, profiles) = sameIdentityClusters()
+        turns[turns.count - 1].speakerEvidenceIsMixed = true
+        XCTAssertEqual(SpeakerClustering.assign(turns, profiles: profiles).last?.speaker,
+                       TranscriptSegment.unidentifiedSpeaker)
+    }
+
+    /// Two separate acoustic clusters, each independently directly recognized
+    /// as the same saved voice; a short central turn supports both equally.
+    private func sameIdentityClusters() -> ([TranscriptSegment], [VoiceProfile]) {
+        func vector(_ angle: Double) -> [Float] {
+            let radians = angle * .pi / 180
+            return [Float(cos(radians)), Float(sin(radians)), 0]
+        }
+        let turns = [-52.0, -48, 48, 52].enumerated().map { index, angle in
+            turn(start: Double(index * 6), duration: 4, embedding: vector(angle))
+        } + [turn(start: 36, duration: 2, embedding: [0.95, 0, 0.3122499])]
+        return (turns, [VoiceProfile(name: "Анна", samples: [vector(-50), vector(50)])])
+    }
+
     func testMatureClusterCannotAbsorbAnUnsupportedSingleVoice() {
         let angles = [0.0, 60, 7, 10, 13, 16, 19]
         let turns = angles.enumerated().map { index, angle in
