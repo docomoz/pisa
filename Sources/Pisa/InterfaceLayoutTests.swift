@@ -10,7 +10,7 @@ enum InterfaceLayoutElement: Hashable {
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String)
-    case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit
+    case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryVariants
     case termSearch, termFind, termReplacement, termRemember, termVariant, termApply
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
     case voiceMergeList, voiceMergeCandidate(UUID)
@@ -449,11 +449,19 @@ private final class LayoutSuite {
 
         scenario = "dictionary edit, \(percent)%"
         if let entry = VocabularyDictionary.entries(in: state.preferences.vocabulary).first {
-            let host = LayoutHost(VocabularyEditForm(entry: entry).environmentObject(state),
-                                  size: CGSize(width: 500, height: 260), scale: scale)
+            let host = LayoutHost(VocabularyEditForm(entry: entry, variants: ["CnB", "си эн би"]).environmentObject(state),
+                                  size: CGSize(width: 500, height: 330), scale: scale)
             defer { host.close() }
             checkField(.dictionaryEdit, placeholder: false, in: host)
             checkField(.dictionaryEdit, placeholder: true, clear: true, in: host)
+            if let variants = frames([.dictionaryVariants], in: host)?.first,
+               let field = host.field(in: variants) {
+                check(field.stringValue == "CnB, си эн би", "dictionary editor shows multiple saved variants")
+                check(field.accessibilityLabel() == typographicText("Варианты распознавания через запятую"),
+                      "the filled field still explains that variants are separated by commas")
+            }
+            checkField(.dictionaryVariants, placeholder: false, nativePlaceholder: "Например, CnB, си эн би", in: host)
+            checkField(.dictionaryVariants, placeholder: true, clear: true, nativePlaceholder: "Например, CnB, си эн би", in: host)
         } else {
             check(false, "dictionary edit fixture has an entry")
         }

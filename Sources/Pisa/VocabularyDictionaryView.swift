@@ -217,9 +217,10 @@ struct VocabularyEditForm: View {
             FormTextField(title: "Слово или название", text: $text, onSubmit: save)
                 .measuredForInterfaceTest(.dictionaryEdit)
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                SectionHeading("Варианты распознавания")
-                FormTextField(title: "Через запятую", text: $variantInput,
-                              accessibilityTitle: "Варианты распознавания", onSubmit: save)
+                SectionHeading("Варианты через запятую")
+                FormTextField(title: "Например, CnB, си эн би", text: $variantInput,
+                              accessibilityTitle: "Варианты распознавания через запятую", onSubmit: save)
+                    .measuredForInterfaceTest(.dictionaryVariants)
             }
             if let error { SupportingText(error).foregroundStyle(.red) }
             HStack(spacing: PisaDesign.Spacing.related) {
