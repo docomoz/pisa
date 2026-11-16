@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SavedAudioPlayer: View {
     @EnvironmentObject private var state: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let sources: [RecordingAudioSource]
     var isInline = false
 
@@ -13,7 +14,8 @@ struct SavedAudioPlayer: View {
     @State private var isPlaying = false
     @State private var playbackSpeed: PlaybackSpeed = .normal
     @State private var playbackReported = false
-    @State private var peaks: [Float] = []
+    @State private var peaks: [Float]? // nil while loading, empty if samples could not be read
+    @State private var playbackUnavailable = false
     @State private var timeObserver: Any?
     @GestureState private var dragPosition: TimeInterval?
 
@@ -22,7 +24,7 @@ struct SavedAudioPlayer: View {
 
     var body: some View {
         VStack(spacing: PisaDesign.Spacing.none) {
-            if item != nil {
+            if !playbackUnavailable {
                 VStack(spacing: PisaDesign.Spacing.inline) {
                     timeline
                     HStack(spacing: PisaDesign.Spacing.inline) {
@@ -54,7 +56,7 @@ struct SavedAudioPlayer: View {
                     }
                 }
                 .padding(.vertical, isInline ? PisaDesign.Spacing.none : PisaDesign.Spacing.related)
-                .disabled(state.recording || state.starting)
+                .disabled(item == nil || state.recording || state.starting)
                 if !isInline { Divider() }
             }
         }
@@ -98,12 +100,24 @@ struct SavedAudioPlayer: View {
     }
 
     private var timeline: some View {
-        let waveform = peaks
-        let fraction = shownPosition / duration
+        let fraction = duration > 0 ? shownPosition / duration : 0
         return GeometryReader { geometry in
-            Canvas { context, size in
-                Self.drawWaveform(context, size: size, peaks: waveform, fraction: fraction)
+            ZStack {
+                if let peaks {
+                    Canvas { context, size in
+                        Self.drawWaveform(context, size: size, peaks: peaks, fraction: fraction, showsPlayhead: false)
+                    }
+                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
+                } else {
+                    LoadingWaveform()
+                        .transition(.asymmetric(insertion: .identity, removal: .opacity))
+                }
+                Canvas { context, size in
+                    Self.drawPlayhead(context, size: size, x: Self.playheadPosition(width: size.width, fraction: fraction))
+                }
+                .zIndex(1)
             }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: peaks != nil)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .updating($dragPosition) { value, position, _ in
@@ -119,10 +133,12 @@ struct SavedAudioPlayer: View {
         .onKeyPress(.rightArrow) { seek(to: position + 5); return .handled }
         .pointingHandCursor()
         .accessibilityRepresentation {
-            Slider(value: Binding(get: { shownPosition }, set: seek(to:)), in: 0...duration) {
-                screenText("Позиция воспроизведения")
+            if duration > 0 {
+                Slider(value: Binding(get: { shownPosition }, set: seek(to:)), in: 0...duration) {
+                    screenText("Позиция воспроизведения")
+                }
+                .accessibilityValue("\(recordingTimecode(shownPosition)) из \(recordingTimecode(duration))")
             }
-            .accessibilityValue("\(recordingTimecode(shownPosition)) из \(recordingTimecode(duration))")
         }
     }
 
@@ -137,10 +153,12 @@ struct SavedAudioPlayer: View {
         .screenHelp(label)
     }
 
-    static func drawWaveform(_ context: GraphicsContext, size: CGSize, peaks: [Float], fraction: Double) {
+    static func drawWaveform(
+        _ context: GraphicsContext, size: CGSize, peaks: [Float], fraction: Double, showsPlayhead: Bool = true
+    ) {
         guard size.width > 0 else { return }
         let center = size.height / 2
-        let cursor = min(size.width - 1, max(1, size.width * fraction))
+        let cursor = playheadPosition(width: size.width, fraction: fraction)
         var played = Path()
         var remaining = Path()
         if peaks.isEmpty {
@@ -170,10 +188,19 @@ struct SavedAudioPlayer: View {
         let style = StrokeStyle(lineWidth: 1.5, lineCap: .round)
         context.stroke(remaining, with: .color(Color.mutedInk.opacity(0.36)), style: style)
         context.stroke(played, with: .color(Color.moss), style: style)
+        if showsPlayhead { drawPlayhead(context, size: size, x: cursor) }
+    }
+
+    private static func playheadPosition(width: CGFloat, fraction: Double) -> CGFloat {
+        min(width - 1, max(1, width * fraction))
+    }
+
+    private static func drawPlayhead(_ context: GraphicsContext, size: CGSize, x: CGFloat) {
+        guard size.width > 0 else { return }
         var head = Path()
-        head.move(to: CGPoint(x: cursor, y: 2))
-        head.addLine(to: CGPoint(x: cursor, y: size.height - 2))
-        context.stroke(head, with: .color(Color.moss), style: style)
+        head.move(to: CGPoint(x: x, y: 2))
+        head.addLine(to: CGPoint(x: x, y: size.height - 2))
+        context.stroke(head, with: .color(Color.moss), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
     }
 
     private func time(at x: CGFloat, width: CGFloat) -> TimeInterval {
@@ -200,7 +227,12 @@ struct SavedAudioPlayer: View {
 
     private func prepare() async {
         reset()
-        guard let recording = await MeetingAudioExport.preparePlayback(sources), !Task.isCancelled else { return }
+        let recording = await MeetingAudioExport.preparePlayback(sources)
+        guard !Task.isCancelled else { return }
+        guard let recording else {
+            playbackUnavailable = true
+            return
+        }
         let preparedItem = AVPlayerItem(asset: recording.asset)
         duration = recording.duration
         item = preparedItem
@@ -223,10 +255,58 @@ struct SavedAudioPlayer: View {
             player.replaceCurrentItem(with: nil)
         }
         item = nil
+        duration = 0
         position = 0
         isPlaying = false
         playbackSpeed = .normal
         playbackReported = false
-        peaks = []
+        peaks = nil
+        playbackUnavailable = false
+    }
+}
+
+private struct LoadingWaveform: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appearedAt = Date.now
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+            let elapsed = timeline.date.timeIntervalSince(appearedAt)
+            let opacity = reduceMotion ? 1 : 0.85 + 0.15 * cos(2 * .pi * elapsed / 1.5)
+            Canvas { context, size in
+                Self.draw(context, size: size)
+            }
+            .opacity(opacity)
+        }
+    }
+
+    private static func draw(_ context: GraphicsContext, size: CGSize) {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let markSpacing = min(51, size.width / 5)
+        let opening = markSpacing * 1.47
+        var wave = Path()
+        for x in stride(from: 4.5, to: size.width, by: 3) {
+            let distance = abs(x - center.x) - opening
+            guard distance > 0 else { continue }
+            let step = x / 3
+            let amplitude = 12 + 5.5 * cos(step * 0.22) + 2.5 * sin(step * 0.84) + 1.5 * cos(step * 1.89)
+            let halfHeight = 2 + (amplitude / 2) * min(1, distance / 14)
+            wave.move(to: CGPoint(x: x, y: center.y - halfHeight))
+            wave.addLine(to: CGPoint(x: x, y: center.y + halfHeight))
+        }
+        context.stroke(wave, with: .color(Color.mutedInk.opacity(0.28)),
+                       style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+
+        for index in -1...1 {
+            let scale = (index == 0 ? 28.0 : 19.0) / 600 * (markSpacing / 51)
+            let markX = center.x + CGFloat(index) * markSpacing
+            let ink = Color.moss.opacity(index == 0 ? 0.57 : 0.4)
+            for bar in BrandMark.bars {
+                let rect = CGRect(x: markX + (bar[0] - 512) * scale,
+                                  y: center.y + (512 - bar[1] - bar[3]) * scale,
+                                  width: bar[2] * scale, height: bar[3] * scale)
+                context.fill(Path(roundedRect: rect, cornerRadius: rect.width / 2), with: .color(ink))
+            }
+        }
     }
 }
