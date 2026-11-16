@@ -21,18 +21,13 @@ public enum VocabularyDictionary {
 
     public struct Removal: Sendable {
         public let vocabulary: String
-        public let variants: [String: [String]]
         private let range: NSRange
         private let removed: String
-        private let removedVariants: [String]
 
-        fileprivate init(vocabulary: String, variants: [String: [String]], range: NSRange,
-                         removed: String, removedVariants: [String]) {
+        fileprivate init(vocabulary: String, range: NSRange, removed: String) {
             self.vocabulary = vocabulary
-            self.variants = variants
             self.range = range
             self.removed = removed
-            self.removedVariants = removedVariants
         }
 
         public func restoring(in current: String) throws -> String {
@@ -57,19 +52,10 @@ public enum VocabularyDictionary {
             result.insert(removed + (needsSeparator ? "\n" : ""), at: range.location)
             return result as String
         }
-
-        public func restoring(in current: String, variants: [String: [String]]) throws
-            -> (vocabulary: String, variants: [String: [String]]) {
-            let restored = try restoring(in: current)
-            let forms = variants[removed, default: []] + removedVariants
-            return (restored, try VocabularyDictionary.updatingVariants(forms, for: removed,
-                                                                        in: restored, variants: variants))
-        }
     }
 
     public enum Failure: LocalizedError {
         case empty, invalid, duplicate, stale
-        case invalidVariant(String), variantConflict(String, owner: String)
 
         public var errorDescription: String? {
             switch self {
@@ -77,8 +63,6 @@ public enum VocabularyDictionary {
             case .invalid: return "Запись должна содержать буквы и не должна содержать запятые, точки с запятой или переносы строк"
             case .duplicate: return "Такая запись уже есть в словаре"
             case .stale: return "Словарь изменился. Выберите запись заново."
-            case .invalidVariant(let form): return "Вариант «\(form)» должен содержать буквы"
-            case .variantConflict(let form, let owner): return "«\(form)» уже относится к записи «\(owner)»"
             }
         }
     }
@@ -124,96 +108,11 @@ public enum VocabularyDictionary {
         return result as String
     }
 
-    public static func replacing(_ entry: Entry, with input: String, variantInput: String, in vocabulary: String,
-                                 variants: [String: [String]]) throws -> (vocabulary: String, variants: [String: [String]]) {
-        let canonical = try validatedText(input)
-        let updatedVocabulary = try replacing(entry, with: canonical, in: vocabulary)
-        var updatedVariants = variants
-        updatedVariants.removeValue(forKey: entry.text)
-        return (updatedVocabulary, try updatingVariants(parseVariants(variantInput), for: canonical,
-                                                         in: updatedVocabulary, variants: updatedVariants))
-    }
-
-    public static func removing(_ entry: Entry, from vocabulary: String,
-                                variants: [String: [String]] = [:]) throws -> Removal {
+    public static func removing(_ entry: Entry, from vocabulary: String) throws -> Removal {
         try requireSnapshot(entry.source, in: vocabulary)
         let result = NSMutableString(string: vocabulary)
         result.replaceCharacters(in: entry.range, with: "")
-        let updatedVocabulary = result as String
-        var updatedVariants = variants
-        let removedVariants = entries(in: updatedVocabulary).contains(where: { $0.text == entry.text })
-            ? [] : updatedVariants.removeValue(forKey: entry.text) ?? []
-        return Removal(vocabulary: updatedVocabulary, variants: updatedVariants, range: entry.range,
-                       removed: entry.text, removedVariants: removedVariants)
-    }
-
-    public static func canonicalSpelling(for term: String, in vocabulary: String) -> String {
-        canonicalTerm(for: term, in: vocabulary) ?? term
-    }
-
-    private static func canonicalTerm(for input: String, in vocabulary: String) -> String? {
-        let dictionary = entries(in: vocabulary)
-        if let exact = dictionary.first(where: { $0.text == input }) { return exact.text }
-        let exactKey = literalKey(input)
-        if let equivalent = dictionary.first(where: { literalKey($0.text) == exactKey }) { return equivalent.text }
-        let base = TranscriptTerms.dictionaryTerm(input)
-        let baseKey = literalKey(base)
-        return dictionary.first(where: { literalKey($0.text) == baseKey })?.text
-            ?? AbbreviationFamilies(vocabulary).known(base)?.base
-    }
-
-    public static func variantOwner(of form: String, in variants: [String: [String]]) -> String? {
-        let key = literalKey(form)
-        return variants.keys.sorted().first { owner in variants[owner]?.contains { literalKey($0) == key } == true }
-    }
-
-    public static func addingVariants(_ input: String, for term: String, to vocabulary: String,
-                                      variants: [String: [String]]) throws -> (vocabulary: String, variants: [String: [String]]) {
-        let requested = try validatedText(term)
-        let savedTerm = canonicalTerm(for: requested, in: vocabulary)
-        let updatedVocabulary = savedTerm == nil ? TranscriptTerms.adding(requested, to: vocabulary) : vocabulary
-        guard let canonical = savedTerm ?? canonicalTerm(for: requested, in: updatedVocabulary) else { throw Failure.invalid }
-        let additions = try parseVariants(input).filter { !isRegularEnding($0, of: canonical) }
-        let forms = variants[canonical, default: []] + additions
-        return (updatedVocabulary, try updatingVariants(forms, for: canonical, in: updatedVocabulary, variants: variants))
-    }
-
-    static func isRegularEnding(_ form: String, of canonical: String) -> Bool {
-        guard AbbreviationFamilies.isBase(canonical),
-              let parsed = AbbreviationFamilies.parse(form, as: canonical) else { return false }
-        return !parsed.ending.isEmpty
-    }
-
-    private static func parseVariants(_ input: String) throws -> [String] {
-        try input.components(separatedBy: separators).compactMap { part in
-            let form = part.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !form.isEmpty else { return nil }
-            guard (try? validatedText(form)) != nil else { throw Failure.invalidVariant(form) }
-            return form
-        }
-    }
-
-    private static func updatingVariants(_ forms: [String], for canonical: String, in vocabulary: String,
-                                         variants: [String: [String]]) throws -> [String: [String]] {
-        var updated = variants
-        updated.removeValue(forKey: canonical)
-        if let owner = variantOwner(of: canonical, in: updated) {
-            throw Failure.variantConflict(canonical, owner: owner)
-        }
-        let canonicalKeys = Dictionary(entries(in: vocabulary).map { (literalKey($0.text), $0.text) },
-                                       uniquingKeysWith: { first, _ in first })
-        var seen = Set([literalKey(canonical)])
-        var unique: [String] = []
-        for form in forms {
-            let key = literalKey(form)
-            guard seen.insert(key).inserted else { continue }
-            if let owner = canonicalKeys[key] ?? variantOwner(of: form, in: updated) {
-                throw Failure.variantConflict(form, owner: owner)
-            }
-            unique.append(form)
-        }
-        if !unique.isEmpty { updated[canonical] = unique }
-        return updated
+        return Removal(vocabulary: result as String, range: entry.range, removed: entry.text)
     }
 
     public static func preview(_ input: String, vocabulary: String) -> Batch {
@@ -239,7 +138,7 @@ public enum VocabularyDictionary {
         return Batch(additions: additions, duplicates: duplicates, invalid: invalid, emptyCount: emptyCount, vocabulary: current)
     }
 
-    static func literalKey(_ text: String) -> String {
+    private static func literalKey(_ text: String) -> String {
         text.lowercased().replacingOccurrences(of: "’", with: "'")
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }

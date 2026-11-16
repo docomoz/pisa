@@ -88,26 +88,25 @@ actor Transcriber {
     }
 
     func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String,
-                    vocabularyVariants: [String: [String]] = [:], speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, retainProcessedMicrophone: Bool = true, checkpointURL: URL? = nil,
+                    speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true,
+                    performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true,
+                    contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false,
+                    retainProcessedMicrophone: Bool = true, checkpointURL: URL? = nil,
                     progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
-        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context,
-            vocabularyVariants: vocabularyVariants, speakerDirectory: speakerDirectory,
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
             profiles: profiles, performance: performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal), live: live,
             russianVerification: russianVerification, contextualVerification: contextualVerification, preceding: preceding,
             collectDiagnostics: collectDiagnostics, retainProcessedMicrophone: retainProcessedMicrophone, checkpointURL: checkpointURL, progress: progress).segments
     }
 
-    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String,
-                          vocabularyVariants: [String: [String]] = [:], speakerDirectory: URL,
+    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
                           performance: TranscriptionPerformance, preceding: [TranscriptSegment],
                           boundaryCheck: WindowBoundaryCheck?) async throws -> WindowPass {
-        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context,
-            vocabularyVariants: vocabularyVariants, speakerDirectory: speakerDirectory,
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
             performance: performance, live: true, preceding: preceding, boundaryCheck: boundaryCheck) { _, _ in }
     }
 
-    private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String,
-                                 vocabularyVariants: [String: [String]], speakerDirectory: URL,
+    private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
                                  profiles: [VoiceProfile]? = nil, performance: TranscriptionPerformance, live: Bool,
                                  russianVerification: Bool = true, contextualVerification: Bool = true,
                                  preceding: [TranscriptSegment], collectDiagnostics: Bool = false,
@@ -129,7 +128,7 @@ actor Transcriber {
             let bundledModels = [Bundle.main.url(forResource: "silero_vad", withExtension: "onnx")].compactMap { $0 }
             let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
             let inputs = try BatchTranscriptionCheckpoint.Inputs(files: files, model: modelDirectory,
-                vocabulary: context, variants: vocabularyVariants, build: build,
+                vocabulary: context, variants: [:], build: build,
                 supportingModels: speakerFiles + russianFiles + bundledModels)
             let saved = try await ProtectedFileRead.waitForAccess(read: {
                 try BatchTranscriptionCheckpoint.load(from: checkpointURL)
@@ -543,13 +542,6 @@ actor Transcriber {
             recentLanguageSegments = (recentLanguageSegments + localized).filter { $0.end >= end - 60 }
         }
         try Task.checkCancellation()
-        // Explicit aliases are a spelling choice after acoustic verification.
-        if !vocabularyVariants.isEmpty {
-            let replacements = VocabularyVariantReplacements(vocabularyVariants, vocabulary: context)
-            for index in localized.indices {
-                localized[index].text = replacements.apply(to: localized[index].text)
-            }
-        }
         if let generated, localized.contains(where: { $0.audioFile == generated.lastPathComponent }) {
             if scratch != nil, let sourceMicrophone {
                 let retained = sourceMicrophone.deletingLastPathComponent().appendingPathComponent(generated.lastPathComponent)

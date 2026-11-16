@@ -138,11 +138,8 @@ public struct Preferences: Codable, Sendable {
     public var modelBookmark: Data?
     public var modelDisplayPath: String?
     public var vocabulary = "2ГИС, Яндекс, YClients"
+    // Retain manually entered variants when saving preferences from older builds.
     private var storedVocabularyVariants: [String: [String]]?
-    public var vocabularyVariants: [String: [String]] {
-        get { storedVocabularyVariants ?? [:] }
-        set { storedVocabularyVariants = newValue.isEmpty ? nil : newValue }
-    }
     public var keepAudio = true
     public var quietProcessing: Bool?
     public var usesQuietProcessing: Bool { quietProcessing ?? true }

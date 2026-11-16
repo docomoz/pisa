@@ -12,6 +12,21 @@ final class AbbreviationFamiliesTests: XCTestCase {
                        "проект LLMки и другие LLM'ки")
     }
 
+    func testFusedUppercaseEndingsUseAnApostropheForKnownTerms() {
+        let source = "У 2ГИСА, к 2ГИСУ и с 2ГИСОМ."
+        let expected = "У 2ГИС'а, к 2ГИС'у и с 2ГИС'ом."
+        XCTAssertEqual(SpokenVocabulary("2ГИС").apply(to: source), expected)
+        XCTAssertEqual(SpokenVocabulary("").apply(to: source), expected)
+        XCTAssertEqual(TranscriptOrthography.normalize(source, vocabulary: "2ГИС"), expected)
+
+        let segment = TranscriptSegment(start: 0, end: 3, speaker: "А", text: source)
+        let matches = TranscriptTerms.matches("2ГИС", in: [segment], vocabulary: "2ГИС")
+        XCTAssertEqual(matches.map(\.text), ["2ГИСА", "2ГИСУ", "2ГИСОМ"])
+        XCTAssertEqual(TranscriptTerms.replacing(matches, with: "2ГИС", in: [segment])?.first?.text, expected)
+        XCTAssertEqual(TranscriptOrthography.normalize(source, vocabulary: "2ГИС, 2ГИСА"),
+                       "У 2ГИСА, к 2ГИС'у и с 2ГИС'ом.")
+    }
+
     func testCyrillicAbbreviationEndingsInNewAndSavedTranscripts() throws {
         let source = "Для ЛПР, ЛПР'ов, ЛПРов и ЛПРы. Встречаемся с МИДом."
         let expected = "Для ЛПР, ЛПР'ов, ЛПР'ов и ЛПР'ы. Встречаемся с МИД'ом."

@@ -2,10 +2,9 @@ import SwiftUI
 
 extension AppState {
     /// Publish only after the complete current preferences have been written atomically.
-    func saveVocabulary(_ vocabulary: String, variants: [String: [String]]? = nil) throws {
+    func saveVocabulary(_ vocabulary: String) throws {
         var updated = preferences
         updated.vocabulary = vocabulary
-        if let variants { updated.vocabularyVariants = variants }
         if !demo { try library.savePreferences(updated) }
         preferences = updated
     }
@@ -26,12 +25,8 @@ struct VocabularyDictionaryView: View {
     @State private var inputFocused = false
 
     private var entries: [VocabularyDictionary.Entry] { VocabularyDictionary.entries(in: state.preferences.vocabulary) }
-    private var variants: [String: [String]] { state.preferences.vocabularyVariants }
     private var filtered: [VocabularyDictionary.Entry] {
-        entries.filter { entry in
-            search.isEmpty || entry.text.localizedCaseInsensitiveContains(search) ||
-                variants[entry.text, default: []].contains { $0.localizedCaseInsensitiveContains(search) }
-        }
+        entries.filter { search.isEmpty || $0.text.localizedCaseInsensitiveContains(search) }
             .sorted { $0.text.localizedStandardCompare($1.text) == .orderedAscending }
     }
 
@@ -77,19 +72,9 @@ struct VocabularyDictionaryView: View {
                         }
                         ForEach(filtered) { entry in
                             HStack(alignment: .top, spacing: PisaDesign.Spacing.related) {
-                                VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
-                                    screenText(verbatim: entry.text, highlighting: search)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .measuredForInterfaceTest(.dictionaryResult)
-                                    if let forms = variants[entry.text], !forms.isEmpty {
-                                        screenText(verbatim: forms.joined(separator: ", "), highlighting: search)
-                                            .textStyle(PisaDesign.Typography.caption)
-                                            .foregroundStyle(Color.mutedInk)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
+                                screenText(verbatim: entry.text, highlighting: search).fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                                    .measuredForInterfaceTest(.dictionaryResult)
                                 HStack(spacing: PisaDesign.Spacing.related) {
                                     screenButton("Изменить…") { editing = entry }.actionButton(size: .small)
                                     screenButton("Удалить") { delete(entry) }.actionButton(size: .small)
@@ -109,7 +94,7 @@ struct VocabularyDictionaryView: View {
             }
         }.frame(maxHeight: .infinity, alignment: .topLeading)
             .sheet(item: $editing) { entry in
-                VocabularyEditForm(entry: entry, variants: variants[entry.text, default: []]).environmentObject(state)
+                VocabularyEditForm(entry: entry).environmentObject(state)
             }
             .sheet(isPresented: $confirmingSpelling) {
                 ConfirmationSheet(
@@ -135,13 +120,6 @@ struct VocabularyDictionaryView: View {
             let literal = try VocabularyDictionary.validatedText(input)
             let current = state.preferences.vocabulary
             let preview = VocabularyDictionary.preview(literal, vocabulary: current)
-            let owner = VocabularyDictionary.variantOwner(of: literal, in: variants)
-                ?? preview.additions.first.flatMap { VocabularyDictionary.variantOwner(of: $0, in: variants) }
-            if let owner {
-                notice = "Уже есть в словаре как вариант"
-                revealText = owner
-                return
-            }
             guard let canonical = preview.additions.first else {
                 notice = "Уже есть в словаре"
                 revealText = entries.first { VocabularyDictionary.preview(literal, vocabulary: $0.text).additions.isEmpty }?.text
@@ -174,8 +152,8 @@ struct VocabularyDictionaryView: View {
 
     private func delete(_ entry: VocabularyDictionary.Entry) {
         perform {
-            let change = try VocabularyDictionary.removing(entry, from: state.preferences.vocabulary, variants: variants)
-            try state.saveVocabulary(change.vocabulary, variants: change.variants)
+            let change = try VocabularyDictionary.removing(entry, from: state.preferences.vocabulary)
+            try state.saveVocabulary(change.vocabulary)
             removal = change; notice = nil; revealText = nil
         }
     }
@@ -183,8 +161,7 @@ struct VocabularyDictionaryView: View {
     private func undo() {
         guard let removal else { return }
         perform {
-            let restored = try removal.restoring(in: state.preferences.vocabulary, variants: variants)
-            try state.saveVocabulary(restored.vocabulary, variants: restored.variants)
+            try state.saveVocabulary(removal.restoring(in: state.preferences.vocabulary))
             self.removal = nil
         }
     }
@@ -194,21 +171,17 @@ struct VocabularyEditForm: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
     let entry: VocabularyDictionary.Entry
-    private let initialVariants: [String]
     @State private var text: String
-    @State private var variantInput: String
     @State private var error: String?
 
-    init(entry: VocabularyDictionary.Entry, variants: [String] = []) {
+    init(entry: VocabularyDictionary.Entry) {
         self.entry = entry
-        initialVariants = variants
         _text = State(initialValue: entry.text)
-        _variantInput = State(initialValue: variants.joined(separator: ", "))
     }
 
     private var valid: Bool {
         guard let validated = try? VocabularyDictionary.validatedText(text) else { return false }
-        return validated != entry.text || variantInput != initialVariants.joined(separator: ", ")
+        return validated != entry.text
     }
 
     var body: some View {
@@ -216,12 +189,6 @@ struct VocabularyEditForm: View {
             SectionHeading("Изменить запись", subtitle: "Сохранится именно указанное вами написание", style: .dialog)
             FormTextField(title: "Слово или название", text: $text, onSubmit: save)
                 .measuredForInterfaceTest(.dictionaryEdit)
-            VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                SectionHeading("Варианты через запятую")
-                FormTextField(title: "Например, CnB, си эн би", text: $variantInput,
-                              accessibilityTitle: "Варианты распознавания через запятую", onSubmit: save)
-                    .measuredForInterfaceTest(.dictionaryVariants)
-            }
             if let error { SupportingText(error).foregroundStyle(.red) }
             HStack(spacing: PisaDesign.Spacing.related) {
                 screenButton("Отмена") { dismiss() }.actionButton().keyboardShortcut(.cancelAction)
@@ -234,14 +201,8 @@ struct VocabularyEditForm: View {
     private func save() {
         guard valid else { return }
         do {
-            let current = state.preferences
-            guard current.vocabularyVariants[entry.text, default: []] == initialVariants else {
-                throw VocabularyDictionary.Failure.stale
-            }
-            let updated = try VocabularyDictionary.replacing(entry, with: text, variantInput: variantInput,
-                                                               in: current.vocabulary, variants: current.vocabularyVariants)
-            try state.saveVocabulary(updated.vocabulary, variants: updated.variants)
-            dismiss()
+            let updated = try VocabularyDictionary.replacing(entry, with: text, in: state.preferences.vocabulary)
+            try state.saveVocabulary(updated); dismiss()
         } catch { self.error = error.localizedDescription }
     }
 }
