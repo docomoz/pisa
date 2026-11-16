@@ -13,6 +13,7 @@ enum InterfaceLayoutElement: Hashable {
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
+    case savedVoiceHeading, savedVoiceRow(UUID)
     case voiceMergeList, voiceMergeCandidate(UUID)
     case voiceAllMatching, voiceSuggestion(String)
 }
@@ -345,6 +346,8 @@ private final class LayoutSuite {
                     InterfaceLayoutElement.dictionaryRow($0.id)
                 }
                 if let rowFrames = frames(rows, in: host) {
+                    equal(rowFrames[0].minY - measured[0].maxY, PisaDesign.Spacing.content,
+                          "dictionary rows start one content gap below the search")
                     let expectedHeight = PisaDesign.Metrics.smallHeight + 2 * PisaDesign.Spacing.compact
                     equal(rowFrames[0].height, expectedHeight, "a short dictionary row uses compact vertical padding")
                     equal(rowFrames[1].minY - rowFrames[0].maxY, PisaDesign.Spacing.compact,
@@ -487,9 +490,24 @@ private final class LayoutSuite {
 
         scenario = "saved voice search, \(percent)%"
         do {
+            let secondVoice = VoiceProfile(name: "Ярослав", samples: [])
+            let previousProfiles = state.voiceProfiles
+            state.voiceProfiles = [savedVoice, secondVoice]
             let host = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state),
                                   size: CGSize(width: 900, height: 700), scale: scale)
-            defer { host.close() }
+            defer {
+                host.close()
+                state.voiceProfiles = previousProfiles
+            }
+            if let measured = frames([.savedVoiceHeading, .savedVoiceSearch,
+                                      .savedVoiceRow(savedVoice.id), .savedVoiceRow(secondVoice.id)], in: host) {
+                equal(measured[1].minY - measured[0].maxY, PisaDesign.Spacing.content,
+                      "saved voice search starts directly below the heading")
+                equal(measured[2].minY - measured[1].maxY, PisaDesign.Spacing.content,
+                      "saved voice rows start one content gap below the search")
+                equal(measured[3].minY - measured[2].maxY, PisaDesign.Spacing.compact,
+                      "saved voice rows have compact spacing")
+            }
             checkField(.savedVoiceSearch, placeholder: true, value: "ПППППП", in: host)
         }
 

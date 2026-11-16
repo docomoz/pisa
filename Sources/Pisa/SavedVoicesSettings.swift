@@ -34,6 +34,7 @@ struct SavedVoicesSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
             SectionHeading("Сохранённые голоса", subtitle: "Pisa узнаёт людей по этим образцам на новых встречах")
+                .measuredForInterfaceTest(.savedVoiceHeading)
             if state.voiceProfiles.isEmpty {
                 emptyState
             } else {
@@ -97,18 +98,11 @@ struct SavedVoicesSettings: View {
                     .padding(PisaDesign.Spacing.content)
                     .plainSurface()
             } else {
-                VStack(spacing: PisaDesign.Spacing.none) {
+                VStack(spacing: PisaDesign.Spacing.compact) {
                     ForEach(profiles) { profile in
                         voiceRow(profile)
-                        if profile.id != profiles.last?.id {
-                            Divider().padding(.horizontal, PisaDesign.Spacing.content)
-                        }
+                            .measuredForInterfaceTest(.savedVoiceRow(profile.id))
                     }
-                }
-                .background {
-                    RoundedRectangle(cornerRadius: PisaDesign.Metrics.surfaceRadius)
-                        .strokeBorder(PisaDesign.Colors.secondaryAction, lineWidth: 1)
-                        .allowsHitTesting(false)
                 }
             }
         }
@@ -159,7 +153,6 @@ struct SavedVoicesSettings: View {
                     .focused($focusedControl, equals: .disclosure(profile.id))
                     .accessibilityLabel(typographicText("\(profile.name), \(voiceSampleCount(examples.count))"))
                     .accessibilityValue(expanded ? "Образцы показаны" : "Образцы свёрнуты")
-                    .screenHelp(expanded ? "Свернуть образцы" : "Показать образцы")
                 }
                 voiceActions(profile)
             }
@@ -175,8 +168,8 @@ struct SavedVoicesSettings: View {
                 .plainSurface()
             }
         }
-        .padding(.horizontal, PisaDesign.Spacing.content)
-        .padding(.vertical, PisaDesign.Spacing.related)
+        .padding(.horizontal, PisaDesign.Spacing.related)
+        .padding(.vertical, PisaDesign.Spacing.compact)
     }
 
     private func voiceIdentity(_ profile: VoiceProfile, sampleCount: Int) -> some View {

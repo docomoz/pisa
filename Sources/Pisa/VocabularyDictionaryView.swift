@@ -60,7 +60,6 @@ struct VocabularyDictionaryView: View {
                     screenButton("Отменить удаление", action: undo).actionButton()
                 }
             }
-            Divider()
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
