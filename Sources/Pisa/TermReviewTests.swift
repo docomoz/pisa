@@ -159,10 +159,19 @@ enum TermReviewTests {
         let meeting = try !dictionary && CommandLine.arguments.contains("--technology-terms-preview")
             ? technologyFixture(state) : fixture(state, segmentCount: segmentCount)
         let large = CommandLine.arguments.contains("--large-text") || CommandLine.arguments.contains("--large-text-preview")
-        let content: AnyView = dictionary
-            ? AnyView(SettingsView(initialSection: "Словарь"))
-            : AnyView(TermReview(meeting: meeting))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: dictionary ? 900 : 940, height: dictionary ? 700 : 660),
+        let entry = !dictionary && CommandLine.arguments.contains("--term-review-entry-preview")
+        let content: AnyView
+        if dictionary {
+            content = AnyView(SettingsView(initialSection: "Словарь"))
+        } else if entry {
+            state.select(meeting.id)
+            content = AnyView(MainView())
+        } else {
+            content = AnyView(TermReview(meeting: meeting))
+        }
+        let size = entry ? NSSize(width: 1290, height: 760) : dictionary
+            ? NSSize(width: 900, height: 700) : NSSize(width: 940, height: 660)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = dictionary ? "Pisa · Словарь распознавания" : "Pisa · Разметка терминов"
         window.contentView = NSHostingView(rootView: content.environmentObject(state).preferredColorScheme(.light)

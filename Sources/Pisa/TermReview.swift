@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 struct TermReview: View {
@@ -5,13 +6,41 @@ struct TermReview: View {
     @Environment(\.dismiss) private var dismiss
     let meeting: Meeting
 
-    private struct ReviewInput: Equatable, Sendable {
+    struct ReviewInput: Equatable, Sendable {
         let segments: [TranscriptSegment]
         let vocabulary: String
 
         func indexSegments() -> [UUID: TranscriptSegment] {
             Dictionary(segments.lazy.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         }
+    }
+
+    @MainActor
+    @Observable
+    final class CandidateList {
+        private(set) var snapshot: (input: ReviewInput, candidates: [TermCandidate])?
+
+        @ObservationIgnored private var requestedInput: ReviewInput?
+        @ObservationIgnored private var worker: Task<Void, Never>?
+
+        func prepare(_ input: ReviewInput, after delay: Duration = .zero) {
+            guard requestedInput != input else { return }
+            requestedInput = input
+            worker?.cancel()
+            worker = nil
+            guard !input.segments.isEmpty, snapshot?.input != input else { return }
+
+            worker = Task(priority: .utility) { [weak self] in
+                do { try await Task.sleep(for: delay) } catch { return }
+                guard let candidates = await TermReview.analyze(priority: .utility, {
+                    TranscriptTerms.candidates(in: input.segments, vocabulary: input.vocabulary)
+                }), !Task.isCancelled else { return }
+                self?.snapshot = (input, candidates)
+                self?.worker = nil
+            }
+        }
+
+        deinit { worker?.cancel() }
     }
 
     private struct MatchRequest: Equatable, Sendable {
@@ -26,7 +55,7 @@ struct TermReview: View {
         let segmentsByID: [UUID: TranscriptSegment]
     }
 
-    @State private var candidateResult: (input: ReviewInput, candidates: [TermCandidate])?
+    @State private var candidateList: CandidateList
     @State private var matchResult: Matches?
     @State private var selectionID = UUID()
     @State private var query = ""
@@ -35,6 +64,11 @@ struct TermReview: View {
     @State private var notice: String?
     @State private var replacementFocused = false
     @State private var lastReplacement: (source: String, correctedSource: String)?
+
+    init(meeting: Meeting, candidateList: CandidateList? = nil) {
+        self.meeting = meeting
+        _candidateList = State(initialValue: candidateList ?? CandidateList())
+    }
 
     private var currentMeeting: Meeting? {
         state.meetings.first { $0.id == meeting.id && state.canReviewTerms($0) }
@@ -60,7 +94,7 @@ struct TermReview: View {
     var body: some View {
         let input = self.input
         let request = matchRequest
-        let candidates = candidateResult?.input == input ? candidateResult?.candidates : nil
+        let candidateSnapshot = candidateList.snapshot
         let matches = matchResult?.request == request ? matchResult : nil
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             HStack(spacing: PisaDesign.Spacing.related) {
@@ -70,7 +104,9 @@ struct TermReview: View {
             }
             if let currentMeeting {
                 HSplitView {
-                    candidatePane(candidates, input: input).frame(minWidth: 275, idealWidth: 300, maxWidth: 360)
+                    candidatePane(candidateSnapshot?.candidates, input: input,
+                                  snapshotIsCurrent: candidateSnapshot?.input == input)
+                        .frame(minWidth: 275, idealWidth: 300, maxWidth: 360)
                     reviewPane(in: currentMeeting, matches: matches).frame(minWidth: 450)
                 }
                 footer
@@ -82,12 +118,13 @@ struct TermReview: View {
         .dialogContent()
         .frame(width: 940, height: 660)
         .background(ClickToUnfocus())
-        .task(id: input) { await refreshCandidates(input) }
+        .onChange(of: input, initial: true) { _, input in candidateList.prepare(input) }
         .task(id: request) { await refreshMatches(request) }
         .onDisappear { state.stopPlayback() }
     }
 
-    private func candidatePane(_ candidates: [TermCandidate]?, input: ReviewInput) -> some View {
+    private func candidatePane(_ candidates: [TermCandidate]?, input: ReviewInput,
+                               snapshotIsCurrent: Bool) -> some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                 SectionHeading("Поиск по тексту")
@@ -106,6 +143,9 @@ struct TermReview: View {
                             ForEach(candidates) { candidate in
                                 Button {
                                     select(candidate.text)
+                                    // A visible row can predate the current transcript or dictionary.
+                                    // In that case the selection's search task will find fresh ranges.
+                                    guard snapshotIsCurrent, input == self.input else { return }
                                     let request = MatchRequest(input: input, source: candidate.text, selectionID: selectionID)
                                     matchResult = Matches(request: request, occurrences: candidate.occurrences,
                                                           segmentsByID: input.indexSegments())
@@ -246,14 +286,6 @@ struct TermReview: View {
         notice = nil
     }
 
-    private func refreshCandidates(_ input: ReviewInput) async {
-        guard !input.segments.isEmpty, candidateResult?.input != input else { return }
-        guard let candidates = await Self.analyze({
-            TranscriptTerms.candidates(in: input.segments, vocabulary: input.vocabulary)
-        }), input == self.input else { return }
-        candidateResult = (input, candidates)
-    }
-
     private func refreshMatches(_ request: MatchRequest?) async {
         guard let request, !request.input.segments.isEmpty, matchResult?.request != request else { return }
         guard let matches = await Self.analyze({
@@ -264,9 +296,12 @@ struct TermReview: View {
         matchResult = matches
     }
 
-    private nonisolated static func analyze<Result: Sendable>(_ work: @escaping @Sendable () -> Result) async -> Result? {
+    private nonisolated static func analyze<Result: Sendable>(
+        priority: TaskPriority = .userInitiated,
+        _ work: @escaping @Sendable () -> Result
+    ) async -> Result? {
         guard !Task.isCancelled else { return nil }
-        let worker = Task.detached(priority: .userInitiated, operation: work)
+        let worker = Task.detached(priority: priority, operation: work)
         let result = await withTaskCancellationHandler {
             await worker.value
         } onCancel: {

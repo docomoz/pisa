@@ -174,6 +174,7 @@ struct MeetingView: View {
     let dateReference: Date
     @State private var editing: TranscriptSegment?
     @State private var reviewingTerms = false
+    @State private var termCandidates = TermReview.CandidateList()
     @State private var showingSummaryOnboarding = false
     @State private var title = ""
     @State private var confirmDeleteAudio = false
@@ -213,6 +214,9 @@ struct MeetingView: View {
         let hasAudio = presentation.allowsSavedAudio && state.hasAudio(meeting)
         let audioSources = presentation.allowsSavedAudio && !state.demo && (showsAutomaticPlayer || hasAudio)
             ? MeetingAudioExport.playbackSources(for: meeting, in: state.library) : []
+        let termReviewInput = !reviewingTerms && state.canReviewTerms(meeting)
+            ? TermReview.ReviewInput(segments: meeting.segments, vocabulary: state.preferences.vocabulary)
+            : nil
         let canToggleAudio = !showsAutomaticPlayer && !audioSources.isEmpty
         let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
@@ -314,7 +318,13 @@ struct MeetingView: View {
                 editing = nil
             }
         }
-        .sheet(isPresented: $reviewingTerms) { TermReview(meeting: meeting).environmentObject(state) }
+        .onChange(of: termReviewInput, initial: true) { _, input in
+            // Give fast navigation a chance to cancel work on meetings the user skips.
+            if let input { termCandidates.prepare(input, after: .milliseconds(250)) }
+        }
+        .sheet(isPresented: $reviewingTerms) {
+            TermReview(meeting: meeting, candidateList: termCandidates).environmentObject(state)
+        }
         .sheet(isPresented: $showingSummaryOnboarding) { MeetingSummaryOnboarding().environmentObject(state) }
     }
 
