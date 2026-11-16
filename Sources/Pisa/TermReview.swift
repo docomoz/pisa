@@ -61,9 +61,11 @@ struct TermReview: View {
     @State private var query = ""
     @State private var source: String?
     @State private var replacement = ""
+    @State private var rememberVariant = false
+    @State private var variantInput = ""
     @State private var notice: String?
     @State private var replacementFocused = false
-    @State private var lastReplacement: (source: String, correctedSource: String)?
+    @State private var lastReplacement: (source: String, correctedSource: String, remembered: Bool)?
 
     init(meeting: Meeting, candidateList: CandidateList? = nil) {
         self.meeting = meeting
@@ -79,7 +81,22 @@ struct TermReview: View {
     private var matchRequest: MatchRequest? {
         source.map { MatchRequest(input: input, source: $0, selectionID: selectionID) }
     }
-    private var term: String { replacement.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var term: String {
+        let spelling = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rememberVariant else { return spelling }
+        return VocabularyDictionary.canonicalSpelling(for: spelling, in: state.preferences.vocabulary)
+    }
+    private func dictionarySuggestion(for spelling: String) -> String? {
+        guard rememberVariant, !spelling.isEmpty else { return nil }
+        let entries = VocabularyDictionary.entries(in: state.preferences.vocabulary)
+        guard !entries.contains(where: { $0.text == spelling }) else { return nil }
+        return entries.first {
+            $0.text.range(of: spelling, options: [.anchored, .caseInsensitive]) != nil
+        }?.text
+    }
+    private var hasVariantInput: Bool {
+        !variantInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private func canReplace(_ occurrences: [TermOccurrence], with term: String) -> Bool {
         guard !term.isEmpty else { return false }
@@ -186,18 +203,41 @@ struct TermReview: View {
     }
 
     private func reviewPane(in meeting: Meeting, matches: Matches?) -> some View {
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
+        let spelling = term
+        return VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             if let source {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                     SectionHeading("Правильное написание", subtitle: "В тексте: «\(source)». При замене основы аббревиатуры окончания сохраняются.")
                     FormTextField(title: "Термин", text: $replacement, isFocused: $replacementFocused,
                                   accessibilityTitle: "Правильное написание", onSubmit: replace)
                         .measuredForInterfaceTest(.termReplacement)
+                    if let suggestion = dictionarySuggestion(for: spelling) {
+                        screenButton("Выбрать \(suggestion)") { replacement = suggestion }
+                            .actionButton(size: .small)
+                    }
+                    let occurrences = matches?.occurrences ?? []
+                    let canCorrect = canReplace(occurrences, with: spelling)
+                    if !occurrences.isEmpty || rememberVariant {
+                        screenToggle("Запомнить для будущих встреч", isOn: rememberBinding(for: occurrences))
+                            .measuredForInterfaceTest(.termRemember)
+                    }
+                    if rememberVariant {
+                        VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                            SupportingText("Варианты распознавания", style: PisaDesign.Typography.caption)
+                            FormTextField(title: "Через запятую", text: $variantInput,
+                                          accessibilityTitle: "Варианты распознавания", onSubmit: replace)
+                                .measuredForInterfaceTest(.termVariant)
+                        }
+                    }
                     HStack(spacing: PisaDesign.Spacing.inline) {
-                        screenButton("Исправить все", action: replace).actionButton(.primary)
-                            .disabled(!canReplace(matches?.occurrences ?? [], with: term))
-                        screenButton("Добавить в словарь", action: addTerm).actionButton()
-                            .disabled(TranscriptTerms.adding(term, to: state.preferences.vocabulary) == state.preferences.vocabulary)
+                        screenButton(rememberVariant ? "Исправить и запомнить" : "Исправить все", action: replace)
+                            .actionButton(.primary)
+                            .disabled(!canCorrect || (rememberVariant && !hasVariantInput))
+                            .measuredForInterfaceTest(.termApply)
+                        if !canCorrect, !rememberVariant {
+                            screenButton("Добавить в словарь", action: addTerm).actionButton()
+                                .disabled(TranscriptTerms.adding(term, to: state.preferences.vocabulary) == state.preferences.vocabulary)
+                        }
                     }
                 }
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
@@ -207,7 +247,7 @@ struct TermReview: View {
                             LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
                                 ForEach(matches.occurrences) { occurrence in
                                     if let segment = matches.segmentsByID[occurrence.segmentID] {
-                                        occurrenceRow(occurrence, segment: segment, meeting: meeting)
+                                        occurrenceRow(occurrence, segment: segment, meeting: meeting, spelling: spelling)
                                     }
                                 }
                             }
@@ -227,7 +267,19 @@ struct TermReview: View {
         .padding(.leading, PisaDesign.Spacing.content)
     }
 
-    private func occurrenceRow(_ occurrence: TermOccurrence, segment: TranscriptSegment, meeting: Meeting) -> some View {
+    private func rememberBinding(for occurrences: [TermOccurrence]) -> Binding<Bool> {
+        Binding(get: { rememberVariant }, set: { enabled in
+            if enabled {
+                variantInput = occurrences.first { $0.text.caseInsensitiveCompare(term) != .orderedSame }?.text
+                    ?? occurrences.first?.text ?? ""
+            }
+            rememberVariant = enabled
+            notice = nil
+        })
+    }
+
+    private func occurrenceRow(_ occurrence: TermOccurrence, segment: TranscriptSegment, meeting: Meeting,
+                               spelling: String) -> some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
             HStack(spacing: PisaDesign.Spacing.related) {
                 screenText("\(timecode(segment.start)) · \(segment.speaker)")
@@ -242,8 +294,8 @@ struct TermReview: View {
                 .textStyle(PisaDesign.Typography.body)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            if !term.isEmpty {
-                if let preview = TranscriptTerms.replacement(for: occurrence, with: term) {
+            if !spelling.isEmpty {
+                if let preview = TranscriptTerms.replacement(for: occurrence, with: spelling) {
                     if occurrence.text != preview {
                         SupportingText("«\(occurrence.text)» → «\(preview)»", style: PisaDesign.Typography.caption)
                     }
@@ -283,6 +335,8 @@ struct TermReview: View {
         selectionID = UUID()
         source = text
         replacement = text
+        rememberVariant = false
+        variantInput = ""
         notice = nil
     }
 
@@ -313,18 +367,23 @@ struct TermReview: View {
     private func replace() {
         let corrected = term
         guard let matches = matchResult, matches.request == matchRequest,
-              canReplace(matches.occurrences, with: corrected) else { return }
+              canReplace(matches.occurrences, with: corrected),
+              !rememberVariant || hasVariantInput else { return }
         let occurrences = matches.occurrences
         let chosen = occurrences.filter { TranscriptTerms.replacement(for: $0, with: corrected) != $0.text }
         do {
             let original = source
             let correctedSource = TranscriptTerms.replacementSearchTerm(for: occurrences, with: corrected)
-            try state.replaceTerms(chosen, with: corrected, meetingID: meeting.id)
-            if let original { lastReplacement = (original, correctedSource) }
+            try state.replaceTerms(chosen, with: corrected, meetingID: meeting.id,
+                                   remembering: rememberVariant ? variantInput : nil)
+            if let original { lastReplacement = (original, correctedSource, rememberVariant) }
             source = correctedSource
             replacement = corrected
             replacementFocused = false
-            notice = "Исправлено: \(chosen.count)"
+            notice = rememberVariant ? "Исправлено: \(chosen.count). Варианты сохранены в словаре."
+                : "Исправлено: \(chosen.count)"
+            rememberVariant = false
+            variantInput = ""
         } catch { notice = error.localizedDescription }
     }
 
@@ -335,8 +394,12 @@ struct TermReview: View {
                 source = lastReplacement.source
                 replacement = lastReplacement.source
             }
+            rememberVariant = false
+            variantInput = ""
+            notice = lastReplacement?.remembered == true
+                ? "Исправление отменено. Варианты сохранены в словаре."
+                : "Исправление отменено"
             lastReplacement = nil
-            notice = "Исправление отменено"
         } catch { notice = error.localizedDescription }
     }
 

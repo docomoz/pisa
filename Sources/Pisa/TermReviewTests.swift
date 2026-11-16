@@ -28,7 +28,7 @@ enum TermReviewTests {
                                      text: text)
         }
         meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России. Для ЛПР, ЛПР'ов, ЛПРов и ЛПРы обсудили запрос Сбера и встречу со Сбером."
-        meeting.segments[1].text += " Так, Давайте обсудим Семь задач и Новогодний график. Ну, Во-первых, что-то и как-то. Потом снова что-то и как-то."
+        meeting.segments[1].text += " Так, Давайте обсудим Семь задач и Новогодний график. Ну, Во-первых, что-то и как-то. Потом снова что-то и как-то. Сиэнби обсуждали с Анной."
         state.update(meeting)
         return try state.library.read(meeting.id)
     }
@@ -143,7 +143,57 @@ enum TermReviewTests {
         try check(try state.library.preferences().vocabulary.isEmpty, "Built-in terms changed personal dictionary")
         try state.addRecognitionTerm("B2B")
         try check(try state.library.preferences().vocabulary == "B2B", "Explicit manual addition of a built-in term was not saved")
-        print("TERM_REVIEW_TEST_OK grouped_family persisted_replacement preserved_endings stale_rejection no_op undo dictionary_base restart built_in_terms")
+        try checkRememberingVariants(in: state)
+        print("TERM_REVIEW_TEST_OK grouped_family persisted_replacement preserved_endings stale_rejection no_op undo dictionary_base restart built_in_terms remembered_variants")
+    }
+
+    private static func checkRememberingVariants(in state: AppState) throws {
+        func check(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+            guard try condition() else { throw PisaError.message(message) }
+        }
+
+        var meeting = Meeting(title: "Проверка вариантов", source: "Проверка словаря")
+        meeting.status = .ready
+        meeting.segments = [.init(start: 0, end: 5, speaker: "Анна", text: "Сиэнби и сиэнби обсудили. CMB — отдельный термин.")]
+        state.update(meeting)
+        try state.saveVocabulary("C&B, R&D")
+        let occurrences = TranscriptTerms.matches("сиэнби", in: meeting.segments, vocabulary: state.preferences.vocabulary)
+        try check(occurrences.count == 2, "The source variant did not find both occurrences")
+
+        var conflictRejected = false
+        do { try state.replaceTerms(occurrences, with: "C&B", meetingID: meeting.id, remembering: "R&D") }
+        catch { conflictRejected = true }
+        try check(conflictRejected, "A conflicting variant was accepted")
+        try check(try state.library.read(meeting.id).segments == meeting.segments, "A conflict changed the meeting")
+        try check(try state.library.preferences().vocabularyVariants.isEmpty, "A conflict changed the dictionary")
+
+        try state.replaceTerms(occurrences, with: "C&B", meetingID: meeting.id)
+        let corrected = "C&B и C&B обсудили. CMB — отдельный термин."
+        try check(try state.library.read(meeting.id).segments[0].text == corrected, "Meeting-only edit did not replace all source occurrences")
+        try check(try state.library.preferences().vocabularyVariants.isEmpty, "Meeting-only edit saved an implicit variant")
+        try state.undoTermReplacement(meetingID: meeting.id)
+
+        let preferencesFile = state.library.root.appendingPathComponent("preferences.json")
+        let savedPreferences = try Data(contentsOf: preferencesFile)
+        try FileManager.default.removeItem(at: preferencesFile)
+        try FileManager.default.createDirectory(at: preferencesFile, withIntermediateDirectories: false)
+        var writeRejected = false
+        do { try state.replaceTerms(occurrences, with: "C&B", meetingID: meeting.id, remembering: "си эн би") }
+        catch { writeRejected = true }
+        try FileManager.default.removeItem(at: preferencesFile)
+        try savedPreferences.write(to: preferencesFile, options: .atomic)
+        try check(writeRejected, "A blocked preferences write was treated as success")
+        try check(try state.library.read(meeting.id).segments == meeting.segments, "The meeting changed after saving preferences failed")
+        try check(state.preferences.vocabularyVariants.isEmpty, "The unsaved variant was published in memory")
+
+        try state.replaceTerms(occurrences, with: "c&b", meetingID: meeting.id, remembering: "си эн би, CnB")
+        try check(try state.library.read(meeting.id).segments[0].text == corrected, "Combined edit did not replace the original source occurrences")
+        let reloaded = AppState(rootURL: state.library.root)
+        try check(reloaded.preferences.vocabulary == "C&B, R&D", "Adding variants created a duplicate canonical entry")
+        try check(reloaded.preferences.vocabularyVariants["C&B"] == ["си эн би", "CnB"], "The edited variants failed to persist under the canonical spelling")
+        try state.undoTermReplacement(meetingID: meeting.id)
+        try check(try state.library.read(meeting.id).segments == meeting.segments, "Undo did not restore the meeting after a combined edit")
+        try check(try state.library.preferences().vocabularyVariants["C&B"] == ["си эн би", "CnB"], "Undoing the meeting changed the dictionary")
     }
 
     private static func unwrap<T>(_ value: T?, _ message: String) throws -> T {
@@ -160,6 +210,12 @@ enum TermReviewTests {
         let segmentCount = CommandLine.arguments.contains("--long-transcript-preview") ? 1_800 : 18
         let meeting = try !dictionary && CommandLine.arguments.contains("--technology-terms-preview")
             ? technologyFixture(state) : fixture(state, segmentCount: segmentCount)
+        if dictionary {
+            try state.saveVocabulary(state.preferences.vocabulary + "\nC&B\nR&D",
+                                     variants: ["C&B": ["CnB", "си эн би"], "R&D": ["RND"]])
+        } else {
+            try state.saveVocabulary(state.preferences.vocabulary + "\nC&B")
+        }
         let large = CommandLine.arguments.contains("--large-text") || CommandLine.arguments.contains("--large-text-preview")
         let entry = !dictionary && CommandLine.arguments.contains("--term-review-entry-preview")
         let content: AnyView

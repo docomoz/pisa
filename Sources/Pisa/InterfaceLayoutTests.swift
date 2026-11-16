@@ -11,7 +11,7 @@ enum InterfaceLayoutElement: Hashable {
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String)
     case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit
-    case termSearch, termFind, termReplacement
+    case termSearch, termFind, termReplacement, termRemember, termVariant, termApply
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
     case voiceMergeList, voiceMergeCandidate(UUID)
     case voiceAllMatching, voiceSuggestion(String)
@@ -359,8 +359,50 @@ private final class LayoutSuite {
                 host.pressReturn()
                 checkField(.termReplacement, placeholder: false, nativePlaceholder: "Термин", in: host)
                 checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
+                checkTermVariants(state: state, meeting: meeting, in: host)
             }
         }
+    }
+
+    private func checkTermVariants(state: AppState, meeting: Meeting, in host: LayoutHost) {
+        guard let toggle = frames([.termRemember], in: host)?.first,
+              let replacementFrame = frames([.termReplacement], in: host)?.first,
+              let replacement = host.field(in: replacementFrame, placeholder: "Термин") else { return }
+        check(host.frames[.termVariant] == nil, "the variant editor starts closed")
+        let fieldCenter = host.center(of: replacement)
+        // The split view hosts the right pane in its own coordinate space.
+        let checkbox = CGPoint(x: fieldCenter.x + toggle.midX - replacementFrame.midX,
+                               y: fieldCenter.y + toggle.midY - replacementFrame.midY)
+        host.click(checkbox)
+        guard let editorFrame = frames([.termVariant], in: host)?.first,
+              let editor = host.field(in: editorFrame, placeholder: "Через запятую") else { return }
+        check(editor.stringValue == "Писая", "enabling the checkbox pre-fills the observed variant")
+        checkField(.termVariant, placeholder: false, value: "Пи сая", nativePlaceholder: "Через запятую", in: host)
+        checkField(.termVariant, placeholder: true, clear: true, nativePlaceholder: "Через запятую", in: host)
+        host.click(checkbox)
+        check(host.wait { host.frames[.termVariant] == nil }, "disabling the checkbox closes the field")
+
+        check(host.type("Pisa", into: replacement), "editing the correct spelling sets the target")
+        host.click(checkbox)
+        guard let reopened = frames([.termVariant], in: host)?.first,
+              let variant = host.field(in: reopened, placeholder: "Через запятую"),
+              let apply = frames([.termApply], in: host)?.first else { return }
+        let vocabulary = state.preferences.vocabulary
+        let variants = state.preferences.vocabularyVariants
+        check(variant.stringValue == "Писая", "reopening starts with the original wording")
+        check(host.type("Пи сая", into: variant), "the prefilled variant can be edited before saving")
+        host.click(CGPoint(x: fieldCenter.x + apply.midX - replacementFrame.midX,
+                           y: fieldCenter.y + apply.midY - replacementFrame.midY))
+        let updated = state.meetings.first { $0.id == meeting.id }
+        check(updated?.segments.first?.text.contains("названия Pisa.") == true, "one click fixes the original occurrence")
+        check(state.preferences.vocabularyVariants["Pisa"] == ["Пи сая"], "the same click saves the edited variant")
+        check(host.wait { host.frames[.termVariant] == nil }, "saving closes the variant editor")
+        do {
+            if state.canUndoTermReplacement(meetingID: meeting.id) {
+                try state.undoTermReplacement(meetingID: meeting.id)
+            }
+            try state.saveVocabulary(vocabulary, variants: variants)
+        } catch { check(false, "the temporary meeting and dictionary can be restored") }
     }
 
     private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,

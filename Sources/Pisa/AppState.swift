@@ -790,7 +790,8 @@ final class AppState: ObservableObject {
             return Transcriber.WindowPass()
         }
         var pass = try await transcriber.transcribeWindow(files: files.map { ($0.url, $0.offset) }, modelDirectory: model,
-            context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"),
+            context: preferences.vocabulary, vocabularyVariants: preferences.vocabularyVariants,
+            speakerDirectory: library.root.appendingPathComponent("Models/Speakers"),
             performance: transcriptionPerformance, preceding: preceding, boundaryCheck: boundaryCheck)
         pass.segments = try pass.segments.map { segment in
             var mapped = segment
@@ -859,6 +860,7 @@ final class AppState: ObservableObject {
         if request.turbo { setTurboTranscription(true, for: id) }
         Analytics.transcriptionStarted(mode: "batch", reprocess: reprocess)
         let vocabulary = preferences.vocabulary
+        let vocabularyVariants = preferences.vocabularyVariants
         processingTask = Task(executorPreference: transcriptionPerformance, priority: .utility) { @MainActor [self] in
             defer {
                 if granted { model.stopAccessingSecurityScopedResource() }
@@ -871,6 +873,7 @@ final class AppState: ObservableObject {
                     .filter { FileManager.default.fileExists(atPath: $0.0.path) }
                 guard !files.isEmpty else { throw PisaError.message("Аудио этой встречи недоступно") }
                 let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary,
+                    vocabularyVariants: vocabularyVariants,
                     speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance,
                     retainProcessedMicrophone: m.audioArchive == nil) { [self] fraction, description in
                     await self.updateProcessingProgress(fraction, description)
@@ -1204,20 +1207,43 @@ final class AppState: ObservableObject {
         meeting.status == .ready && meeting.liveCommittedUntil == nil && meeting.deletedAt == nil &&
             !meeting.segments.isEmpty && canModify(meeting)
     }
-    func replaceTerms(_ occurrences: [TermOccurrence], with replacement: String, meetingID: UUID) throws {
-        guard var meeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(meeting),
-              let updated = TranscriptTerms.replacing(occurrences, with: replacement, in: meeting.segments) else {
+    func replaceTerms(_ occurrences: [TermOccurrence], with replacement: String, meetingID: UUID,
+                      remembering variants: String? = nil) throws {
+        let corrected = variants == nil ? replacement
+            : VocabularyDictionary.canonicalSpelling(for: replacement, in: preferences.vocabulary)
+        guard let originalMeeting = meetings.first(where: { $0.id == meetingID }), canReviewTerms(originalMeeting),
+              let updated = TranscriptTerms.replacing(occurrences, with: corrected, in: originalMeeting.segments) else {
             throw PisaError.message("Не удалось применить замену. Проверьте написание и найдите термин заново")
         }
         var before: [UUID: String] = [:]
         var after: [UUID: String] = [:]
-        for (original, edited) in zip(meeting.segments, updated) where original.text != edited.text {
+        for (original, edited) in zip(originalMeeting.segments, updated) where original.text != edited.text {
             before[original.id] = original.text
             after[original.id] = edited.text
         }
         guard !before.isEmpty else { return }
+        let dictionary = try variants.map {
+            try VocabularyDictionary.addingVariants($0, for: corrected, to: preferences.vocabulary,
+                                                     variants: preferences.vocabularyVariants)
+        }
+        var meeting = originalMeeting
         meeting.segments = updated
         try library.save(meeting)
+        if let dictionary, dictionary.vocabulary != preferences.vocabulary ||
+            dictionary.variants != preferences.vocabularyVariants {
+            do {
+                try saveVocabulary(dictionary.vocabulary, variants: dictionary.variants)
+            } catch let dictionaryError {
+                do { try library.save(originalMeeting) }
+                catch {
+                    termReplacementUndo[meetingID] = (before, after)
+                    upsert(meeting)
+                    exportIfConfigured(meeting)
+                    throw PisaError.message("Словарь не сохранён. Исправление осталось во встрече, его можно отменить.")
+                }
+                throw dictionaryError
+            }
+        }
         termReplacementUndo[meetingID] = (before, after)
         upsert(meeting)
         Analytics.feature(.termsReplaced)
@@ -1243,6 +1269,11 @@ final class AppState: ObservableObject {
     }
     func addRecognitionTerm(_ term: String) throws {
         guard !demo else { return }
+        let canonical = TranscriptTerms.dictionaryTerm(term)
+        if let owner = VocabularyDictionary.variantOwner(of: term, in: preferences.vocabularyVariants)
+            ?? VocabularyDictionary.variantOwner(of: canonical, in: preferences.vocabularyVariants) {
+            throw VocabularyDictionary.Failure.variantConflict(term, owner: owner)
+        }
         var updated = preferences
         updated.vocabulary = TranscriptTerms.adding(term, to: preferences.vocabulary)
         guard updated.vocabulary != preferences.vocabulary else {
