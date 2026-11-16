@@ -379,14 +379,13 @@ actor Transcriber {
                 }
                 return revised
             }
-        // Shared context at a recovered acoustic cut may decode one physical
-        // word twice. Preserve text unless a full-context acoustic replay proves
-        // one occurrence, with matching neighboring words and crossing timing.
+        // Shared context can decode one physical word twice, or damage both
+        // pieces of a cut word. Cached acoustic anchors gate any extra replay;
+        // differing forms additionally require an unprompted full Qwen decode.
         if let russian {
-            for index in localized.indices.dropFirst() {
-                let left = localized[index - 1], right = localized[index]
-                guard RecognitionBoundaryOverlap.candidate(left: left.text, right: right.text) != nil,
-                      let a = recoveredAudio[left.id], let b = recoveredAudio[right.id], a.gap == b.gap,
+            for pair in RecognitionBoundaryRepair.adjacentPairs(localized) {
+                let left = localized[pair.left], right = localized[pair.right]
+                guard let a = recoveredAudio[left.id], let b = recoveredAudio[right.id], a.gap == b.gap,
                       abs(a.evidence.upperBound - b.evidence.lowerBound) < 1.0 / 16000,
                       left.audioFile == right.audioFile, let fileName = left.audioFile,
                       let url = preparedFiles.first(where: { $0.0.lastPathComponent == fileName })?.0,
@@ -396,6 +395,15 @@ actor Transcriber {
                 let lower = max(leftBounds.lowerBound, rightBounds.lowerBound)
                 let upper = min(leftBounds.upperBound, rightBounds.upperBound)
                 guard upper > lower else { continue }
+                func shifted(_ words: [RecognitionTimedWord], by offset: Double) -> [RecognitionTimedWord] {
+                    words.map { RecognitionTimedWord(text: $0.text, start: $0.start + offset, end: $0.end + offset) }
+                }
+                let leftWords = shifted(leftHypothesis.words, by: leftBounds.lowerBound)
+                let rightWords = shifted(rightHypothesis.words, by: rightBounds.lowerBound)
+                let exactDuplicate = RecognitionBoundaryOverlap.candidate(left: left.text, right: right.text) != nil
+                let repairProbe = RecognitionBoundaryRepair.probe(left: left.text, right: right.text,
+                    leftWords: leftWords, rightWords: rightWords, cut: b.evidence.lowerBound, sharedAudio: lower..<upper)
+                guard exactDuplicate || repairProbe != nil else { continue }
                 let union = a.gap.upperBound - a.gap.lowerBound <= 30
                     ? a.gap : leftBounds.lowerBound..<rightBounds.upperBound
                 guard union.upperBound - union.lowerBound <= 30 else { continue }
@@ -404,18 +412,40 @@ actor Transcriber {
                 let began = ContinuousClock.now
                 let evidence = acousticRecognition(samples, using: russian)
                 try await performance.pace(after: began)
-                func shifted(_ words: [RecognitionTimedWord], by offset: Double) -> [RecognitionTimedWord] {
-                    words.map { RecognitionTimedWord(text: $0.text, start: $0.start + offset, end: $0.end + offset) }
+                try Task.checkCancellation()
+                guard let evidence else { continue }
+                let words = shifted(evidence.words, by: union.lowerBound)
+                if exactDuplicate, let revised = RecognitionBoundaryOverlap.revisedRight(left: left.text, right: right.text,
+                    leftWords: leftWords, rightWords: rightWords, unionWords: words, cut: b.evidence.lowerBound,
+                    sharedAudio: lower..<upper) {
+                    localized[pair.right].text = revised
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["kind": "shared-boundary-word", "start": String(right.start),
+                            "source": right.text, "candidate": revised])
+                    }
+                    continue
                 }
-                guard let evidence, let revised = RecognitionBoundaryOverlap.revisedRight(left: left.text, right: right.text,
-                    leftWords: shifted(leftHypothesis.words, by: leftBounds.lowerBound),
-                    rightWords: shifted(rightHypothesis.words, by: rightBounds.lowerBound),
-                    unionWords: shifted(evidence.words, by: union.lowerBound), cut: b.evidence.lowerBound,
-                    sharedAudio: lower..<upper) else { continue }
-                localized[index].text = revised
+                guard let repairProbe, let proposal = RecognitionBoundaryRepair.proposal(repairProbe, unionWords: words) else { continue }
+                try Task.checkCancellation()
+                let replayBegan = ContinuousClock.now
+                let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
+                let reread = measureRecognition("qwen") {
+                    model.generate(audio: MLXArray(samples), maxTokens: maxTokens, context: "", language: "Russian",
+                        chunkDuration: 30, repetitionPenalty: 1.1)
+                }
+                try await performance.pace(after: replayBegan)
+                try Task.checkCancellation()
+                guard reread.language?.lowercased() == "russian",
+                      let revision = RecognitionBoundaryRepair.confirm(proposal, reread: reread.text, normalizeReplacement: { token in
+                          TranscriptOrthography.normalize(spokenVocabulary.apply(to: token), vocabulary: context)
+                      }) else { continue }
+                localized[pair.left].text = revision.left
+                localized[pair.right].text = revision.right
                 if collectDiagnostics {
-                    contextDiagnostics.append(["kind": "shared-boundary-word", "start": String(right.start),
-                        "source": right.text, "candidate": revised])
+                    contextDiagnostics.append(["kind": "shared-boundary-repair", "start": String(right.start),
+                        "sourceLeft": left.text, "source": right.text,
+                        "candidateLeft": revision.left, "candidate": revision.right,
+                        "independent": evidence.text, "reread": reread.text])
                 }
             }
         }

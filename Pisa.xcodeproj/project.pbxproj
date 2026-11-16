@@ -87,6 +87,7 @@
 		7219EE209DD31E0B81AC4D77 /* LibrarySearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C131E4CF5FEB12195987B254 /* LibrarySearchIndex.swift */; };
 		72387820EC4DF45D48E8BFA3 /* PisaTechnologyCompanies.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 28A4BDF0FD2A113169F207BA /* PisaTechnologyCompanies.deflate */; };
 		736D4D7821953A8805CCC64D /* MeetingTitles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90391FF4B4FA8508C90F7BEC /* MeetingTitles.swift */; };
+		744237B202F224887426A61C /* RecognitionBoundaryRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = A943F7E3F4637DB923668545 /* RecognitionBoundaryRepair.swift */; };
 		7485FD53A4FBD0612D1ADCEB /* AudioDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CD008C1D5BE3D30B3ED6E /* AudioDiagnostics.swift */; };
 		75837D9541DD125D3391B117 /* SpeakerTurnPartition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3D7361B9BBE73329828EA4 /* SpeakerTurnPartition.swift */; };
 		75A65DF070441ACF109BBF24 /* MCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143DE9CCB6B59663695D3993 /* MCP.swift */; };
@@ -139,6 +140,7 @@
 		AB029DDC5E0621C42DAAF6C1 /* Launcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9EC25E600FF1EF0F5F28529 /* Launcher.swift */; };
 		ABE648BA104937DEF13E9EE2 /* RecognitionMeetingBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA7797D0B55DB223FE7D2585 /* RecognitionMeetingBenchmark.swift */; };
 		ADAC8E5A36255DA3E6218C36 /* TranscriptEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6804780222FB96C5F4FD2EC1 /* TranscriptEvidence.swift */; };
+		AEEE20FD9C04ADC6F0CE8303 /* RecognitionBoundaryRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = A943F7E3F4637DB923668545 /* RecognitionBoundaryRepair.swift */; };
 		AFF6F046D6C90B772291C1A2 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26B179D0C5A09CBBBF692B80 /* ModelInstaller.swift */; };
 		B1EE2E88007D4314C164862A /* SpokenVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3531AF4D3773F1FCEAACBF7 /* SpokenVocabulary.swift */; };
 		B309D38DE145145A0EABA33D /* libPisyaAEC.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 21E029D3F96C4535F859BD62 /* libPisyaAEC.a */; };
@@ -297,6 +299,7 @@
 		9F02F57444459CC5E2C6346D /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		A1AAEAA51A57FFF68DF378F9 /* SettingsSectionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionPicker.swift; sourceTree = "<group>"; };
 		A93F50E976C912315FB27E46 /* RecognitionMeetingPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionMeetingPreview.swift; sourceTree = "<group>"; };
+		A943F7E3F4637DB923668545 /* RecognitionBoundaryRepair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionBoundaryRepair.swift; sourceTree = "<group>"; };
 		AC07B603173D8C455213156C /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		ACE4470EAB9EF99B723009FB /* PisaYoWords-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "PisaYoWords-LICENSE.txt"; sourceTree = "<group>"; };
 		AE353CAD1BC385D7F6B1EF6D /* BrandMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMark.swift; sourceTree = "<group>"; };
@@ -518,6 +521,7 @@
 				88B9F7625E98F1D438D8E7EA /* ProtectedFileRead.swift */,
 				0C1AC9B6624860455BB87B22 /* RecognitionAudioFocus.swift */,
 				3342B6AC4E206748D7298D8F /* RecognitionBoundaryOverlap.swift */,
+				A943F7E3F4637DB923668545 /* RecognitionBoundaryRepair.swift */,
 				E217CA015ED5B87EFB23B66D /* RecognitionConsensus.swift */,
 				CBE219ECCCC01FDF3464AB5E /* RecognitionContext.swift */,
 				8C4A9D654E07720102E9905E /* RecognitionDecodeCache.swift */,
@@ -743,6 +747,7 @@
 				4330DFFFFFCA39C919F64E77 /* ProtectedFileRead.swift in Sources */,
 				A22735668EF27758A1577AF0 /* RecognitionAudioFocus.swift in Sources */,
 				6DE8296612D1F30F96A389DA /* RecognitionBoundaryOverlap.swift in Sources */,
+				744237B202F224887426A61C /* RecognitionBoundaryRepair.swift in Sources */,
 				28B092623C6481A330243DC0 /* RecognitionConsensus.swift in Sources */,
 				F888B5E84BD5B450F5139F0C /* RecognitionContext.swift in Sources */,
 				684E2EFCB5289FE0B04D283C /* RecognitionDecodeCache.swift in Sources */,
@@ -840,6 +845,7 @@
 				3DDB5AFDA1C77D75E6439529 /* QuitShortcut.swift in Sources */,
 				02543D6A8911E2042C1484E9 /* RecognitionAudioFocus.swift in Sources */,
 				39950EE73AE7086887441C27 /* RecognitionBoundaryOverlap.swift in Sources */,
+				AEEE20FD9C04ADC6F0CE8303 /* RecognitionBoundaryRepair.swift in Sources */,
 				595DBC832AB986964E25A361 /* RecognitionConsensus.swift in Sources */,
 				8D4786A7B7A1243D158F8112 /* RecognitionContext.swift in Sources */,
 				CD8C7044B44FE911F2A3B4FD /* RecognitionDecodeCache.swift in Sources */,
