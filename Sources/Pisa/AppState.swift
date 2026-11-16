@@ -1091,6 +1091,7 @@ final class AppState: ObservableObject {
               let sample = m.segments.first(where: { $0.id == segmentID }) else {
             throw PisaError.message("Фрагмент недоступен. Выберите другую реплику.")
         }
+        if remember { try validateSavedVoiceName(clean) }
         func applyingName(to original: Meeting) -> Meeting {
             var meeting = original
             for index in meeting.segments.indices
@@ -1178,16 +1179,19 @@ final class AppState: ObservableObject {
     }
     private func voiceProfilesAdding(_ example: VoiceExample, name: String) -> [VoiceProfile] {
         var profiles = voiceProfiles
+        let destinationID = profiles.first(where: { $0.name == name })?.id
         // A clip belongs to the voice it was most recently assigned to.
-        for index in profiles.indices {
+        for index in profiles.indices.reversed() {
             let examples = profiles[index].examples ?? []
             let retained = examples.filter { $0.meetingID != example.meetingID || $0.segmentID != example.segmentID }
-            if retained.count != examples.count {
-                replaceVoiceExamples(in: &profiles[index], with: retained)
+            guard retained.count != examples.count else { continue }
+            replaceVoiceExamples(in: &profiles[index], with: retained)
+            if profiles[index].id != destinationID, retained.isEmpty, profiles[index].samples.isEmpty {
+                profiles.remove(at: index)
             }
         }
         let index: Int
-        if let existing = profiles.firstIndex(where: { $0.name == name }) {
+        if let existing = profiles.firstIndex(where: { $0.id == destinationID }) {
             index = existing
         } else {
             index = profiles.count
@@ -1315,6 +1319,7 @@ final class AppState: ObservableObject {
     func renameVoice(_ id: UUID, to name: String) throws {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { throw PisaError.message("Введите имя") }
+        try validateSavedVoiceName(clean)
         guard let index = voiceProfiles.firstIndex(where: { $0.id == id }) else { throw PisaError.message("Голос уже удалён") }
         guard !voiceProfiles.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(clean) == .orderedSame }) else {
             throw PisaError.message("Голос с таким именем уже сохранён. Укажите другое имя")
@@ -1334,6 +1339,7 @@ final class AppState: ObservableObject {
         }
         var updated = voiceProfiles
         var merged = updated[targetIndex]
+        try validateSavedVoiceName(merged.name)
         let targetExamples = merged.examples ?? []
         let sourceExamples = source.examples ?? []
         merged.samples = unpairedVoiceSamples(in: merged) + unpairedVoiceSamples(in: source)
@@ -1345,14 +1351,18 @@ final class AppState: ObservableObject {
         updated.removeAll { $0.id == sourceID }
         try saveVoiceNameChange(from: source, to: merged.name, profiles: updated)
     }
+    private func validateSavedVoiceName(_ name: String) throws {
+        guard !isAutomaticSpeakerName(name) else {
+            throw PisaError.message("Укажите имя участника для сохранённого голоса")
+        }
+    }
     private func saveVoiceNameChange(from profile: VoiceProfile, to newName: String, profiles: [VoiceProfile]) throws {
         let oldName = profile.name
         guard oldName != newName else {
             try saveVoiceProfiles(profiles)
             return
         }
-        let isDefaultLabel = oldName == "Я" || oldName == "Собеседники" ||
-            (oldName.hasPrefix("Спикер ") && Int(oldName.dropFirst("Спикер ".count)) != nil)
+        let isDefaultLabel = oldName == "Я" || isAutomaticSpeakerName(oldName)
         let examples = Dictionary(grouping: profile.examples ?? [], by: \.meetingID)
         let matcher = isDefaultLabel ? VoiceMatcher(profiles: voiceProfiles) : nil
         let changes = try library.all(includeDeleted: true).compactMap { original -> (before: Meeting, after: Meeting)? in

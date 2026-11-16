@@ -54,6 +54,7 @@ struct VoiceManager: View {
         meeting?.segments.first { $0.id == selected && $0.speaker != TranscriptSegment.unidentifiedSpeaker }
     }
     private var canApplyName: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var automaticName: Bool { isAutomaticSpeakerName(name) }
     private var suggestions: [String] {
         guard showSuggestions else { return [] }
         return voiceNameSuggestions(query: name, meetingNames: meeting?.segments.map(\.speaker) ?? [], savedNames: state.voiceProfiles.map(\.name))
@@ -93,12 +94,14 @@ struct VoiceManager: View {
         assignmentError = nil
         let name = name
         let allMatching = allMatching
+        let canRememberName = !automaticName
+        let rememberVoice = rememberVoice && canRememberName
         assignment = Task {
             defer { assignment = nil }
             do {
                 try await state.assignVoice(meetingID: meetingID, segmentID: selected, name: name,
                                             allMatching: allMatching, remember: rememberVoice)
-                if !rememberVoice, automaticSample != nil { remember = false }
+                if !rememberVoice, canRememberName, automaticSample != nil { remember = false }
             } catch is CancellationError {
                 return
             } catch {
@@ -137,9 +140,14 @@ struct VoiceManager: View {
                             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
                                     .measuredForInterfaceTest(.voiceAllMatching)
-                                screenToggle("Запомнить голос для будущих встреч", isOn: $remember)
-                                    .disabled(automaticSample == nil)
-                                if let automaticSample, remember, let meeting {
+                                screenToggle("Запомнить голос для будущих встреч",
+                                             isOn: Binding(get: { remember && !automaticName }, set: { remember = $0 }))
+                                    .disabled(automaticSample == nil || automaticName)
+                                if automaticName, automaticSample != nil {
+                                    screenText("Введите имя участника, чтобы запомнить голос")
+                                        .textStyle(PisaDesign.Typography.caption)
+                                        .foregroundStyle(Color.mutedInk)
+                                } else if let automaticSample, remember, let meeting {
                                     screenButton("Послушать образец · \(timecode(automaticSample.start))–\(timecode(automaticSample.end))") {
                                         state.preview(automaticSample, in: meeting)
                                     }.actionButton().disabled(state.recording || state.demo)

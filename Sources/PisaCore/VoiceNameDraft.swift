@@ -4,6 +4,14 @@ func voiceNameForSelection(currentSpeaker: String?, currentName: String, segment
     currentSpeaker == segment.speaker ? currentName : segment.speaker
 }
 
+func isAutomaticSpeakerName(_ name: String) -> Bool {
+    let words = name.split(whereSeparator: \.isWhitespace)
+    if words.count == 1,
+       words[0].caseInsensitiveCompare(TranscriptSegment.unidentifiedSpeaker) == .orderedSame { return true }
+    return words.count == 2 && words[0].caseInsensitiveCompare("Спикер") == .orderedSame &&
+        words[1].allSatisfy { $0.isASCII && $0.isNumber }
+}
+
 func voiceNameSuggestions(query: String, meetingNames: [String], savedNames: [String]) -> [String] {
     let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
     func words(in text: String) -> [Substring] {

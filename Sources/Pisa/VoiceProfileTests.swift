@@ -173,7 +173,80 @@ enum VoiceProfileTests {
         try check(selfSegments[0].audioFile == "test-mic.caf", "Rename changed the selected audio track")
         try await checkMergeAndExampleRemoval()
         try await checkEnrollmentFailures()
-        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label merge remove_sample enrollment_cancel enrollment_stale enrollment_save_failure conflict_meeting_only")
+        try await checkAutomaticNamesAndSampleTransfer()
+        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label merge remove_sample enrollment_cancel enrollment_stale enrollment_save_failure conflict_meeting_only automatic_names sample_transfer")
+    }
+
+    private static func checkAutomaticNamesAndSampleTransfer() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Voice-Transfer-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        try seed(state, count: 2)
+        var meeting = Meeting(title: "Встреча", source: "Проверка")
+        meeting.status = .ready
+        meeting.audioFiles = ["meeting.caf"]
+        let segment = TranscriptSegment(start: 0, end: 3, speaker: "Спикер 3", text: "Первая реплика")
+        meeting.segments = [segment]
+        state.update(meeting)
+
+        let recipient = state.voiceProfiles[0]
+        var oldProfile = state.voiceProfiles[1]
+        oldProfile.name = segment.speaker
+        oldProfile.examples?[0].meetingID = meeting.id
+        oldProfile.examples?[0].segmentID = segment.id
+        let sampleFolder = root.appendingPathComponent("VoiceSamples")
+        let oldClip = sampleFolder.appendingPathComponent(oldProfile.examples![0].file)
+        try FileManager.default.copyItem(at: oldClip, to: state.library.audioURL(meeting.audioFiles[0]))
+        state.voiceProfiles = [recipient, oldProfile]
+        try state.library.saveVoices(state.voiceProfiles)
+
+        func check(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+            if try !condition() { throw PisaError.message(message) }
+        }
+        func enroll(as name: String) async throws {
+            try await state.assignVoice(meetingID: meeting.id, segmentID: segment.id, name: name,
+                                        allMatching: false, remember: true, extractEmbedding: { _ in [1, 1] })
+        }
+
+        let transferIsBlocked = (try? await enroll(as: "  сПиКеР\u{00A0}17  ")) == nil
+        let unidentifiedIsBlocked = (try? await enroll(as: TranscriptSegment.unidentifiedSpeaker)) == nil
+        let renameIsBlocked = (try? state.renameVoice(recipient.id, to: "Спикер 8")) == nil
+        let mergeIsBlocked = (try? state.mergeVoice(recipient.id, into: oldProfile.id)) == nil
+        try check(transferIsBlocked && unidentifiedIsBlocked && renameIsBlocked && mergeIsBlocked,
+                  "A saved voice accepted an automatic name")
+        try check(state.voiceProfiles == [recipient, oldProfile] &&
+                  (try state.library.voices()) == [recipient, oldProfile] &&
+                  (try state.library.read(meeting.id)).segments[0].speaker == segment.speaker,
+                  "Rejecting an automatic name changed the saved meeting or voices")
+
+        try await state.assignVoice(meetingID: meeting.id, segmentID: segment.id, name: "Спикер 8",
+                                    allMatching: false, remember: false)
+        try check(try state.library.read(meeting.id).segments[0].speaker == "Спикер 8",
+                  "A meeting-only automatic label was rejected")
+
+        let correctedName = "Виктор"
+        try await enroll(as: correctedName)
+        try check(state.voiceProfiles.map(\.name) == [recipient.name, correctedName] &&
+                  (try state.library.voices()).map(\.name) == [recipient.name, correctedName],
+                  "Moving the only sample left an empty saved voice")
+        try check(!FileManager.default.fileExists(atPath: oldClip.path), "Transferred clip was left on disk")
+        let newProfile = state.voiceProfiles[1]
+        try check(newProfile.examples?.count == 1, "The destination voice did not receive the sample")
+
+        try await enroll(as: correctedName)
+        try check(state.voiceProfiles.map(\.id) == [recipient.id, newProfile.id] &&
+                  state.voiceProfiles[1].examples?.count == 1,
+                  "Re-enrolling the same sample replaced the recipient profile or duplicated its clip")
+
+        var legacy = VoiceProfile(name: "Борис", samples: [[-1, 0], [1, 1]])
+        legacy.examples = state.voiceProfiles[1].examples
+        state.voiceProfiles = [recipient, legacy]
+        try state.library.saveVoices(state.voiceProfiles)
+        try await enroll(as: recipient.name)
+        try check(state.voiceProfiles.last?.id == legacy.id &&
+                  state.voiceProfiles.last?.samples == [[-1, 0]] &&
+                  state.voiceProfiles.last?.examples?.isEmpty == true,
+                  "Moving the last audio sample discarded an independent legacy voice vector")
     }
 
     private static func checkEnrollmentFailures() async throws {
