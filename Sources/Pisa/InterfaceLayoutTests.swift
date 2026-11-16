@@ -6,6 +6,7 @@ import SwiftUI
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
     case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
+    case toolbarSettingsTitle, toolbarImportTitle, toolbarRecordLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
@@ -239,6 +240,27 @@ private final class LayoutSuite {
             }
             checkForms(state: state, meeting: ready, scale: scale)
             checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
+        }
+        checkToolbar(state: state, scale: 1)
+        checkToolbar(state: state, scale: 1.2)
+    }
+
+    private func checkToolbar(state: AppState, scale: CGFloat) {
+        state.recording = true
+        state.recordingStarted = Date()
+        defer {
+            state.recording = false
+            state.recordingStarted = nil
+        }
+        let middleWidth: CGFloat = scale > 1 ? 1160 : 1080
+        for (width, settings, imports) in [(1280, true, true), (middleWidth, false, true), (980, false, false)] {
+            scenario = "recording toolbar, \(Int(width)) pt, \(Int(scale * 100))%"
+            let host = LayoutHost(MainView().environmentObject(state), size: CGSize(width: width, height: 660), scale: scale)
+            defer { host.close() }
+            guard let measured = frames([.mainToolbar, .toolbarRecordLabel], in: host) else { continue }
+            check((host.frames[.toolbarSettingsTitle] != nil) == settings, "settings title visibility")
+            check((host.frames[.toolbarImportTitle] != nil) == imports, "import title visibility")
+            check(measured[0].contains(measured[1]), "record label stays within the toolbar")
         }
     }
 

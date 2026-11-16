@@ -51,15 +51,7 @@ struct MainView: View {
     private var sidebar: some View { LibrarySidebar(dateReference: recordingDateReference) }
     private var topbar: some View {
         let panelHeight = PisaDesign.Metrics.regularHeight + 2 * PisaDesign.Spacing.related
-        return GeometryReader { geometry in
-            topbarControls(compact: state.recording && geometry.size.width < 740)
-        }
-        .frame(height: panelHeight + 2 * PisaDesign.Spacing.inline)
-        .measuredForInterfaceTest(.mainToolbar)
-    }
-    private func topbarControls(compact: Bool) -> some View {
-        let spacing = compact ? PisaDesign.Spacing.inline : PisaDesign.Spacing.related
-        return HStack(spacing: spacing) {
+        return MainToolbarLayout {
             Group {
                 if state.recording, let started = state.recordingStarted {
                     RecordingIndicator(monitor: state.recordingMonitor, started: started)
@@ -74,22 +66,34 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(TitleBarZoom().allowsHitTesting(false))
 
-            HStack(spacing: spacing) {
-                Button { state.showingSettings = true } label: {
+            Button { state.showingSettings = true } label: {
+                ViewThatFits(in: .horizontal) {
+                    screenLabel("Настройки", systemImage: "gearshape")
+                        .fixedSize(horizontal: true, vertical: false)
+                        .measuredForInterfaceTest(.toolbarSettingsTitle)
                     Image(systemName: "gearshape").textStyle(PisaDesign.Typography.detailMedium)
-                }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
-                Button { state.importAudio() } label: {
+                }
+            }.actionButton().screenHelp("Настройки · ⌘,").accessibilityLabel("Настройки")
+            Button { state.importAudio() } label: {
+                ViewThatFits(in: .horizontal) {
                     screenLabel("Импорт", systemImage: "tray.and.arrow.down")
-                }.actionButton().disabled(state.demo)
-                    .screenHelp("Импортировать аудио").accessibilityLabel("Импортировать аудио")
-                Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
-                    screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
-                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                }.actionButton(.recording)
-                    .disabled(state.starting || state.demo)
-            }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .measuredForInterfaceTest(.toolbarImportTitle)
+                    Image(systemName: "tray.and.arrow.down")
+                }
+            }.actionButton().disabled(state.demo)
+                .screenHelp("Импортировать аудио").accessibilityLabel("Импортировать аудио")
+            Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
+                screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    .measuredForInterfaceTest(.toolbarRecordLabel)
+            }.actionButton(.recording)
+                .disabled(state.starting || state.demo)
         }
-        .padding(.horizontal, compact ? PisaDesign.Spacing.section : PisaDesign.Spacing.page)
+        .controlSize(.large)
+        .padding(.horizontal, PisaDesign.Spacing.page)
+        .frame(height: panelHeight + 2 * PisaDesign.Spacing.inline)
+        .measuredForInterfaceTest(.mainToolbar)
     }
     private var welcome: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
@@ -127,6 +131,43 @@ struct MainView: View {
             Image(systemName: icon).font(PisaDesign.Typography.Icon.medium).foregroundStyle(Color.moss)
             SectionHeading(title, subtitle: detail, style: .feature)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MainToolbarLayout: Layout {
+    private let spacing = PisaDesign.Spacing.related
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let idealWidth = sizes.reduce(spacing * CGFloat(subviews.count - 1)) { $0 + $1.width }
+        let idealHeight = sizes.map(\.height).max() ?? 0
+        let width = proposal.width ?? idealWidth
+        let height = proposal.height ?? idealHeight
+        return CGSize(width: width.isFinite ? width : idealWidth, height: height.isFinite ? height : idealHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var widths = subviews.map { $0.sizeThatFits(.unspecified).width }
+        var proposals = Array(repeating: ProposedViewSize.unspecified, count: subviews.count)
+        var remaining = bounds.width - spacing * CGFloat(subviews.count - 1) - widths.reduce(0, +)
+
+        // The middle buttons can show just their icons, in order from left to right.
+        let iconProposal = ProposedViewSize(width: 0, height: nil)
+        for index in subviews.indices.dropFirst().dropLast() where remaining < 0 {
+            let iconWidth = subviews[index].sizeThatFits(iconProposal).width
+            remaining += widths[index] - iconWidth
+            widths[index] = iconWidth
+            proposals[index] = iconProposal
+        }
+
+        // The leading area fills spare space and can compact if the icon-only buttons still need room.
+        widths[0] = max(0, widths[0] + remaining)
+        proposals[0] = ProposedViewSize(width: widths[0], height: bounds.height)
+        var x = bounds.minX
+        for index in subviews.indices {
+            subviews[index].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: proposals[index])
+            x += widths[index] + spacing
+        }
     }
 }
 
