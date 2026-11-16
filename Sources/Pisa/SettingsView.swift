@@ -13,10 +13,13 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             HStack(spacing: PisaDesign.Spacing.inline) { SectionHeading("Настройки", style: .window); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(PisaDesign.Typography.Icon.close).foregroundStyle(Color.mutedInk) }.shapeAwarePlainButton(Circle()).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
             SettingsSectionPicker(selection: $section)
+                .measuredForInterfaceTest(.settingsTabBar)
             if section == "Голоса" {
                 SavedVoicesSettings()
+                    .measuredForInterfaceTest(.settingsContent(section))
             } else if section == "Словарь" {
                 VocabularyDictionaryView()
+                    .measuredForInterfaceTest(.settingsContent(section))
             } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
@@ -93,7 +96,9 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     }
-                }.padding(.vertical, PisaDesign.Spacing.compact)
+                }
+                .measuredForInterfaceTest(.settingsContent(section))
+                .padding(.bottom, PisaDesign.Spacing.compact)
             }.id(section)
             }
             HStack(spacing: PisaDesign.Spacing.inline) {

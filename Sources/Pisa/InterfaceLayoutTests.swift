@@ -9,7 +9,7 @@ enum InterfaceLayoutElement: Hashable {
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
-    case settingsTab(String)
+    case settingsTab(String), settingsTabBar, settingsContent(String)
     case dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit
     case termSearch, termFind, termReplacement
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
@@ -319,10 +319,20 @@ private final class LayoutSuite {
                                   size: CGSize(width: 900, height: 700), scale: scale)
             defer { host.close() }
             let tabs = ["Запись", "Модель", "Голоса", "Словарь", "Экспорт", "Хранилище", "MCP", "Обновления"]
-            if let tabFrames = frames(tabs.map(InterfaceLayoutElement.settingsTab), in: host) {
+            if let tabFrames = frames(tabs.map(InterfaceLayoutElement.settingsTab), in: host),
+               let tabBar = frames([.settingsTabBar], in: host)?.first {
                 check(zip(tabFrames, tabFrames.dropFirst()).allSatisfy { left, right in left.maxX <= right.minX },
                       "settings tabs appear in order without overlapping")
                 check(tabFrames.allSatisfy { host.bounds.contains($0) }, "all settings tabs fit in the window")
+                for (tab, frame) in zip(tabs, tabFrames) {
+                    scenario = "settings \(tab), \(Int(scale * 100))%"
+                    host.click(frame.center)
+                    if let content = frames([.settingsContent(tab)], in: host)?.first {
+                        equal(content.minY - tabBar.maxY, PisaDesign.Spacing.section,
+                              "settings content starts one section gap below the tabs")
+                    }
+                }
+                scenario = "dictionary form, \(Int(scale * 100))%"
                 host.click(tabFrames[3].center)
             }
             if let measured = frames([.dictionarySearch, .dictionaryEntry, .dictionaryAdd, .dictionaryResult], in: host) {
