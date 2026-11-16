@@ -87,21 +87,26 @@ actor Transcriber {
         if let limit = previousLiveCacheLimit { Memory.cacheLimit = limit; previousLiveCacheLimit = nil }
     }
 
-    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, retainProcessedMicrophone: Bool = true, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
-        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
+    func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String,
+                    vocabularyVariants: [String: [String]] = [:], speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, retainProcessedMicrophone: Bool = true, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context,
+            vocabularyVariants: vocabularyVariants, speakerDirectory: speakerDirectory,
             profiles: profiles, performance: performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal), live: live,
             russianVerification: russianVerification, contextualVerification: contextualVerification, preceding: preceding,
             collectDiagnostics: collectDiagnostics, retainProcessedMicrophone: retainProcessedMicrophone, progress: progress).segments
     }
 
-    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
+    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String,
+                          vocabularyVariants: [String: [String]] = [:], speakerDirectory: URL,
                           performance: TranscriptionPerformance, preceding: [TranscriptSegment],
                           boundaryCheck: WindowBoundaryCheck?) async throws -> WindowPass {
-        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context,
+            vocabularyVariants: vocabularyVariants, speakerDirectory: speakerDirectory,
             performance: performance, live: true, preceding: preceding, boundaryCheck: boundaryCheck) { _, _ in }
     }
 
-    private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
+    private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String,
+                                 vocabularyVariants: [String: [String]], speakerDirectory: URL,
                                  profiles: [VoiceProfile]? = nil, performance: TranscriptionPerformance, live: Bool,
                                  russianVerification: Bool = true, contextualVerification: Bool = true,
                                  preceding: [TranscriptSegment], collectDiagnostics: Bool = false,
@@ -469,6 +474,13 @@ actor Transcriber {
             recentLanguageSegments = (recentLanguageSegments + localized).filter { $0.end >= end - 60 }
         }
         try Task.checkCancellation()
+        // Explicit aliases are a spelling choice after acoustic verification.
+        if !vocabularyVariants.isEmpty {
+            let replacements = VocabularyVariantReplacements(vocabularyVariants, vocabulary: context)
+            for index in localized.indices {
+                localized[index].text = replacements.apply(to: localized[index].text)
+            }
+        }
         keepGenerated = generated.map { url in localized.contains { $0.audioFile == url.lastPathComponent } } ?? false
         guard !live, let profiles else { return WindowPass(segments: localized) }
         return WindowPass(segments: SpeakerClustering.assign(localized, profiles: profiles))
