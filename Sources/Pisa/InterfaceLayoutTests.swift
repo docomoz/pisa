@@ -14,6 +14,7 @@ enum InterfaceLayoutElement: Hashable {
     case termSearch, termFind, termReplacement
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
     case voiceMergeList, voiceMergeCandidate(UUID)
+    case voiceAllMatching, voiceSuggestion(String)
 }
 
 private struct InterfaceFrames: PreferenceKey {
@@ -418,7 +419,37 @@ private final class LayoutSuite {
                 checkField(.voiceName, placeholder: false, nativePlaceholder: "Имя участника", in: host)
                 checkField(.voiceName, placeholder: true, clear: true, nativePlaceholder: "Имя участника", in: host)
                 if let frame = host.frames[.voiceName], let name = host.field(in: frame, placeholder: "Имя участника") {
-                    check(host.type(String(savedVoice.name.prefix(3)), into: name), "voice name accepts a suggestion prefix")
+                    let prefix = String(savedVoice.name.prefix(3))
+                    let suggestion = InterfaceLayoutElement.voiceSuggestion(savedVoice.name)
+                    let closedToggle = frames([.voiceAllMatching], in: host)?.first
+                    check(host.type(prefix, into: name), "voice name accepts a suggestion prefix")
+                    if let open = frames([.voiceAllMatching, suggestion], in: host), let closedToggle {
+                        equal(open[0].minY, closedToggle.minY, "opening suggestions leaves the form in place")
+                        check(open[1].minY >= frame.maxY, "suggestion appears below the name field")
+                        check(open[1].intersects(open[0]), "suggestion covers the form")
+                        let fieldCenter = host.center(of: name)
+                        // HSplitView reports these frames in the right pane's coordinate space.
+                        host.click(CGPoint(x: fieldCenter.x + open[1].midX - frame.midX,
+                                           y: fieldCenter.y + open[1].midY - frame.midY))
+                        check(host.wait { name.currentEditor()?.string == savedVoice.name }, "clicking the overlay fills the name")
+                        check(host.frames[suggestion] == nil, "clicking a suggestion closes the overlay")
+                        check(host.type(prefix, into: name), "editing the chosen name opens suggestions again")
+                    }
+                    host.pressKey("\u{1b}", keyCode: 53)
+                    check(host.frames[suggestion] == nil, "Escape closes the overlay")
+                    check(host.isEditing(name), "Escape leaves the name field focused")
+                    if let closedToggle, let restored = host.frames[.voiceAllMatching] {
+                        equal(restored.minY, closedToggle.minY, "closing suggestions leaves the form in place")
+                    }
+                    check(host.type(prefix + "П", into: name), "typing again reopens suggestions")
+                    host.pressKey("\t", keyCode: 48)
+                    check(host.frames[suggestion] == nil, "Tab closes suggestions before moving to the next control")
+                    check(!host.isEditing(name), "Tab moves focus away from the name field")
+                    check(host.type(prefix, into: name), "returning to the field allows suggestions again")
+                    host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
+                    check(host.frames[suggestion] == nil, "Shift-Tab closes suggestions before moving to the previous control")
+                    check(!host.isEditing(name), "Shift-Tab moves focus away from the name field")
+                    check(host.type(prefix + "П", into: name), "typing again reopens suggestions")
                     host.pressKey("\u{f701}", keyCode: 125)
                     host.pressReturn()
                     check(host.wait { name.currentEditor()?.string == savedVoice.name }, "Down then Return fills the highlighted saved name")
@@ -601,6 +632,11 @@ private final class LayoutHost {
         settle()
     }
 
+    func center(of field: NSTextField) -> CGPoint {
+        let rect = field.convert(field.bounds, to: view)
+        return CGPoint(x: rect.midX, y: view.isFlipped ? rect.midY : view.bounds.height - rect.midY)
+    }
+
     func field(in frame: CGRect, placeholder: String? = nil) -> NSTextField? {
         func find(_ node: NSView) -> NSTextField? {
             if let field = node as? NSTextField, field.isEditable {
@@ -610,9 +646,7 @@ private final class LayoutHost {
                     let actual = field.placeholderString ?? field.placeholderAttributedString?.string
                     if actual == placeholder || actual == typographicText(placeholder) { return field }
                 } else {
-                    let rect = field.convert(field.bounds, to: view)
-                    let point = CGPoint(x: rect.midX, y: view.isFlipped ? rect.midY : view.bounds.height - rect.midY)
-                    if frame.contains(point) { return field }
+                    if frame.contains(center(of: field)) { return field }
                 }
             }
             return node.subviews.lazy.compactMap { find($0) }.first
@@ -622,9 +656,9 @@ private final class LayoutHost {
 
     func pressReturn() { pressKey("\r", keyCode: 36) }
 
-    func pressKey(_ character: String, keyCode: UInt16) {
+    func pressKey(_ character: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []) {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
-            if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
+            if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers,
                                             timestamp: ProcessInfo.processInfo.systemUptime,
                                             windowNumber: window.windowNumber, context: nil, characters: character,
                                             charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode) {

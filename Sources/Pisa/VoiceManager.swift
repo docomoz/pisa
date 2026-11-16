@@ -25,6 +25,14 @@ private struct SelectableVoiceName: NSViewRepresentable {
     }
 }
 
+private struct VoiceNameFieldBounds: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
+
 struct VoiceManager: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
@@ -117,6 +125,7 @@ struct VoiceManager: View {
                             }
                             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
+                                    .measuredForInterfaceTest(.voiceAllMatching)
                                 screenToggle("Запомнить голос для будущих встреч", isOn: $remember)
                                     .disabled(automaticSample == nil)
                                 if let automaticSample, remember, let meeting {
@@ -132,7 +141,12 @@ struct VoiceManager: View {
                             }
                         } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                }.id(selected).textStyle(PisaDesign.Typography.secondary).padding(.leading, PisaDesign.Spacing.section).frame(width: 350 * max(1, textScale))
+                }
+                .overlayPreferenceValue(VoiceNameFieldBounds.self, alignment: .topLeading, suggestionsOverlay)
+                .id(selected)
+                .textStyle(PisaDesign.Typography.secondary)
+                .padding(.leading, PisaDesign.Spacing.section)
+                .frame(width: 350 * max(1, textScale))
             }
         }.dialogContent().frame(width: 940, height: 660)
             .background(ClickToUnfocus(onEscape: dismissSuggestions))
@@ -140,17 +154,28 @@ struct VoiceManager: View {
     }
 
     private var nameEditor: some View {
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
-            FormTextField(title: "Имя участника", text: $name, isFocused: $nameFocused,
-                          onSubmit: submitName, onCommand: handleNameCommand)
-                .onChange(of: name) { _, newName in
-                    showSuggestions = nameFocused && newName != lastChosenName
-                    selectedSuggestion = nil
+        FormTextField(title: "Имя участника", text: $name, isFocused: $nameFocused,
+                      onSubmit: submitName, onCommand: handleNameCommand)
+            .onChange(of: name) { _, newName in
+                showSuggestions = nameFocused && newName != lastChosenName
+                selectedSuggestion = nil
+            }
+            .anchorPreference(key: VoiceNameFieldBounds.self, value: .bounds) { $0 }
+            .measuredForInterfaceTest(.voiceName)
+    }
+
+    private func suggestionsOverlay(_ anchor: Anchor<CGRect>?) -> some View {
+        GeometryReader { geometry in
+            let matches = suggestions
+            if let anchor, !matches.isEmpty {
+                let field = geometry[anchor]
+                let top = field.maxY + PisaDesign.Spacing.compact
+                let availableHeight = geometry.size.height - top - 2 * PisaDesign.Spacing.compact
+                if field.minY >= 0, availableHeight >= PisaDesign.Metrics.regularHeight {
+                    suggestionList(matches, maxContentHeight: availableHeight)
+                        .frame(width: field.width)
+                        .offset(x: field.minX, y: top)
                 }
-                .measuredForInterfaceTest(.voiceName)
-            let matchingNames = suggestions
-            if !matchingNames.isEmpty {
-                suggestionList(matchingNames)
             }
         }
     }
@@ -177,12 +202,15 @@ struct VoiceManager: View {
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             return dismissSuggestions()
+        case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:)):
+            _ = dismissSuggestions()
+            return false
         default:
             return false
         }
     }
 
-    private func suggestionList(_ suggestions: [String]) -> some View {
+    private func suggestionList(_ suggestions: [String], maxContentHeight: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius)
         return ScrollViewReader { proxy in
             ScrollView {
@@ -192,10 +220,12 @@ struct VoiceManager: View {
                             chooseSuggestion(suggestion)
                         }
                         .id(index)
+                        .measuredForInterfaceTest(.voiceSuggestion(suggestion))
                     }
                 }
             }
-            .frame(height: min(CGFloat(suggestions.count) * PisaDesign.Metrics.regularHeight, PisaDesign.Metrics.editorHeight))
+            .frame(height: min(CGFloat(suggestions.count) * PisaDesign.Metrics.regularHeight,
+                               PisaDesign.Metrics.editorHeight, maxContentHeight))
             .padding(PisaDesign.Spacing.compact)
             .background {
                 shape.fill(Color.paper)
