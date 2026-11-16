@@ -28,7 +28,7 @@ struct BrandMoodView: View {
     @State private var colorIndex = Int.random(in: 0..<BrandMoodView.colors.count)
 
     var body: some View {
-        HStack(spacing: PisaDesign.Spacing.inline) {
+        HStack(spacing: PisaDesign.Spacing.compact) {
             screenText("Pisa").textStyle(PisaDesign.Typography.detailStrong).fixedSize()
             screenText("\(Self.phrases[phraseIndex]) \(Self.emojis[emojiIndex])")
                 .textStyle(PisaDesign.Typography.detail).foregroundStyle(Self.colors[colorIndex])
