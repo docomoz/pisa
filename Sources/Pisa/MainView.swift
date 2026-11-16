@@ -357,6 +357,7 @@ struct MeetingView: View {
                     screenLabel("Аудио сохранено", systemImage: "waveform")
                     Image(systemName: showsSavedAudio ? "chevron.up" : "chevron.down")
                         .textStyle(PisaDesign.Typography.footnoteMedium)
+                        .offset(y: 1.5 * textScale)
                         .accessibilityHidden(true)
                 }
                 .padding(.vertical, PisaDesign.Spacing.compact)
