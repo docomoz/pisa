@@ -229,7 +229,7 @@ final class AppState: ObservableObject {
     }
     func canRename(_ m: Meeting) -> Bool { !demo }
     func canMove(_ m: Meeting) -> Bool {
-        !demo && m.deletedAt == nil && activeMeeting?.id != m.id && !isQueued(m.id)
+        !demo && m.deletedAt == nil && savingMeetingID != m.id && !isQueued(m.id)
             && (processingID != m.id || !isReprocessing)
     }
     func isQueued(_ id: UUID) -> Bool { pending.contains { $0.id == id } }
@@ -551,6 +551,7 @@ final class AppState: ObservableObject {
     }
     func stopRecording(manual: Bool = false) async {
         guard recording, var m = activeMeeting else { return }
+        let id = m.id
         // Stopping from the menu bar or call detector can leave the title field focused.
         if let title = recordingTitleDraft { rename(m, to: title) }
         meterTask?.cancel(); meterTask = nil
@@ -560,7 +561,7 @@ final class AppState: ObservableObject {
         automaticallyStarted = false
         do {
             let result = try await capture.stop()
-            m = (try? library.read(m.id)) ?? m
+            m = (try? library.read(id)) ?? meetings.first(where: { $0.id == id }) ?? m
             m.audioFiles = result.files; m.audioOffsets = result.offsets; m.duration = result.duration
             guard !result.files.isEmpty else { throw PisaError.message("Звук не получен. Проверьте разрешения и выбранное приложение") }
             try library.save(m); upsert(m)
@@ -576,7 +577,7 @@ final class AppState: ObservableObject {
         } catch {
             Analytics.recordingIssue(.stop)
             if processingID == m.id { liveStopped = true; liveTask?.cancel() }
-            m = (try? library.read(m.id)) ?? m
+            m = (try? library.read(id)) ?? meetings.first(where: { $0.id == id }) ?? m
             m.status = .failed; m.error = error.localizedDescription
             try? library.save(m); upsert(m); message = error.localizedDescription
         }

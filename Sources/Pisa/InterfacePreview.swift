@@ -121,6 +121,7 @@ final class InterfacePreview: NSObject {
             state.update(earlier)
         } else if recordingPreview {
             try Self.prepareModelPath(for: state)
+            _ = state.saveFolder("Работа")
             var saved = Meeting(title: "Сохранённое аудио", source: state.source)
             saved.audioFiles = fixture.audioFiles
             saved.duration = fixture.duration
@@ -520,6 +521,9 @@ final class InterfacePreview: NSObject {
         let current = Meeting(title: "Текущая встреча", source: state.source)
         state.update(current)
         state.beginRecordingSession(current, automatic: false)
+        guard let folderID = state.saveFolder("Работа"), state.canMove(current) else {
+            throw PisaError.message("Перенос текущей записи в папку недоступен")
+        }
         state.setTurboTranscription(false, for: current.id)
         guard state.canUseTurboTranscription(saved.id), state.turboTranscriptionEnabled else {
             throw PisaError.message("Текущая запись повлияла на турбо-режим предыдущей встречи")
@@ -554,13 +558,30 @@ final class InterfacePreview: NSObject {
               live.status == .processing, live.liveCommittedUntil == 0 else {
             throw PisaError.message("Текущая запись не запустила черновик с начала записанного аудио")
         }
+        guard let moveItem = MeetingActionSet(state: state, meeting: live).contextMenuItems.first(where: \.hasSubmenu),
+              moveItem.isEnabled, let submenu = moveItem.submenu,
+              let destination = submenu.item(withTitle: "Работа") else {
+            throw PisaError.message("Перенос в папку недоступен из меню текущей записи")
+        }
+        _ = NSApplication.shared
+        submenu.performActionForItem(at: submenu.index(of: destination))
+        let moved = try state.library.read(current.id)
+        guard moved.folderID == folderID, moved.liveCommittedUntil == live.liveCommittedUntil,
+              moved.status == live.status, state.recordingMeetingID == current.id, state.processingID == current.id else {
+            throw PisaError.message("Перенос в папку изменил состояние текущей записи или не сохранился")
+        }
         state.setTurboTranscription(true, for: current.id)
         guard !state.canUseTurboTranscription(current.id), !state.turboTranscriptionEnabled else {
             throw PisaError.message("Турбо-режим доступен при расшифровке текущей записи")
         }
-        state.recording = false
-        state.cancelProcessing()
+        let journal = state.library.meetingsDirectory.appendingPathComponent(current.id.uuidString + ".json")
+        // Exercise stop recovery when the recording journal cannot be read.
+        try FileManager.default.removeItem(at: journal)
+        await state.stopRecording(manual: true)
         try await waitForTranscriptionToStop(state)
+        guard try state.library.read(current.id).folderID == folderID, state.recordingMeetingID == nil else {
+            throw PisaError.message("Папка потерялась при восстановлении записи после остановки")
+        }
     }
 
     private static func prepareModelPath(for state: AppState) throws {
