@@ -79,7 +79,8 @@ enum SpeechCoverage {
                                           confirmsSpeech: (Range<Int>) -> Bool) -> [Range<Int>] {
         let minimum = max(1, minimumPartialLength)
         guard maximumLength >= minimum else { return [] }
-        let rawGaps = uncovered(speech: speech, covered: diarized, sampleCount: sampleCount, minimumPartialLength: 1)
+        let rawCoverage = clippedUnion(diarized, sampleCount: sampleCount)
+        let rawGaps = uncovered(speech: speech, covered: rawCoverage, sampleCount: sampleCount, minimumPartialLength: 1)
         let paddedGaps = uncovered(speech: speech, covered: padded, sampleCount: sampleCount, minimumPartialLength: 1)
         return paddedGaps.compactMap { remnant in
             guard remnant.count < minimum, let original = rawGaps.first(where: {
@@ -91,6 +92,11 @@ enum SpeechCoverage {
             // Choosing a side in a larger gap could cut through the same word.
             guard let candidate = candidates.first, candidates.count == 1 || original.count <= maximumLength else { return nil }
             let turn = candidates.count == 2 ? original : candidate
+            // A fragment that touches raw diarization may continue its word or
+            // phrase. Keep the original recognition context at either edge.
+            guard !rawCoverage.contains(where: {
+                $0.lowerBound <= turn.upperBound && turn.lowerBound <= $0.upperBound
+            }) else { return nil }
             return confirmsSpeech(turn) ? turn : nil
         }
     }

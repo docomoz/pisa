@@ -99,14 +99,30 @@ final class SpeechCoverageTests: XCTestCase {
         XCTAssertEqual(ambiguous, [])
         XCTAssertEqual(checked, [])
 
-        let combined = SpeechCoverage.shortSpeechHiddenByPadding(speech: speech,
+        let combined = SpeechCoverage.shortSpeechHiddenByPadding(speech: [3_200..<10_800],
             diarized: [0..<3_000, 11_000..<15_000], padded: padded,
             sampleCount: 15_000, maximumLength: 8_000, minimumPartialLength: 4_800) {
                 checked.append($0)
                 return true
             }
-        XCTAssertEqual(combined, [3_000..<11_000])
+        XCTAssertEqual(combined, [3_200..<10_800])
         XCTAssertEqual(checked, combined)
+    }
+
+    func testShortSpeechProtectionDoesNotCutWordsAtDiarizationEdges() {
+        let cases = [
+            (speech: [608_352..<929_312], diarized: [859_635..<922_005], padded: [855_635..<926_005]),
+            (speech: [20_576..<177_184], diarized: [495..<170_055], padded: [247..<174_055]),
+            (speech: [887_904..<951_328], diarized: [893_115..<910_665], padded: [889_115..<910_665]),
+        ]
+        for sample in cases {
+            let protected = SpeechCoverage.shortSpeechHiddenByPadding(speech: sample.speech, diarized: sample.diarized,
+                padded: sample.padded, sampleCount: 960_000, maximumLength: 8_000, minimumPartialLength: 4_800) { turn in
+                    XCTFail("Diarization edge should veto \(turn) before local VAD")
+                    return true
+                }
+            XCTAssertEqual(protected, [])
+        }
     }
 
     func testJoinNearbySortsAndMergesGapsWithinLimit() {
