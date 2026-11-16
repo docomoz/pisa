@@ -23,6 +23,18 @@ public final class MeetingLibrary: @unchecked Sendable {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(meeting).write(to: meetingsDirectory.appendingPathComponent(meeting.id.uuidString + ".json"), options: [.atomic, .completeFileProtectionUnlessOpen])
     }
+    func batchTranscriptionURL(_ id: UUID) -> URL {
+        meetingsDirectory.appendingPathComponent(id.uuidString + ".transcription")
+    }
+
+    func discardBatchTranscription(_ id: UUID) throws {
+        let checkpoint = batchTranscriptionURL(id)
+        for file in [checkpoint.appendingPathExtension("audio"), checkpoint] {
+            do { try FileManager.default.removeItem(at: file) }
+            catch where Self.fileIsMissing(error) {}
+        }
+    }
+
     /// Remove only a failed startup journal; never discard existing audio or a transcript.
     public func discardEmptyDraft(_ meeting: Meeting) throws {
         guard meeting.segments.isEmpty else { return }
@@ -41,6 +53,7 @@ public final class MeetingLibrary: @unchecked Sendable {
             let url = try audioURL(name)
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         }
+        try discardBatchTranscription(id)
         try FileManager.default.removeItem(at: meetingsDirectory.appendingPathComponent(id.uuidString + ".json"))
     }
     public func folders() throws -> [MeetingFolder] {
@@ -194,7 +207,10 @@ extension MeetingLibrary {
         if !removed.isEmpty {
             updated.audioFiles.removeAll { removed.contains($0) }
             for name in removed { updated.audioOffsets[name] = nil }
+            let removedOriginal = removed.contains { !$0.contains(".clean.") }
+            if removedOriginal { updated.interruptedBatchProgress = nil }
             try save(updated)
+            if removedOriginal { try? discardBatchTranscription(updated.id) }
         }
         return (updated, bytes, failedFiles)
     }

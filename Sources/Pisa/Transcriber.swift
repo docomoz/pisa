@@ -88,12 +88,13 @@ actor Transcriber {
     }
 
     func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String,
-                    vocabularyVariants: [String: [String]] = [:], speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, retainProcessedMicrophone: Bool = true, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+                    vocabularyVariants: [String: [String]] = [:], speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true, performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true, contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false, retainProcessedMicrophone: Bool = true, checkpointURL: URL? = nil,
+                    progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
         try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context,
             vocabularyVariants: vocabularyVariants, speakerDirectory: speakerDirectory,
             profiles: profiles, performance: performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal), live: live,
             russianVerification: russianVerification, contextualVerification: contextualVerification, preceding: preceding,
-            collectDiagnostics: collectDiagnostics, retainProcessedMicrophone: retainProcessedMicrophone, progress: progress).segments
+            collectDiagnostics: collectDiagnostics, retainProcessedMicrophone: retainProcessedMicrophone, checkpointURL: checkpointURL, progress: progress).segments
     }
 
     func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String,
@@ -110,7 +111,7 @@ actor Transcriber {
                                  profiles: [VoiceProfile]? = nil, performance: TranscriptionPerformance, live: Bool,
                                  russianVerification: Bool = true, contextualVerification: Bool = true,
                                  preceding: [TranscriptSegment], collectDiagnostics: Bool = false,
-                                 boundaryCheck: WindowBoundaryCheck? = nil, retainProcessedMicrophone: Bool = false,
+                                 boundaryCheck: WindowBoundaryCheck? = nil, retainProcessedMicrophone: Bool = false, checkpointURL: URL? = nil,
                                  progress: @escaping @Sendable (Double, String) async -> Void) async throws -> WindowPass {
         contextDiagnostics = []
         guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path), FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("model.safetensors").path) else { throw PisaError.message("Выберите папку модели Qwen3-ASR с config.json и model.safetensors") }
@@ -118,9 +119,49 @@ actor Transcriber {
         if live && previousLiveCacheLimit == nil { previousLiveCacheLimit = previousCacheLimit }
         Memory.cacheLimit = 256 * 1024 * 1024
         defer { if !live { Memory.clearCache(); Memory.cacheLimit = previousCacheLimit } }
+        let checkpoint: BatchTranscriptionCheckpoint?
+        if let checkpointURL {
+            let russianDirectory = speakerDirectory.deletingLastPathComponent()
+                .appendingPathComponent(RussianSpeechRecognizer.directoryName)
+            let russianFiles = ["encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
+                .map { russianDirectory.appendingPathComponent($0) }
+            let speakerFiles = ["titanet.onnx", "segmentation.onnx"].map { speakerDirectory.appendingPathComponent($0) }
+            let bundledModels = [Bundle.main.url(forResource: "silero_vad", withExtension: "onnx")].compactMap { $0 }
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            let inputs = try BatchTranscriptionCheckpoint.Inputs(files: files, model: modelDirectory,
+                vocabulary: context, variants: vocabularyVariants, build: build,
+                supportingModels: speakerFiles + russianFiles + bundledModels)
+            let saved = try await ProtectedFileRead.waitForAccess(read: {
+                try BatchTranscriptionCheckpoint.load(from: checkpointURL)
+            }, onDenied: {})
+            if let saved, !Set(saved.inputs.tracks.map(\.name)).isSubset(of: Set(inputs.tracks.map(\.name))) {
+                throw PisaError.message("Одна из аудиодорожек встречи недоступна")
+            }
+            if let saved, saved.inputs == inputs { checkpoint = saved }
+            else {
+                checkpoint = BatchTranscriptionCheckpoint(inputs: inputs)
+                try await ProtectedFileRead.waitForAccess(read: {
+                    try checkpoint?.save(to: checkpointURL)
+                }, onDenied: {})
+            }
+        } else { checkpoint = nil }
+        let firstPass = checkpoint?.recognition ?? BatchTranscriptionCheckpoint.FirstPass()
+        var committedSegmentCount = firstPass.segments.count
+        defer {
+            if Task.isCancelled, let checkpoint, let checkpointURL {
+                checkpoint.trimUncommittedSegments(after: committedSegmentCount)
+                try? checkpoint.save(to: checkpointURL)
+            }
+        }
+        let resumeProgress = min(checkpoint?.progress ?? 0, 0.99)
+        // A restarted process still needs its models and any transient audio preparation.
+        // Keep the saved fraction visible during that work.
+        let report: @Sendable (Double, String) async -> Void = { fraction, description in
+            await progress(max(resumeProgress, fraction), description)
+        }
         prepareVocabulary(context)
         var generated: URL?
-        var originalMicrophone: String?
+        var sourceMicrophone: URL?
         var scratch: URL?
         var keepGenerated = false
         defer {
@@ -130,22 +171,32 @@ actor Transcriber {
         var preparedFiles = files.filter { !$0.0.lastPathComponent.contains(".clean.") }
         if let mic = preparedFiles.first(where: { $0.0.lastPathComponent.contains("-mic.") }),
            let remote = preparedFiles.first(where: { $0.0.lastPathComponent.contains("-remote.") }) {
-            await progress(0, "Подготавливаю подавление эха")
-            if !retainProcessedMicrophone {
-                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pisa-transcription-" + UUID().uuidString)
+            await report(0, "Подготавливаю подавление эха")
+            if !retainProcessedMicrophone || checkpointURL != nil {
+                let directory = checkpointURL?.appendingPathExtension("audio")
+                    ?? FileManager.default.temporaryDirectory.appendingPathComponent("pisa-transcription-" + UUID().uuidString)
+                if FileManager.default.fileExists(atPath: directory.path) {
+                    try FileManager.default.removeItem(at: directory)
+                }
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                         attributes: [.posixPermissions: 0o700])
                 scratch = directory
             }
             let clean = try await AcousticEcho.clean(microphone: mic.0, offset: mic.1, reference: remote.0,
                                                      referenceOffset: remote.1, outputDirectory: scratch) { fraction, phase in
-                await progress(fraction * 0.12, phase)
+                await report(fraction * 0.12, phase)
             }
             generated = clean
-            originalMicrophone = mic.0.lastPathComponent
+            if let previous = checkpoint?.processedMicrophone {
+                for index in firstPass.segments.indices where firstPass.segments[index].audioFile == previous {
+                    firstPass.segments[index].audioFile = clean.lastPathComponent
+                }
+            }
+            checkpoint?.processedMicrophone = clean.lastPathComponent
+            sourceMicrophone = mic.0
             preparedFiles = preparedFiles.map { $0.0 == mic.0 ? (clean, mic.1) : $0 }
         }
-        await progress(0.12, "Загружаю модель в память")
+        await report(0.12, "Загружаю модель в память")
         let activity: SpeechDetector
         if let existing = live ? liveActivity : nil { activity = existing } else { activity = try SpeechDetector(); if live { liveActivity = activity } }
         let model: Qwen3ASRModel
@@ -162,15 +213,13 @@ actor Transcriber {
             russian = try? RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent().appendingPathComponent(RussianSpeechRecognizer.directoryName))
             if live { liveRussian = russian }
         }
-        var segments: [TranscriptSegment] = []
-        var backchannels: [UUID: String] = [:]
-        var acousticHypotheses: [UUID: RecognitionAcousticResult] = [:]
-        var audioBounds: [UUID: Range<Double>] = [:]
-        var recoveredAudio: [UUID: (gap: Range<Double>, evidence: Range<Double>)] = [:]
         var startedRecognition = false
         for (fileIndex, item) in preparedFiles.sorted(by: { !$0.0.lastPathComponent.contains("-mic.") && $1.0.lastPathComponent.contains("-mic.") }).enumerated() {
             try Task.checkCancellation()
             let (url, offset) = item
+            let track = (url == generated ? sourceMicrophone : nil)?.lastPathComponent ?? url.lastPathComponent
+            if checkpoint?.firstPassComplete == true { break }
+            if checkpoint?.completedTracks.contains(track) == true { continue }
             let file = try AVAudioFile(forReading: url)
             let sourceFormat = file.processingFormat
             guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false), let converter = AVAudioConverter(from: sourceFormat, to: target) else { throw PisaError.message("Не удалось прочитать формат аудио") }
@@ -192,7 +241,8 @@ actor Transcriber {
                 let seconds = Double(total) / sourceFormat.sampleRate
                 ranges = stride(from: 0.0, to: seconds, by: 60).map { VoiceRegion(start: $0, end: min(seconds, $0 + 60), embedding: nil) }
             }
-            for (rangeIndex, range) in ranges.enumerated() {
+            let completed = checkpoint?.rangesCompleted[track] ?? 0
+            for (rangeIndex, range) in ranges.enumerated().dropFirst(completed) {
                 try Task.checkCancellation()
                 let sampleRate = sourceFormat.sampleRate
                 let lower = max(0, min(Int(total), Int(range.start * sampleRate)))
@@ -360,43 +410,62 @@ actor Transcriber {
                                 segment.embedding = evidence?.vector
                                 segment.embeddingDuration = evidence?.duration
                             }
-                            backchannels[segment.id] = recognized.russianBackchannel
-                            acousticHypotheses[segment.id] = recognized.acoustic
-                            audioBounds[segment.id] = (start + Double(lower) / 16000)..<(start + Double(upper) / 16000)
+                            firstPass.backchannels[segment.id] = recognized.russianBackchannel
+                            firstPass.hypotheses[segment.id] = recognized.acoustic
+                            firstPass.bounds[segment.id] = (start + Double(lower) / 16000)..<(start + Double(upper) / 16000)
                             if let gap = region.recoveryRange {
-                                recoveredAudio[segment.id] = (
-                                    (start + Double(gap.lowerBound) / 16000)..<(start + Double(gap.upperBound) / 16000),
-                                    (start + region.start)..<(start + region.end))
+                                firstPass.recoveredAudio[segment.id] = .init(
+                                    gap: (start + Double(gap.lowerBound) / 16000)..<(start + Double(gap.upperBound) / 16000),
+                                    evidence: (start + region.start)..<(start + region.end))
                             }
-                            segments.append(segment)
+                            firstPass.segments.append(segment)
 
                         }
                     }
                 }
                 position += AVAudioFramePosition(input.frameLength)
                 let fraction = (Double(fileIndex) + Double(position) / Double(max(1, total))) / Double(preparedFiles.count)
-                await progress(0.12 + fraction * (contextualVerification ? 0.73 : 0.88), "Распознаю · \(timecode(start + duration))")
+                let recognitionProgress = 0.12 + fraction * (contextualVerification ? 0.73 : 0.88)
+                if let checkpoint, let checkpointURL {
+                    let firstRange = checkpoint.rangesCompleted.isEmpty
+                    checkpoint.rangesCompleted[track] = rangeIndex + 1
+                    checkpoint.progress = max(checkpoint.progress, recognitionProgress)
+                    committedSegmentCount = firstPass.segments.count
+                    try await ProtectedFileRead.waitForAccess(read: {
+                        try checkpoint.save(to: checkpointURL, force: firstRange)
+                    }, onDenied: {})
+                }
+                await report(recognitionProgress, "Распознаю · \(timecode(start + duration))")
             }
+            checkpoint?.completedTracks.insert(track)
+        }
+        if let checkpoint, let checkpointURL, !checkpoint.firstPassComplete {
+            checkpoint.firstPassComplete = true
+            checkpoint.progress = contextualVerification ? 0.85 : 0.99
+            try await ProtectedFileRead.waitForAccess(read: {
+                try checkpoint.save(to: checkpointURL)
+            }, onDenied: {})
         }
         if case .nominal(let window, let isMic) = boundaryCheck,
-           !segments.contains(where: { $0.audioFile?.contains("-mic.") == isMic && window.confirmedSpeechThroughCut($0) }) {
+           !firstPass.segments.contains(where: { $0.audioFile?.contains("-mic.") == isMic && window.confirmedSpeechThroughCut($0) }) {
             // Restore the full path before this trial can update live language history.
             return WindowPass(retry: .withLookahead)
         }
-        var sorted = segments.sorted { $0.start < $1.start }
+        var sorted = firstPass.segments.sorted { $0.start < $1.start }
         if contextualVerification {
             sorted = try await contextualRevision(sorted, preceding: preceding,
-                files: preparedFiles, bounds: audioBounds, hypotheses: acousticHypotheses, model: model, russian: russian,
+                files: preparedFiles, bounds: firstPass.bounds, hypotheses: firstPass.hypotheses, model: model, russian: russian,
                 vocabulary: context,
-                performance: performance, collectDiagnostics: collectDiagnostics, progress: progress)
+                performance: performance, collectDiagnostics: collectDiagnostics,
+                checkpoint: checkpoint, checkpointURL: checkpointURL, progress: report)
         }
         if let first = sorted.first, let previous = recentLanguageSegments.first, first.start <= previous.start { recentLanguageSegments = [] }
-        var localized = BackchannelLanguage.resolve(sorted, alternatives: backchannels,
+        var localized = BackchannelLanguage.resolve(sorted, alternatives: firstPass.backchannels,
             preceding: live ? recentLanguageSegments : [], vocabulary: context).map { segment in
                 var revised = segment
                 revised.text = TranscriptOrthography.normalize(segment.text, vocabulary: context)
                 if !retainProcessedMicrophone, let generated, revised.audioFile == generated.lastPathComponent {
-                    revised.audioFile = originalMicrophone
+                    revised.audioFile = sourceMicrophone?.lastPathComponent
                 }
                 return revised
             }
@@ -406,12 +475,12 @@ actor Transcriber {
         if let russian {
             for pair in RecognitionBoundaryRepair.adjacentPairs(localized) {
                 let left = localized[pair.left], right = localized[pair.right]
-                guard let a = recoveredAudio[left.id], let b = recoveredAudio[right.id], a.gap == b.gap,
+                guard let a = firstPass.recoveredAudio[left.id], let b = firstPass.recoveredAudio[right.id], a.gap == b.gap,
                       abs(a.evidence.upperBound - b.evidence.lowerBound) < 1.0 / 16000,
                       left.audioFile == right.audioFile, let fileName = left.audioFile,
                       let url = preparedFiles.first(where: { $0.0.lastPathComponent == fileName })?.0,
-                      let leftBounds = audioBounds[left.id], let rightBounds = audioBounds[right.id],
-                      let leftHypothesis = acousticHypotheses[left.id], let rightHypothesis = acousticHypotheses[right.id],
+                      let leftBounds = firstPass.bounds[left.id], let rightBounds = firstPass.bounds[right.id],
+                      let leftHypothesis = firstPass.hypotheses[left.id], let rightHypothesis = firstPass.hypotheses[right.id],
                       leftHypothesis.words.count >= 2, rightHypothesis.words.count >= 2 else { continue }
                 let lower = max(leftBounds.lowerBound, rightBounds.lowerBound)
                 let upper = min(leftBounds.upperBound, rightBounds.upperBound)
@@ -481,7 +550,13 @@ actor Transcriber {
                 localized[index].text = replacements.apply(to: localized[index].text)
             }
         }
-        keepGenerated = generated.map { url in localized.contains { $0.audioFile == url.lastPathComponent } } ?? false
+        if let generated, localized.contains(where: { $0.audioFile == generated.lastPathComponent }) {
+            if scratch != nil, let sourceMicrophone {
+                let retained = sourceMicrophone.deletingLastPathComponent().appendingPathComponent(generated.lastPathComponent)
+                try FileManager.default.moveItem(at: generated, to: retained)
+            }
+            keepGenerated = true
+        }
         guard !live, let profiles else { return WindowPass(segments: localized) }
         return WindowPass(segments: SpeakerClustering.assign(localized, profiles: profiles))
     }
@@ -546,7 +621,8 @@ actor Transcriber {
     private func contextualRevision(_ segments: [TranscriptSegment], preceding: [TranscriptSegment],
         files: [(URL, Double)], bounds: [UUID: Range<Double>], hypotheses: [UUID: RecognitionAcousticResult], model: Qwen3ASRModel,
         russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance, collectDiagnostics: Bool,
-        selected: Set<UUID>? = nil, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+        selected: Set<UUID>? = nil, checkpoint: BatchTranscriptionCheckpoint? = nil, checkpointURL: URL? = nil,
+        progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
         guard let russian else {
             try Task.checkCancellation()
             await progress(1, "Расшифровка готова")
@@ -554,7 +630,21 @@ actor Transcriber {
         }
         let snapshot = RecognitionContext(segments: segments, preceding: preceding)
         var revised = segments
-        for (index, segment) in segments.enumerated() {
+        let start = min(max(0, checkpoint?.revisionCount ?? 0), segments.count)
+        for index in 0..<start {
+            if let text = checkpoint?.revisions[revised[index].id] { revised[index].text = text }
+        }
+        func saveRevision(through index: Int, force: Bool) async throws {
+            guard let checkpoint, let checkpointURL else { return }
+            let fraction = 0.85 + 0.15 * Double(index + 1) / Double(segments.count)
+            checkpoint.recordRevision(index: index, segment: segments[index], text: revised[index].text, progress: fraction)
+            try await ProtectedFileRead.waitForAccess(read: {
+                try checkpoint.save(to: checkpointURL, force: force)
+            }, onDenied: {})
+        }
+        for (index, segment) in segments.enumerated().dropFirst(start) {
+            // Reaching the next iteration also commits utterances that needed no edits.
+            if index > start { try await saveRevision(through: index - 1, force: false) }
             try Task.checkCancellation()
             if let selected, !selected.contains(segment.id) { continue }
             if collectDiagnostics {
@@ -891,6 +981,7 @@ actor Transcriber {
                 "Уточняю по контексту · \(timecode(segment.start))")
             try await performance.pace(after: began)
         }
+        if start < segments.count { try await saveRevision(through: segments.count - 1, force: true) }
         try Task.checkCancellation()
         await progress(1, "Расшифровка готова")
         return revised

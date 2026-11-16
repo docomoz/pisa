@@ -67,8 +67,3 @@ final class RussianSpeechRecognizer {
         return RecognitionAcousticResult(text: transcript, words: words)
     }
 }
-
-struct RecognitionAcousticResult {
-    let text: String
-    let words: [RecognitionTimedWord]
-}

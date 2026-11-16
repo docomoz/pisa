@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Combine
 
 /// Local, synthetic component integration fixture. This does not instantiate
 /// AppState or capture real devices and must never touch a user's recording.
@@ -193,4 +194,66 @@ public enum LivePipelineTests {
         let releasedRussianModel = await transcriber.liveRussianModelIdentity()
         try check(releasedRussianModel == nil, "Russian verifier was not released")
     }
+    /// Run stop, crash, and finish in separate processes against the same synthetic recording.
+    @MainActor static func runBatchResume(mode: String, root: URL) async throws {
+        let library = try MeetingLibrary(root: root)
+        let audio = try library.audioURL("batch-resume-fixture.wav")
+        let file = try AVAudioFile(forReading: audio)
+        let duration = Double(file.length) / file.processingFormat.sampleRate
+        guard (60..<120).contains(duration) else { throw PisaError.message("Expected two recognition ranges") }
+        var meeting: Meeting
+        if let existing = try library.all().first { meeting = existing }
+        else {
+            meeting = Meeting(title: "Синтетическая проверка продолжения", source: "Аудиофайл")
+            meeting.titleOrigin = .custom
+            meeting.audioFiles = [audio.lastPathComponent]
+            meeting.duration = duration
+            try library.save(meeting)
+        }
+        let checkpointURL = library.batchTranscriptionURL(meeting.id)
+        let checkpoint = try BatchTranscriptionCheckpoint.load(from: checkpointURL)
+        let previousIDs = Set(checkpoint?.recognition.segments.map(\.id) ?? [])
+        let state = AppState(rootURL: root)
+        state.modelSetup.phase = .ready
+        if mode != "stop" {
+            guard let checkpoint, !previousIDs.isEmpty,
+                  state.meetings.first?.interruptedBatchProgress == checkpoint.progress else {
+                throw PisaError.message("Interrupted progress was not restored from disk")
+            }
+        }
+        let expectedStart = min(checkpoint?.progress ?? 0, 0.99)
+        var initialFraction: Double?
+        let progress = state.$progress.dropFirst().sink { fraction in
+            if fraction > 0, initialFraction == nil { initialFraction = fraction }
+            if mode == "stop", fraction > 0.45 { state.cancelProcessing() }
+            if mode == "crash", fraction >= 0.90 { _exit(77) }
+        }
+        defer { progress.cancel() }
+        state.enqueue(meeting.id)
+        let deadline = ContinuousClock.now + .seconds(120)
+        while state.processingID != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        let latest = try library.read(meeting.id)
+        guard state.processingID == nil, let initialFraction, initialFraction >= expectedStart else {
+            throw PisaError.message("Recognition did not continue at the saved fraction")
+        }
+        if mode == "stop" {
+            guard latest.status == .failed, let saved = try BatchTranscriptionCheckpoint.load(from: checkpointURL),
+                  !saved.recognition.segments.isEmpty, latest.interruptedBatchProgress == saved.progress else {
+                throw PisaError.message("Stopping discarded the recognized range")
+            }
+            print("BATCH_RESUME_STOP_OK", saved.progress)
+        } else {
+            guard mode == "finish", checkpoint?.firstPassComplete == true,
+                  latest.status == .ready, previousIDs == Set(latest.segments.map(\.id)),
+                  latest.segments.contains(where: { $0.start < 60 }), latest.segments.contains(where: { $0.start >= 60 }),
+                  Set(latest.segments.map(\.id)).count == latest.segments.count,
+                  try BatchTranscriptionCheckpoint.load(from: checkpointURL) == nil else {
+                throw PisaError.message("Resume repeated, lost, or failed to finalize saved audio")
+            }
+            print("BATCH_RESUME_FINISH_OK", initialFraction, latest.segments.count)
+        }
+    }
+
 }

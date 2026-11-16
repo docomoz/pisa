@@ -2,8 +2,8 @@ import Foundation
 
 /// Keeps a completed operation alive while protected metadata is temporarily inaccessible.
 public enum ProtectedFileRead {
-    @MainActor
     public static func waitForAccess<Value>(
+        isolation: isolated (any Actor)? = #isolation,
         read: () throws -> Value,
         onDenied: () -> Void,
         wait: () async throws -> Void = { try await Task.sleep(nanoseconds: 3_000_000_000) }

@@ -1,6 +1,11 @@
 import Foundation
 
-struct RecognitionTimedWord: Equatable {
+struct RecognitionAcousticResult: Codable {
+    let text: String
+    let words: [RecognitionTimedWord]
+}
+
+struct RecognitionTimedWord: Equatable, Codable {
     let text: String
     let start: Double
     let end: Double

@@ -240,6 +240,18 @@ enum Launcher {
             }
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--batch-resume-self-test"),
+           CommandLine.arguments.count == index + 3 {
+            Task { @MainActor in
+                do {
+                    try await LivePipelineTests.runBatchResume(
+                        mode: CommandLine.arguments[index + 1],
+                        root: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true))
+                    exit(0)
+                } catch { print("BATCH_RESUME_TEST_FAILED", error.localizedDescription); exit(1) }
+            }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--live-pipeline-test") {
             Task { @MainActor in
                 do { try await LivePipelineTests.run(); exit(0) }

@@ -398,6 +398,7 @@ final class AppState: ObservableObject {
             folders = try library.folders()
             replaceSearchIndex()
             for index in meetings.indices where meetings[index].status == .processing {
+                meetings[index].interruptedBatchProgress = savedBatchProgress(meetings[index].id)
                 meetings[index].status = .failed
                 meetings[index].error = "Обработка прервалась. Аудио сохранено — можно повторить"
                 try library.save(meetings[index])
@@ -836,11 +837,14 @@ final class AppState: ObservableObject {
         let id = request.id
         let reprocess = request.reprocess
         guard var m = meetings.first(where: { $0.id == id }), let model = modelURL() else { return }
+        let checkpointURL = library.batchTranscriptionURL(id)
+        let hasInterruptedBatch = m.status == .failed && FileManager.default.fileExists(atPath: checkpointURL.path)
         // A manual retry of an interrupted draft must honor its saved checkpoint.
         let needsCleanDraft = m.status != .failed && m.liveCommittedUntil != nil
             && m.segments.contains { MeetingSpeechText.containsForeignLetters($0.text) }
         m.interruptedBatchProgress = nil
-        if case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess || needsCleanDraft) {
+        if !hasInterruptedBatch,
+           case .resume(let committed) = LiveTranscriptionSchedule.processingMode(committed: m.liveCommittedUntil, reprocess: reprocess || needsCleanDraft) {
             guard committed.isFinite, committed >= 0 else { m.status = .failed; m.error = "Некорректный курсор черновика"; try? library.save(m); upsert(m); runNext(); return }
             m.status = .processing; m.error = nil
             do { try library.save(m) } catch { message = error.localizedDescription; runNext(); return }
@@ -852,9 +856,17 @@ final class AppState: ObservableObject {
             }
             return
         }
+        do {
+            if reprocess || m.status != .failed { try library.discardBatchTranscription(id) }
+            m.status = .processing
+            m.error = nil
+            try library.save(m)
+        } catch {
+            message = error.localizedDescription
+            runNext()
+            return
+        }
         let granted = model.startAccessingSecurityScopedResource()
-        m.status = .processing; m.error = nil
-        do { try library.save(m) } catch { message = error.localizedDescription; if granted { model.stopAccessingSecurityScopedResource() }; return }
         isReprocessing = reprocess
         upsert(m); processingID = id; progress = 0
         if request.turbo { setTurboTranscription(true, for: id) }
@@ -875,7 +887,7 @@ final class AppState: ObservableObject {
                 let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary,
                     vocabularyVariants: vocabularyVariants,
                     speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance,
-                    retainProcessedMicrophone: m.audioArchive == nil) { [self] fraction, description in
+                    retainProcessedMicrophone: m.audioArchive == nil, checkpointURL: checkpointURL) { [self] fraction, description in
                     await self.updateProcessingProgress(fraction, description)
                 }
                 let generated = try Set(result.compactMap(\.audioFile)).filter { $0.contains(".clean.") && !m.audioFiles.contains($0) }.map { try library.audioURL($0) }
@@ -904,6 +916,7 @@ final class AppState: ObservableObject {
                     }
                 }
                 try library.save(latest); persisted = true; upsert(latest)
+                try? library.discardBatchTranscription(id)
                 setTurboEnabled(false)
                 Analytics.transcriptionCompleted(mode: "batch", reprocess: reprocess, duration: latest.duration)
                 await nameCompletedMeeting(id, exportOnCompletion: true)
@@ -916,9 +929,7 @@ final class AppState: ObservableObject {
                 var latest = (try? library.read(id)) ?? meetings.first(where: { $0.id == id }) ?? m
                 latest.status = .failed
                 latest.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено." : error.localizedDescription
-                if !phase.isEmpty && (0...1).contains(progress) {
-                    latest.interruptedBatchProgress = progress
-                }
+                latest.interruptedBatchProgress = savedBatchProgress(id)
                 try? library.save(latest); upsert(latest)
             }
         }
@@ -978,6 +989,12 @@ final class AppState: ObservableObject {
         audioExports.contains(meeting.id) || segmentAudioPreviews.contains(meeting.id) || voiceAssignmentRequests[meeting.id] != nil ||
             (selection == meeting.id && savedAudioPlayer.timeControlStatus != .paused) ||
             meeting.segments.contains { $0.id == playingSegmentID }
+    }
+
+    private func savedBatchProgress(_ id: UUID) -> Double? {
+        guard let checkpoint = try? BatchTranscriptionCheckpoint.load(from: library.batchTranscriptionURL(id)),
+              checkpoint.progress > 0 else { return nil }
+        return checkpoint.progress
     }
 
     private func updateProcessingProgress(_ fraction: Double, _ description: String) {
