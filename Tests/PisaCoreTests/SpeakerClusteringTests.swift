@@ -115,7 +115,7 @@ final class SpeakerClusteringTests: XCTestCase {
         XCTAssertEqual(SpeakerClustering.assign([segment], profiles: [])[0].speaker, "Спикер 1")
     }
 
-    func testUniqueClusterKeepsAnAnonymousLabelWhenInheritedNameIsRejected() {
+    func testRejectedInheritedNameDoesNotInventAnotherVoiceInsideNamedCluster() {
         let weak: [Float] = [0.682, 0.731, 0]
         var mixed = turn(start: 23, duration: 3, embedding: weak)
         mixed.speakerEvidenceIsMixed = true
@@ -123,11 +123,13 @@ final class SpeakerClusteringTests: XCTestCase {
                      turn(start: 6, duration: 5, embedding: [0.985, 0.174, 0]),
                      turn(start: 12, duration: 2, embedding: weak),
                      turn(start: 15, duration: 2, embedding: [0.669, 0.743, 0]),
-                     turn(start: 18, duration: 4, embedding: [0, 0, 1]), mixed]
+                     turn(start: 18, duration: 4, embedding: [0, 0, 1]), mixed,
+                     turn(start: 27, duration: 2, embedding: [0, 0, 1])]
         let result = SpeakerClustering.assign(turns, profiles: [VoiceProfile(name: "Анна", samples: [[1, 0, 0]]),
                                                               VoiceProfile(name: "Борис", samples: [[0, 1, 0]])])
-        XCTAssertEqual(result.map(\.speaker), ["Анна", "Анна", "Спикер 1", "Спикер 1", "Спикер 2",
-                                               TranscriptSegment.unidentifiedSpeaker])
+        XCTAssertEqual(result.map(\.speaker), ["Анна", "Анна", TranscriptSegment.unidentifiedSpeaker,
+                                               TranscriptSegment.unidentifiedSpeaker, "Спикер 1",
+                                               TranscriptSegment.unidentifiedSpeaker, "Спикер 1"])
     }
 
     func testMatureClusterCannotAbsorbAnUnsupportedSingleVoice() {

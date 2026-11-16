@@ -155,8 +155,12 @@ public enum SpeakerClustering {
             guard let best = ranked.first,
                   membership[i].map({ $0 == best.0 }) ?? true,
                   ranked.count == 1 || best.1 - ranked[1].1 >= 0.04 else { result[i].speaker = TranscriptSegment.unidentifiedSpeaker; continue }
-            if let name = clusterNames[best.0], matcher.supportsInheritedName(name, embedding: vector) {
-                result[i].speaker = name
+            if let name = clusterNames[best.0] {
+                // Conflicting identity evidence cannot create a second displayed
+                // voice inside this named acoustic cluster. Keep the uncertainty
+                // explicit until this turn independently supports its name.
+                result[i].speaker = matcher.supportsInheritedName(name, embedding: vector)
+                    ? name : TranscriptSegment.unidentifiedSpeaker
                 continue
             }
             if names[best.0] == nil {
