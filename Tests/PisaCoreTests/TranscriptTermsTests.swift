@@ -40,6 +40,41 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertTrue(TranscriptTerms.matches("B2B", in: [segment("Сравнили би ту би и би-ту-би'ом.")], vocabulary: "Битуби").isEmpty)
     }
 
+    func testPersonalCanonicalTermKeepsBuiltInAliasesOutOfCandidates() {
+        let segments = [segment("Сравнили B2C, Б2С и би ту си.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(candidates.map(\.text), ["B2C"])
+        XCTAssertEqual(candidates.first?.occurrences.map(\.text), ["B2C", "Б2С", "би ту си"])
+        XCTAssertTrue(TranscriptTerms.candidates(in: segments, vocabulary: "B2C").isEmpty)
+        XCTAssertEqual(TranscriptTerms.matches("B2C", in: segments, vocabulary: "B2C").map(\.text), ["B2C", "Б2С", "би ту си"])
+        XCTAssertEqual(TranscriptTerms.matches("B2C", in: segments, vocabulary: "B2C, Б2С").map(\.text), ["B2C", "би ту си"])
+    }
+
+    func testInflectableBuiltInNameKeepsObservedEndingsInReview() throws {
+        let segments = [segment("Сравнили HeadHunter и нашли резюме на хедхантере.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        let candidate = try XCTUnwrap(candidates.first { $0.text == "HeadHunter" })
+        XCTAssertEqual(candidate.occurrences.map(\.text), ["HeadHunter", "хедхантере"])
+        let changed = try XCTUnwrap(TranscriptTerms.replacing(candidate.occurrences, with: "HeadHunter", in: segments))
+        XCTAssertEqual(changed[0].text, "Сравнили HeadHunter и нашли резюме на HeadHunter'е.")
+        let declined = try XCTUnwrap(candidate.occurrences.last)
+        XCTAssertEqual(TranscriptTerms.replacement(for: declined, with: "HH"), "HH'е")
+        XCTAssertEqual(TranscriptTerms.replacement(for: declined, with: "HeadHunter’ом"), "HeadHunter'е")
+        XCTAssertEqual(TranscriptTerms.replacementSearchTerm(for: candidate.occurrences, with: "HeadHunter’ом"), "HeadHunter")
+        XCTAssertEqual(TranscriptTerms.dictionaryTerm("HeadHunter’ом"), "HeadHunter")
+        XCTAssertNil(TranscriptTerms.replacement(for: declined, with: "Площадка"))
+    }
+
+    func testPersonalInflectableNameSearchIncludesCanonicalSuffixedForms() throws {
+        let segments = [segment("HeadHunter. Проверили профиль на HeadHunter'е и резюме на HeadHunter’е.")]
+        let found = TranscriptTerms.matches("HeadHunter", in: segments, vocabulary: "HeadHunter")
+        XCTAssertEqual(found.map(\.text), ["HeadHunter", "HeadHunter'е", "HeadHunter’е"])
+        let changed = try XCTUnwrap(TranscriptTerms.replacing(found, with: "HH", in: segments))
+        XCTAssertEqual(changed[0].text, "HH. Проверили профиль на HH'е и резюме на HH'е.")
+        XCTAssertEqual(TranscriptTerms.matches("HeadHunter", in: segments, vocabulary: "HeadHunter, HeadHunter'е").map(\.text),
+                       ["HeadHunter"])
+    }
+
     func testBranchTargetBufferAndBusinessToBusinessAreSeparateMeetingTerms() {
         let segments = [segment("Проверили би ти би и BTB, потом обсудили би ту би и B2B.")]
         let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
@@ -56,6 +91,7 @@ final class TranscriptTermsTests: XCTestCase {
             XCTAssertEqual(TranscriptTerms.matches(term, in: segments).map(\.text), [term])
         }
         XCTAssertEqual(TranscriptTerms.matches("rest", in: segments).map(\.text), ["REST", "rest"])
+        XCTAssertTrue(TranscriptTerms.matches("rest", in: [segment("Проверили REST'ом.")]).isEmpty)
     }
 
     func testBuiltInCompanyPronunciationsGroupWrittenAndSpokenOccurrences() {
@@ -135,6 +171,27 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(Set(candidates.map(\.text)), ["ДАО", "ИДП", "ЛПР", "СДП", "Иви", "Геопэй", "Qwen3-ASR"])
         XCTAssertEqual(TranscriptTerms.matches("Давайте", in: segments).count, 1)
         XCTAssertEqual(TranscriptTerms.matches("что-то", in: segments).count, 2)
+    }
+
+    func testCandidatesKeepRussianFunctionWordsOutOfAcronymGroups() {
+        let segments = [
+            segment("По дороге поговорили по сути и по старинке. Решили делать по-новому, а не по-старому."),
+            segment("Работали по‑новому и по‑старому. Позвонили до встречи и при необходимости."),
+            segment("Обновили ПО. Его проверил PO. Отчёты отправили в ДО и ПРИ.")
+        ]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["ПО", "PO", "ДО", "ПРИ"])
+        for acronym in ["ПО", "PO", "ДО", "ПРИ"] {
+            XCTAssertEqual(candidates.first { $0.text == acronym }?.occurrences.map(\.text), [acronym])
+        }
+    }
+
+    func testRussianAcronymSearchSkipsFunctionWordsWithOrWithoutDictionaryEntry() {
+        let segments = [segment("По дороге и по сути. Проверили ПО, ПО'ки и PO. Повторили по-старому.")]
+        for vocabulary in ["", "ПО, PO"] {
+            XCTAssertEqual(TranscriptTerms.matches("ПО", in: segments, vocabulary: vocabulary).map(\.text), ["ПО", "ПО'ки"])
+            XCTAssertEqual(TranscriptTerms.matches("PO", in: segments, vocabulary: vocabulary).map(\.text), ["PO"])
+        }
     }
 
     func testCandidatesSkipRegularInflectionsOfDictionaryTerms() {

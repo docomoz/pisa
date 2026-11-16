@@ -66,6 +66,22 @@ final class AbbreviationFamiliesTests: XCTestCase {
         XCTAssertNil(AbbreviationFamilies.inferred("2ГИСоном"))
     }
 
+    func testDictionaryAcronymsDoNotRewriteRussianFunctionWords() {
+        let text = "По дороге про ПО. Он был под крышей до встречи, при таком подходе работал с ПОки и PO."
+        let vocabulary = "ПО, PO, ПРО, ПОД, ДО, ПРИ, ТАК"
+        XCTAssertEqual(RecognitionVocabulary.apply(to: text, vocabulary: vocabulary),
+                       "По дороге про ПО. Он был под крышей до встречи, при таком подходе работал с ПО'ки и PO.")
+    }
+
+    func testRecognitionVocabularyRequiresAcronymCaseForRussianFunctionWords() {
+        XCTAssertFalse(RecognitionVocabulary.contains("ПО", in: "По дороге и по сути"))
+        XCTAssertFalse(RecognitionVocabulary.contains("ПО", in: "Поехали ПО-старому"))
+        XCTAssertFalse(RecognitionVocabulary.contains("ПОД", in: "Под крышей"))
+        XCTAssertTrue(RecognitionVocabulary.contains("ПО", in: "Установили ПО"))
+        XCTAssertTrue(RecognitionVocabulary.contains("ПО", in: "Вопрос о ПО’ки"))
+        XCTAssertTrue(RecognitionVocabulary.contains("PO", in: "Роль PO"))
+    }
+
     func testDictionaryAddingKnownAliasDoesNotCreateAnotherEntry() {
         XCTAssertEqual(TranscriptTerms.adding("2GIS'ом", to: "2ГИС"), "2ГИС")
     }

@@ -74,6 +74,7 @@ public enum TranscriptTerms {
             let builtIn = technology.matches(in: text).filter { !speakers.contains(entityKey($0.term)) }
             for match in builtIn {
                 let normalized = key(match.term)
+                guard !known.contains(normalized) else { continue }
                 technologyGroups[normalized, default: Group(text: match.term, score: 4)]
                     .occurrences.append(technologyOccurrence(match, in: segment))
             }
@@ -85,8 +86,11 @@ public enum TranscriptTerms {
                 else { continue }
                 let token = String(text[range])
                 if eligibleForms[token] == nil {
+                    // A lowercase or sentence-case function word can otherwise
+                    // join an uppercase acronym through the case-folded key.
+                    let plainFunctionWord = AbbreviationFamilies.isRussianFunctionWord(token) && token != token.uppercased()
                     if (2...48).contains(token.count), token.contains(where: \.isLetter),
-                       !known.contains(key(token)), families.known(token) == nil {
+                       !plainFunctionWord, !known.contains(key(token)), families.known(token) == nil {
                         let family = families.form(token)
                         eligibleForms.updateValue((key(family?.base ?? token), family), forKey: token)
                     } else {
@@ -131,13 +135,26 @@ public enum TranscriptTerms {
 
     public static func matches(_ term: String, in segments: [TranscriptSegment], vocabulary: String = "") -> [TermOccurrence] {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard TechnologyVocabulary.isCanonical(trimmed),
-              !VocabularyDictionary.entries(in: vocabulary).contains(where: { key($0.text) == key(trimmed) }) else {
+        guard TechnologyVocabulary.isCanonical(trimmed) else {
             return literalMatches(trimmed, in: segments, vocabulary: vocabulary)
         }
         let technology = TechnologyVocabulary(personalVocabulary: vocabulary)
+        let normalized = key(trimmed)
+        let validated = collectMatches(in: segments) { segment in
+            technology.matches(in: segment.text).filter { key($0.term) == normalized }.map { technologyOccurrence($0, in: segment) }
+        }
+        guard VocabularyDictionary.entries(in: vocabulary).contains(where: { key($0.text) == normalized }) else {
+            return validated
+        }
+        // The matcher protects personal spellings during normalization. Search
+        // includes those literal spans along with its validated aliases.
+        let personal = literalMatches(trimmed, in: segments, vocabulary: vocabulary)
+        var bySegment: [UUID: [NSRange: TermOccurrence]] = [:]
+        for occurrence in personal + validated {
+            bySegment[occurrence.segmentID, default: [:]][occurrence.range] = occurrence
+        }
         return collectMatches(in: segments) { segment in
-            technology.matches(in: segment.text).filter { $0.term == trimmed }.map { technologyOccurrence($0, in: segment) }
+            bySegment[segment.id, default: [:]].values.sorted { $0.range.location < $1.range.location }
         }
     }
 
@@ -145,7 +162,8 @@ public enum TranscriptTerms {
         let families = AbbreviationFamilies(vocabulary)
         let knownQuery = families.known(trimmed)
         let base = knownQuery.flatMap { $0.ending.isEmpty ? $0.base : nil } ?? trimmed
-        if AbbreviationFamilies.isBase(base) {
+        let abbreviation = AbbreviationFamilies.isBase(base)
+        if abbreviation || (TechnologyVocabulary.isCanonical(base) && TechnologyVocabulary.supportsEndings(for: base)) {
             let queryFamily = AbbreviationFamilies(base)
             let baseKey = key(base)
             var formsByToken: [String: AbbreviationFamilies.Form?] = [:]
@@ -157,8 +175,18 @@ public enum TranscriptTerms {
                           !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return nil }
                     let token = String(text[range])
                     if formsByToken[token] == nil {
-                        let form = families.isExplicit(token) || families.hasKnownBase(token)
-                            ? families.known(token) : queryFamily.known(token)
+                        let form: AbbreviationFamilies.Form?
+                        if abbreviation {
+                            form = families.isExplicit(token) || families.hasKnownBase(token)
+                                ? families.known(token) : queryFamily.known(token)
+                        } else {
+                            // A saved catalog name can protect its written span in
+                            // the technology matcher while still taking endings.
+                            form = AbbreviationFamilies.parse(token, as: base).flatMap { parsed in
+                                let competingSpelling = key(token) != baseKey && families.isExplicit(token)
+                                return !competingSpelling && !families.hasKnownBase(token) ? parsed : nil
+                            }
+                        }
                         formsByToken.updateValue(form, forKey: token)
                     }
                     guard let form = formsByToken[token] ?? nil, key(form.base) == baseKey else { return nil }
@@ -237,7 +265,7 @@ public enum TranscriptTerms {
 
     public static func dictionaryTerm(_ term: String) -> String {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        return AbbreviationFamilies.inferred(trimmed)?.base ?? trimmed
+        return AbbreviationFamilies.inferred(trimmed)?.base ?? apostrophizedTechnologyBase(trimmed) ?? trimmed
     }
 
     /// The preview and mutation share this renderer. Family edits keep each
@@ -246,20 +274,29 @@ public enum TranscriptTerms {
         let trimmed = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.rangeOfCharacter(from: .newlines) == nil else { return nil }
         guard let family = occurrence.family else { return trimmed }
-        let base = apostrophizedAbbreviationBase(trimmed) ?? trimmed
+        let base = apostrophizedBase(trimmed) ?? trimmed
         guard !family.ending.isEmpty else { return base }
-        guard AbbreviationFamilies.isBase(base) else { return nil }
+        guard AbbreviationFamilies.isBase(base) || TechnologyVocabulary.supportsEndings(for: base) else { return nil }
         return AbbreviationFamilies.Form(base: base, ending: family.ending).text
     }
 
     public static func replacementSearchTerm(for occurrences: [TermOccurrence], with replacement: String) -> String {
         guard occurrences.contains(where: { $0.family != nil }) else { return replacement }
-        return apostrophizedAbbreviationBase(replacement) ?? replacement
+        return apostrophizedBase(replacement) ?? replacement
     }
 
-    private static func apostrophizedAbbreviationBase(_ term: String) -> String? {
+    private static func apostrophizedBase(_ term: String) -> String? {
         guard term.contains("'") || term.contains("’") else { return nil }
-        return AbbreviationFamilies.inferred(term)?.base
+        return AbbreviationFamilies.inferred(term)?.base ?? apostrophizedTechnologyBase(term)
+    }
+
+    private static func apostrophizedTechnologyBase(_ term: String) -> String? {
+        guard let apostrophe = term.firstIndex(where: { $0 == "'" || $0 == "’" }) else { return nil }
+        let base = String(term[..<apostrophe])
+        let ending = String(term[term.index(after: apostrophe)...])
+        guard AbbreviationFamilies.ending(ending, numeric: false) != nil,
+              TechnologyVocabulary.supportsEndings(for: base) else { return nil }
+        return base
     }
 
     private static func key(_ term: String) -> String {
@@ -335,7 +372,8 @@ public enum TranscriptTerms {
     }
 
     private static func technologyOccurrence(_ match: TechnologyVocabulary.Match, in segment: TranscriptSegment) -> TermOccurrence {
-        let family = AbbreviationFamilies.isBase(match.term) ? AbbreviationFamilies.Form(base: match.term, ending: match.ending) : nil
+        let supportsEndings = AbbreviationFamilies.isBase(match.term) || TechnologyVocabulary.supportsEndings(for: match.term)
+        let family = supportsEndings ? AbbreviationFamilies.Form(base: match.term, ending: match.ending) : nil
         return occurrence(match.range, in: segment, text: (segment.text as NSString).substring(with: match.range), family: family)
     }
 

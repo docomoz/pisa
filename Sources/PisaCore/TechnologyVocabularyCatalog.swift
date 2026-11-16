@@ -2,13 +2,16 @@ enum TechnologyVocabularyCatalog {
     // Each row is canonical spelling | mode | aliases (separated by semicolons).
     // + derives spoken letter names. ? requires a technical cue for spoken
     // aliases with a common meaning. c requires an adjacent company/service cue.
+    // ic also permits regular Russian case endings for that company name.
+    // w requires a technical cue only for English spoken aliases; i permits
+    // observed endings on a company name. Flags can be combined (e.g. ic).
     // = marks a written alias with exact case.
     // Plain written terms are useful for extraction even without spoken aliases.
     static let entries = """
     # Markets, strategy and leadership
-    B2B|+|бетуби;би 2 би;би два би;=Б2Б;=B2В;=В2В;=b2b
-    B2C|+|битуси;битуци;би 2 си;би два си;=Б2Ц;=В2С;=b2c
-    B2G|+|битуджи;би 2 джи;=Б2Г
+    B2B|+|бетуби;би 2 би;би два би;бэ два бэ;=Б2Б;=B2В;=В2В;=b2b
+    B2C|+|битуси;битуци;би 2 си;би два си;бэ два си;би два цэ;бэ два цэ;=Б2Ц;=Б2С;=B2С;=Б2C;=В2С;=В2C;=b2c
+    B2G|+|битуджи;би 2 джи;би два джи;бэ два джи;=Б2Г
     B2E|+|би ту и
     D2C|+|ди 2 си;ди два си
     B2B2C|+
@@ -22,6 +25,8 @@ enum TechnologyVocabularyCatalog {
     IaaS||иаас;ай эй эй эс
     DaaS||даас
     FaaS||фаас
+    white-label|w|вайт лейбл;вайт лэйбл;вайт лейбел;уайт лейбл;white label;=white‑label;=white‐label
+    private label||прайвет лейбл;прайвит лейбл
     GTM|+|гэ тэ эм
     PMF|+|пэ эм эф
     ICP|+
@@ -52,10 +57,15 @@ enum TechnologyVocabularyCatalog {
     DCF|+
     ROI|+|эр о ай
     COGS||когс
-    KPI|+|ка пэ и;кей пи ай
+    KPI|+|ка пэ и;кей пи ай;кэй пи ай;ка пи ай;=КПИ
     OKR|+|о кей ар;о ка эр;оу кей эр;о кей эр
     CEO|+
     CPO|+
+    PO|+|пи о;=P-O;=P‑O
+    PM|+
+    IT|+
+    HR|+|эйч эр
+    GR|+|джи эр
     CTO|+
     COO|+
     CFO|+
@@ -63,7 +73,27 @@ enum TechnologyVocabularyCatalog {
     CDO|+
     CIO|+
     CISO|+|сисо
+    CHRO|+
+    CRO|+
+    CCO|+
+    CSO|+
+    CTPO|+
     VP|+
+    SVP|+
+    EVP|+
+    C-suite||си сюит;си свит;=C‑suite
+    C-level||си левел;си лэвел;=C‑level
+    board of directors
+    steering committee||стиринг комити;стиринг коммити
+    governance model
+    succession planning
+    operating model
+    QBR|+
+    MBR|+
+    executive summary||экзекьютив саммари;экзекьютив самэри
+    span of control
+    headcount planning
+    target operating model
     IPO|+|и пэ о
     M&A||эм энд эй;эм эн эй
     NDA|+|эн дэ а
@@ -89,6 +119,9 @@ enum TechnologyVocabularyCatalog {
     AAARRR
     AARRR
     north star metric||норс стар метрик;норт стар метрик
+    go-to-market||гоу ту маркет;гоу ту маркэт;go to market
+    product-market fit||продакт маркет фит;product market fit
+    total addressable market
     unit economics||юнит экономика
     cohort analysis
     market fit
@@ -113,6 +146,53 @@ enum TechnologyVocabularyCatalog {
     retention rate
     activation rate
     conversion rate
+    # Finance and investment
+    IFRS|+
+    GAAP|+
+    WACC|+|вакк;уакк
+    EPS|+
+    ROE|+
+    ROA|+
+    ROIC|+
+    ROCE|+
+    EBT|+
+    EV/EBITDA
+    EV/Sales
+    LBO|+
+    MBO|+
+    AUM|+
+    NAV|+
+    SPV|+
+    TTM|+
+    LTM|+
+    YTD|+
+    DSO|+
+    DIO|+
+    DSCR|+
+    take rate||тейк рейт;тэйк рейт
+    burn rate||бёрн рейт;берн рейт
+    run rate||ран рейт
+    cash runway||кэш ранвей;кеш ранвей
+    cash flow||кэш флоу;кеш флоу
+    free cash flow||фри кэш флоу;фри кеш флоу
+    cash conversion cycle
+    working capital
+    enterprise value
+    contribution margin
+    gross margin
+    break-even point
+    discount rate
+    due diligence||дью дилидженс;дю дилидженс;дью дилиджэнс
+    data room||дата рум;дэйта рум
+    term sheet||терм шит;тёрм шит
+    cap table||кап тейбл;кэп тейбл;кэп тэйбл
+    earn-out||ёрн аут;ерн аут;earn out
+    оборотный капитал
+    кассовый разрыв
+    валовая маржа
+    операционная прибыль
+    точка безубыточности
+    дисконтированный денежный поток
     # Product, analytics and working methods
     MVP|+|эм вэ пэ
     MLP|+
@@ -144,6 +224,17 @@ enum TechnologyVocabularyCatalog {
     acceptance criteria
     backlog refinement
     product backlog
+    product ownership||продакт оунершип;продакт оунэршип
+    experiment design
+    AOV|+
+    CTR|+
+    CPC|+
+    CPM|+
+    CPA|+
+    CUPED||кьюпед;кьюпэд
+    time to value||тайм ту вэлью;тайм ту велью
+    cohort retention
+    revenue retention
     sprint planning
     story points
     incident review
@@ -152,8 +243,8 @@ enum TechnologyVocabularyCatalog {
     A/B-тест||эй би тест;а бе тест;=А/Б-тест;=A/B test;=AB-тест
     A/B-тестирование||эй би тестирование;=А/Б-тестирование
     # Software architecture, development, interfaces and platforms
-    API|+|апи;а пи ай;а пэ и;эй пи и
-    SDK|+|эс дэ ка;эс ди ка;эс дэ кей
+    API|+|апи;а пи ай;а пэ и;эй пи и;=АПИ
+    SDK|+|эс дэ ка;эс де ка;эс ди ка;эс дэ кей
     IDE|+|ай ди и
     GUI|+|джи ю ай
     TUI|+
@@ -199,6 +290,9 @@ enum TechnologyVocabularyCatalog {
     gRPC||джи ар пи си;джи эр пэ цэ
     REST|+|рэст
     REST API||рэст апи;рест апи
+    API gateway||апи гейтвей;эй пи ай гейтвей
+    API contract||апи контракт;эй пи ай контракт
+    BFF|+
     OpenAPI||оупен эй пи ай;опен апи
     GraphQL||граф кью эл;граф ку эл;граф кью эль
     JSON|?|джейсон;джей сан
@@ -257,11 +351,45 @@ enum TechnologyVocabularyCatalog {
     GitHub Actions||гитхаб экшнс;гит хаб экшенс
     merge request||мёрдж реквест;мердж реквест
     pull request||пул реквест;пулл реквест
+    draft pull request||драфт пул реквест;драфт пулл реквест
+    CODEOWNERS
+    trunk-based development||транк бейст девелопмент;trunk based development
+    GitFlow||гит флоу;гитфлоу
+    release train||релиз трейн;релиз трэйн
+    semantic versioning||семантик версионинг
+    backward compatibility
+    breaking change||брейкинг чейндж;брэйкинг чэйндж
+    idempotency key
+    event-driven architecture
+    event sourcing||ивент сорсинг;ивэнт сорсинг
+    transactional outbox
+    circuit breaker||сёркит брейкер;серкит брейкер
+    dependency injection||депенденси инджекшен;дипенденси инджекшн
+    контрактное тестирование
+    интеграционное тестирование
+    регрессионное тестирование
     monorepo
     monorepository
     # Infrastructure, quality, security and operations
     CI/CD||си ай си ди;си ай и си ди;це и це де
     CD pipeline
+    E2E testing||и ту и тестинг
+    smoke test||смоук тест
+    load testing
+    chaos engineering||кейос инжиниринг
+    release candidate||релиз кандидат
+    canary deployment||канари деплоймент;кэнери деплоймент
+    blue-green deployment||блю грин деплоймент;blue green deployment
+    progressive delivery
+    канареечный релиз
+    staged rollout
+    dead letter queue
+    DLQ|+
+    error budget||эррор баджет;эрор баджет
+    on-call rotation
+    distributed tracing
+    distributed lock
+    disaster recovery
     IaC||ай эй си
     DevOps||девопс;дев опс;=Devops
     DevSecOps||дев сек опс;девсекопс
@@ -300,6 +428,8 @@ enum TechnologyVocabularyCatalog {
     OAuth||оу аут;о аут;оауз
     OAuth 2.0
     OIDC|+
+    WebAuthn||веб аут эн;вэб аут эн
+    mTLS||эм ти эл эс
     JWT|+|джей дабл ю ти
     MFA|+|эм эф а
     2FA||два эф а;ту эф эй;два эф эй
@@ -321,6 +451,7 @@ enum TechnologyVocabularyCatalog {
     zero trust||зиро траст
     least privilege
     data residency
+    software supply chain
     # Data, machine learning and AI
     BI|+|би ай
     DWH|+
@@ -330,6 +461,14 @@ enum TechnologyVocabularyCatalog {
     OLAP||олап
     Data Vault
     data lake||дата лейк;дата лэйк
+    data warehouse||дата вэрхаус;дэйта вэрхаус;дата веархаус
+    data pipeline||дата пайплайн;дэйта пайплайн
+    data lineage||дата линидж;дэйта линидж
+    data catalog
+    data quality
+    change data capture
+    feature store||фича стор;фичер стор
+    data mesh||дата меш;дэйта меш
     lakehouse||лейкхаус;лейк хаус
     SQL|+|эс ку эль;эс кью эл;эс ку эл;сиквел
     NoSQL||ноу сиквел;ноу эс кью эл;ноу эс ку эль
@@ -390,6 +529,12 @@ enum TechnologyVocabularyCatalog {
     vector database
     function calling
     mixture of experts
+    retrieval-augmented generation
+    context window||контекст виндоу
+    structured output||стракчурд аутпут
+    tool calling||тул коллинг;тул колинг
+    model serving
+    prompt injection||промпт инджекшен;промпт инджекшн
     # Common tools and platforms
     Figma||фигма
     Jira||джира
@@ -546,6 +691,8 @@ enum TechnologyVocabularyCatalog {
     Т-Банк||тэ банк;те банк;т банк;=Т‑Банк;=Т‐Банк
     Тинькофф||тинькофф;=Tinkoff
     Авито||авито;=Avito
+    HeadHunter|ic|хэд хантер;хед хантер;хит хантер;=Headhunter
+    Otello|c|отелло;отэлло;отелла;отэлла;=Otella;=otello
     Ozon|c|озон
     Wildberries||вайлдберриз;вайлд берриз;вайлдберрис;валдберис;вайлдберис
     RWB||эр дабл ю би;эр вэ бэ

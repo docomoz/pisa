@@ -17,7 +17,7 @@ struct TechnologyVocabulary {
         let spoken: Bool
         let requiresContext: Bool
         let requiresCompanyCue: Bool
-        let abbreviation: Bool
+        let inflectable: Bool
     }
 
     private static let token = try! NSRegularExpression(pattern: #"[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*|[.+#/&]"#)
@@ -27,6 +27,12 @@ struct TechnologyVocabulary {
     private static let hyphens = "-‐‑"
     private static let dockerCue = try! NSRegularExpression(pattern:
         #"(?i)\b(?:кубернетес[а-яё]*|kubernetes|dockerfile|podman|депло[яй][а-яё]*|образ[а-яё]*\p{Zs}+контейнер[а-яё]*)\b"#)
+    private static let nearbyCues: [String: NSRegularExpression] = [
+        "Docker": dockerCue,
+        "white-label": try! NSRegularExpression(pattern:
+            #"\b(?:продукт[а-яё]*|решени[а-яё]*|технолог[а-яё]*|бренд[а-яё]*|бизнес[а-яё]*|платформ[а-яё]*|направлени[а-яё]*|модел[а-яё]*|партн[её]р[а-яё]*|предлага[а-яё]*|products?|solutions?|services?|platforms?|brands?|business|offer[а-яёa-z]*)\b"#,
+            options: .caseInsensitive)
+    ]
     private static let precedingCues: [String: NSRegularExpression] = [
         "JSON": #"формат[а-яё]*|схем[а-яё]*|в\p{Zs]+формате|парсим|распарсить"#,
         "Kotlin": #"языке|язык|языком|код\p{Zs}+на|переписать\p{Zs}+на"#,
@@ -35,6 +41,8 @@ struct TechnologyVocabulary {
     private static let companyCue = try? NSRegularExpression(pattern:
         #"\b(?:компани[яиюей]|компанией|компаний|корпораци[яиюей]|сервис(?:а|ом|у|е)?|платформ[аыуе]|платформой|банк(?:а|ом|у|е)?|вендор(?:а|ом|у|е)?|маркетплейс(?:а|ом|у|е)?|стартап(?:а|ом|у|е)?|company|vendor|platform)[ \u00A0]+\z"#,
         options: .caseInsensitive)
+    private static let platformPreposition = try! NSRegularExpression(
+        pattern: #"\b(?:в|на)[ \u00A0]+\z"#, options: .caseInsensitive)
     private static let sentenceBreaks = CharacterSet(charactersIn: ".!?…\n\r")
     private static let rereadSite = try! NSRegularExpression(pattern:
         #"(?<![\p{L}\p{M}\p{N}_/@\\\-‐‑])([а-яё]{2,8}(?:[-‐‑][а-яё]{2,5})?)[\p{Zs}\-‐‑]+(?:продукт|сегмент|рынок|рынк|направлени|модел|продаж)[а-яё]*(?![\p{L}\p{M}\p{N}_/@\\])"#,
@@ -46,11 +54,14 @@ struct TechnologyVocabulary {
     private let personalTerms: [String]
     private let personalKeys: Set<String>
     private let personalSpokenKeys: Set<String>
+    private let preferredSpellings: [String: String]
     private let personalFamilies: AbbreviationFamilies
     private let personalPhrases: NSRegularExpression?
 
     init(personalVocabulary: String) {
         personalTerms = VocabularyDictionary.entries(in: personalVocabulary).map(\.text)
+        preferredSpellings = Dictionary(personalTerms.map { (Self.key($0), $0) },
+                                       uniquingKeysWith: { first, _ in first })
         personalKeys = Set(personalTerms.flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }.map(Self.key))
         personalSpokenKeys = Set(personalKeys.map(Self.spokenKey))
         personalFamilies = AbbreviationFamilies(personalVocabulary)
@@ -95,19 +106,19 @@ struct TechnologyVocabulary {
             var patterns = Self.index[start] ?? []
             if Self.mayHaveEnding(start) {
                 for (stem, _) in Self.declinedForms(start) {
-                    patterns += (Self.index[stem] ?? []).filter { $0.words.count == 1 && $0.abbreviation }
+                    patterns += (Self.index[stem] ?? []).filter { $0.words.count == 1 && $0.inflectable }
                 }
             }
             var choices: [(match: Match, width: Int, spoken: Bool)] = []
             for pattern in patterns {
                 let lastIndex = index + pattern.words.count - 1
-                guard lastIndex < tokens.count, !personalKeys.contains(Self.key(pattern.term)) else { continue }
+                guard lastIndex < tokens.count else { continue }
                 guard tokens[index..<lastIndex].map({ $0.1.lowercased() }).elementsEqual(pattern.words.dropLast()) else { continue }
                 let lastToken = tokens[lastIndex].1.lowercased()
                 let ending: String
                 if lastToken == pattern.words.last {
                     ending = ""
-                } else if pattern.abbreviation, let suffix = Self.declinedForms(lastToken).first(where: { $0.0 == pattern.words.last })?.1 {
+                } else if pattern.inflectable, let suffix = Self.declinedForms(lastToken).first(where: { $0.0 == pattern.words.last })?.1 {
                     ending = suffix
                 } else { continue }
 
@@ -129,17 +140,25 @@ struct TechnologyVocabulary {
                       !personalKeys.contains(Self.key(source)), !personalKeys.contains(Self.key(base)),
                       personalFamilies.known(source) == nil else { continue }
                 guard !pattern.requiresContext || Self.hasCue(for: pattern.term, in: text, near: range, protecting: protected) else { continue }
-                guard !pattern.requiresCompanyCue || Self.hasPrecedingCompanyCue(in: text, before: range, protecting: protected) else { continue }
-                let canonical = ending.isEmpty ? pattern.term : pattern.term + "'" + ending
+                guard !pattern.requiresCompanyCue || Self.hasPrecedingCompanyCue(in: text, before: range, protecting: protected)
+                    || (pattern.inflectable && ending == "е" && Self.hasPlatformPreposition(in: text, before: range, protecting: protected)) else { continue }
+                // A personal entry chooses the spelling; it must not disable
+                // the curated pronunciations and written aliases of that term.
+                let term = preferredSpellings[Self.key(pattern.term)] ?? pattern.term
+                let canonical = ending.isEmpty ? term : term + "'" + ending
                 let replacement = pattern.spoken || !ending.isEmpty || pattern.spelling != pattern.term ? canonical : nil
-                let match = Match(term: pattern.term, range: range, ending: ending, replacement: replacement)
+                let match = Match(term: term, range: range, ending: ending, replacement: replacement)
                 choices.append((match, pattern.words.count, pattern.spoken))
             }
             if let longest = choices.max(by: { $0.match.range.length < $1.match.range.length }) {
                 let sameSpan = choices.filter { $0.match.range.length == longest.match.range.length }
                 let written = sameSpan.filter { !$0.spoken }
                 let preferred = written.isEmpty ? sameSpan : written
-                if Set(preferred.map { $0.match.term }).count == 1, let choice = preferred.first {
+                // An exact pronunciation wins over a shorter alias plus a
+                // guessed suffix: пи оу is PO, not пи о + the ending у.
+                let exact = preferred.filter { $0.match.ending.isEmpty }
+                let resolved = exact.isEmpty ? preferred : exact
+                if Set(resolved.map { $0.match.term }).count == 1, let choice = resolved.first {
                     found.append(choice.match)
                     index += choice.width
                     continue
@@ -160,7 +179,8 @@ struct TechnologyVocabulary {
         var seen = Set<String>()
         var terms: [String] = []
         for text in texts {
-            for match in matches(in: text) where seen.insert(Self.key(match.term)).inserted {
+            for match in matches(in: text)
+            where preferredSpellings[Self.key(match.term)] == nil && seen.insert(Self.key(match.term)).inserted {
                 terms.append(match.term)
                 if terms.count == limit { return terms }
             }
@@ -216,6 +236,31 @@ struct TechnologyVocabulary {
             || TechnologyCompanyVocabulary.isCanonical(term)
     }
 
+    static func supportsEndings(for term: String) -> Bool {
+        inflectableKeys.contains(key(term))
+    }
+
+    /// Curated homonyms need their own context and ending rules even when the
+    /// user has saved the canonical brand spelling in their dictionary.
+    static func requiresCompanyContext(_ term: String) -> Bool {
+        contextualCompanyKeys.contains(key(term))
+    }
+
+    private static let contextualCompanyKeys: Set<String> = Set(
+        TechnologyVocabularyCatalog.entries.split(whereSeparator: \.isNewline).compactMap { (line: Substring) -> String? in
+            let fields: [Substring] = line.split(separator: "|", omittingEmptySubsequences: false)
+            guard fields.count > 1, fields[1].contains("i"), fields[1].contains("c") else { return nil }
+            return key(String(fields[0]))
+        })
+
+    private static let inflectableKeys: Set<String> = Set(
+        TechnologyVocabularyCatalog.entries.split(whereSeparator: \.isNewline).compactMap { (line: Substring) -> String? in
+            let fields: [Substring] = line.split(separator: "|", omittingEmptySubsequences: false)
+            guard let term = fields.first, AbbreviationFamilies.isBase(String(term))
+                || (fields.count > 1 && fields[1].contains("i")) else { return nil }
+            return key(String(term))
+        })
+
     private static func key(_ text: String) -> String {
         AbbreviationFamilies.key(text).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
@@ -248,11 +293,11 @@ struct TechnologyVocabulary {
         let start = max(left.location == NSNotFound ? 0 : NSMaxRange(left), range.location - 72)
         let preceding = NSRange(location: start, length: range.location - start)
         var cues = precedingCues[term]?.matches(in: text, range: preceding) ?? []
-        if term == "Docker" {
+        if let nearbyCue = nearbyCues[term] {
             let right = ns.rangeOfCharacter(from: sentenceBreaks, options: [],
                 range: NSRange(location: NSMaxRange(range), length: ns.length - NSMaxRange(range)))
             let end = min(right.location == NSNotFound ? ns.length : right.location, NSMaxRange(range) + 72)
-            cues = dockerCue.matches(in: text, range: NSRange(location: start, length: end - start))
+            cues = nearbyCue.matches(in: text, range: NSRange(location: start, length: end - start))
         }
         return cues.contains { cue in
             (protected + [range]).allSatisfy { NSIntersectionRange($0, cue.range).length == 0 }
@@ -262,6 +307,12 @@ struct TechnologyVocabulary {
     private static func hasPrecedingCompanyCue(in text: String, before range: NSRange, protecting protected: [NSRange]) -> Bool {
         let start = max(0, range.location - 32)
         guard let cue = companyCue?.firstMatch(in: text, range: NSRange(location: start, length: range.location - start)) else { return false }
+        return !protected.contains { NSIntersectionRange($0, cue.range).length > 0 }
+    }
+
+    private static func hasPlatformPreposition(in text: String, before range: NSRange, protecting protected: [NSRange]) -> Bool {
+        let start = max(0, range.location - 12)
+        guard let cue = platformPreposition.firstMatch(in: text, range: NSRange(location: start, length: range.location - start)) else { return false }
         return !protected.contains { NSIntersectionRange($0, cue.range).length > 0 }
     }
 
@@ -313,8 +364,8 @@ struct TechnologyVocabulary {
         for line in TechnologyVocabularyCatalog.entries.split(whereSeparator: \.isNewline) where !line.hasPrefix("#") {
             let fields = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
             let term = fields[0]
-            let abbreviation = AbbreviationFamilies.isBase(term)
             let mode = fields.count > 1 ? fields[1] : ""
+            let inflectable = AbbreviationFamilies.isBase(term) || mode.contains("i")
             let aliases = fields.count > 2 ? fields[2].split(separator: ";").map(String.init) : []
             var spoken = aliases.filter { !$0.hasPrefix("=") }.map { $0.split(separator: " ").map(String.init) }
             if mode == "+" {
@@ -323,15 +374,16 @@ struct TechnologyVocabulary {
             }
             var patterns = ([term] + aliases.filter { $0.hasPrefix("=") }.map { String($0.dropFirst()) }).map { spelling in
                 Pattern(term: term, words: words(in: spelling), spelling: spelling, spoken: false,
-                        requiresContext: false, requiresCompanyCue: mode == "c" && spelledLikeAlias(spelling, spoken),
-                        abbreviation: abbreviation)
+                        requiresContext: false, requiresCompanyCue: mode.contains("c") && spelledLikeAlias(spelling, spoken),
+                        inflectable: inflectable)
             }
             var seen = Set<[String]>()
             for syllables in spoken where syllables.count <= 8 {
                 for spelling in spellings(for: syllables) where seen.insert(spelling).inserted {
                     patterns.append(Pattern(term: term, words: spelling, spelling: "", spoken: true,
-                                            requiresContext: mode == "?", requiresCompanyCue: mode == "c",
-                                            abbreviation: abbreviation))
+                                            requiresContext: mode == "?" || (mode == "w" && syllables.joined().allSatisfy(\.isASCII)),
+                                            requiresCompanyCue: mode.contains("c"),
+                                            inflectable: inflectable))
                 }
             }
             for pattern in patterns {

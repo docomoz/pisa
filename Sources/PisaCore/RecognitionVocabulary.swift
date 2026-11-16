@@ -135,16 +135,23 @@ enum RecognitionVocabulary {
     /// Exact dictionary spelling and regular endings, never a phonetic guess.
     static func contains(_ term: String, in text: String) -> Bool {
         let body: String
-        if AbbreviationFamilies.isBase(term) {
-            body = "(?:" + AbbreviationFamilies.aliases(for: term).map(NSRegularExpression.escapedPattern).joined(separator: "|")
-                + ")(?:['’]?(?:" + AbbreviationFamilies.endingPattern(numeric: term.first?.isNumber == true) + "))?"
+        let acronym = AbbreviationFamilies.isBase(term)
+        let requiresExactCase = acronym && AbbreviationFamilies.isRussianFunctionWord(term)
+        if acronym {
+            let aliases = AbbreviationFamilies.aliases(for: term).map(NSRegularExpression.escapedPattern).joined(separator: "|")
+            let base = requiresExactCase ? "(?-i:\(aliases))" : "(?:\(aliases))"
+            body = base + "(?:['’]?(?:" + AbbreviationFamilies.endingPattern(numeric: term.first?.isNumber == true) + "))?"
         } else if let (stem, endings) = cyrillicForm(term) {
             body = spellingPattern(stem) + "(?:" + endings.joined(separator: "|") + ")"
         } else {
             body = term.split(whereSeparator: \.isWhitespace).map { NSRegularExpression.escapedPattern(for: String($0)) }
                 .joined(separator: #"\s+"#) + #"(?:['’]?(?:ками|кой|ках|кам|ка|ку|ке|ки|ами|ями|ого|ому|ов|ом|ем|ам|ах|ям|ях|а|у|е|ы|и))?"#
         }
-        let pattern = #"(?<![\p{L}\p{N}])(?:"# + body + #")(?![\p{L}\p{N}])"#
+        let leading = requiresExactCase
+            ? #"(?<![\p{L}\p{M}\p{N}_/@\\\-‐‑])(?<![\p{L}\p{M}\p{N}]['’])"# : #"(?<![\p{L}\p{N}])"#
+        let trailing = requiresExactCase
+            ? #"(?![\p{L}\p{M}\p{N}_/@\\\-‐‑])(?!['’][\p{L}\p{M}\p{N}])"# : #"(?![\p{L}\p{N}])"#
+        let pattern = leading + "(?:" + body + ")" + trailing
         return expression(for: pattern)?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 

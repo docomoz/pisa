@@ -18,6 +18,18 @@ struct AbbreviationFamilies {
     static let promptEndings = ["а", "ом", "е", "у"]
     private static let latinEndings = ["a": "а", "u": "у", "om": "ом", "e": "е"]
     private static let token = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*"#)
+    private static let russianFunctionWords: Set<String> = [
+        "а", "без", "близ", "будто", "бы", "в", "вблизи", "ввиду", "вдоль",
+        "взамен", "вместо", "вне", "внутри", "во", "вокруг", "вопреки",
+        "вроде", "вслед", "да", "дабы", "даже", "для", "до", "едва", "если",
+        "же", "за", "зато", "и", "ибо", "из", "или", "как", "к", "ко",
+        "кроме", "ли", "либо", "лишь", "меж", "между", "мимо", "на", "над",
+        "не", "ни", "но", "о", "об", "обо", "около", "от", "ото", "перед",
+        "по", "под", "подо", "пока", "помимо", "после", "при", "про", "против",
+        "пусть", "ради", "разве", "с", "сверх", "сквозь", "словно", "со",
+        "согласно", "среди", "так", "типа", "то", "у", "уж", "хоть", "хотя",
+        "через", "чем", "что", "чтобы"
+    ]
     private struct Entry {
         let base: String
         let aliases: [String]
@@ -43,6 +55,16 @@ struct AbbreviationFamilies {
 
     static func key(_ text: String) -> String {
         text.lowercased().replacingOccurrences(of: "’", with: "'")
+    }
+
+    static func isRussianFunctionWord(_ token: String) -> Bool {
+        russianFunctionWords.contains(token.lowercased())
+    }
+
+    /// A known base such as ПО needs explicit acronym casing because
+    /// its lowercase and sentence-case spellings are ordinary Russian.
+    private static func matchesBaseCasing(_ source: String, as base: String) -> Bool {
+        source == base || !isRussianFunctionWord(base)
     }
 
     static func ending(_ raw: String, numeric: Bool) -> String? {
@@ -95,7 +117,7 @@ struct AbbreviationFamilies {
         for alias in aliases {
             guard token.count >= alias.count else { continue }
             let prefix = String(token.prefix(alias.count))
-            guard key(prefix) == key(alias) else { continue }
+            guard key(prefix) == key(alias), matchesBaseCasing(prefix, as: alias) else { continue }
             var tail = String(token.dropFirst(alias.count))
             if tail.isEmpty { return Form(base: base, ending: "") }
             if tail.first == "'" || tail.first == "’" { tail.removeFirst() }
@@ -114,7 +136,8 @@ struct AbbreviationFamilies {
 
     func known(_ token: String) -> Form? {
         if let exact = explicit[Self.key(token)] {
-            return Self.isBase(exact) ? Form(base: exact, ending: "") : nil
+            guard Self.isBase(exact), Self.matchesBaseCasing(token, as: exact) else { return nil }
+            return Form(base: exact, ending: "")
         }
         let matches = entries.compactMap { Self.parse(token, as: $0.base, aliases: $0.aliases) }
         guard Set(matches.map { Self.key($0.base) }).count == 1 else { return nil }

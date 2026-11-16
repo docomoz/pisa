@@ -72,7 +72,7 @@ struct SpokenVocabulary {
             }
         }
         self.phones = phones
-        self.entries = english.map { term in
+        self.entries = english.filter { !TechnologyVocabulary.requiresCompanyContext($0) }.map { term in
             let initialism = Self.isInitialism(term)
             var sounds = [Self.sound(term, phones: phones), Self.sound(term, phones: [:])]
             if initialism {
@@ -423,6 +423,7 @@ struct SpokenVocabulary {
         }.joined()
     }
     private static func transliterate(_ text: String) -> String {
+        guard text.utf8.contains(where: { (97...122).contains($0) }) else { return text }
         var value = text
         for (from, to) in [("tion", "шн"), ("sh", "ш"), ("ch", "ч"), ("ph", "ф"), ("th", "т"), ("qu", "к"),
                            ("ce", "се"), ("ci", "си"), ("cy", "си"), ("ck", "к")] {
