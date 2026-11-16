@@ -42,13 +42,13 @@ enum SavedVoiceAudio {
             let engine = try SpeakerEngine(directory: model.deletingLastPathComponent())
             embedding = try self.embedding(from: destination) { samples in
                 guard !engine.hasConflictingSpeakerActivity(samples) else {
-                    throw PisaError.message("В образце слышны несколько голосов или речь неразборчива. Выберите другой фрагмент либо примените имя без запоминания голоса")
+                    throw PisaError.message("В образце слышны несколько голосов или речь неразборчива. Выберите другой фрагмент.")
                 }
                 return engine.vector(samples)
             }
-            if VoiceMatcher.enrollmentConflict(embedding, name: name, profiles: profiles) != nil {
-                throw PisaError.message("Образец совпадает с другим сохранённым голосом. Выберите другой фрагмент либо примените имя без запоминания голоса")
-            }
+        }
+        if let match = VoiceMatcher.enrollmentConflict(embedding, name: name, profiles: profiles) {
+            throw PisaError.message("Образец похож на сохранённый голос «\(match)». Для запоминания выберите другой фрагмент.")
         }
         try Task.checkCancellation()
         saved = true

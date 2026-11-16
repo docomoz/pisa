@@ -47,6 +47,8 @@ struct VoiceManager: View {
     @State private var allMatching = true
     @State private var remember = true
     @State private var assignment: Task<Void, Never>?
+    @State private var assignmentError: String?
+    @State private var expandedGroups: Set<String> = []
     private var meeting: Meeting? { state.meetings.first { $0.id == meetingID } }
     private var sample: TranscriptSegment? {
         meeting?.segments.first { $0.id == selected && $0.speaker != TranscriptSegment.unidentifiedSpeaker }
@@ -61,6 +63,7 @@ struct VoiceManager: View {
         return state.voiceSample(for: selected, in: meeting)
     }
     private func select(_ segment: TranscriptSegment) {
+        assignmentError = nil
         showSuggestions = false
         selectedSuggestion = nil
         name = voiceNameForSelection(currentSpeaker: sample?.speaker, currentName: name, segment: segment)
@@ -83,34 +86,42 @@ struct VoiceManager: View {
         return true
     }
 
-    private func applyName() {
+    private func applyName(rememberVoice: Bool) {
         guard assignment == nil, canApplyName, let selected else { return }
         showSuggestions = false
         selectedSuggestion = nil
+        assignmentError = nil
         let name = name
         let allMatching = allMatching
-        let remember = remember && automaticSample != nil
         assignment = Task {
-            await state.assignVoice(meetingID: meetingID, segmentID: selected, name: name,
-                                    allMatching: allMatching, remember: remember)
-            assignment = nil
+            defer { assignment = nil }
+            do {
+                try await state.assignVoice(meetingID: meetingID, segmentID: selected, name: name,
+                                            allMatching: allMatching, remember: rememberVoice)
+                if !rememberVoice, automaticSample != nil { remember = false }
+            } catch is CancellationError {
+                return
+            } catch {
+                assignmentError = error.localizedDescription
+            }
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-            HStack(spacing: PisaDesign.Spacing.inline) { SectionHeading("Голоса встречи", subtitle: "Послушайте фрагмент, назначьте имя и сохраните образец для следующих встреч", style: .dialog); Spacer(); screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction) }
+            HStack(spacing: PisaDesign.Spacing.inline) {
+                SectionHeading("Голоса встречи", subtitle: "Послушайте реплики и назначьте имена участникам", style: .dialog)
+                Spacer()
+                screenButton("Готово") { dismiss() }
+                    .actionButton(.primary).keyboardShortcut(.cancelAction).disabled(assignment != nil)
+            }
             HSplitView {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
                         if let meeting {
+                            let groups = Dictionary(grouping: meeting.segments, by: \.speaker)
                             ForEach(voiceGroupAnchors(in: meeting.segments)) { anchor in
-                                LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-                                    SelectableVoiceName(name: anchor.speaker)
-                                    ForEach(voiceSamples(for: anchor.speaker, in: meeting.segments)) { segment in
-                                        fragmentCard(segment, in: meeting)
-                                    }
-                                }
+                                voiceGroup(anchor.speaker, replies: groups[anchor.speaker] ?? [], in: meeting)
                             }
                         }
                     }.padding(.trailing, PisaDesign.Spacing.section)
@@ -136,8 +147,20 @@ struct VoiceManager: View {
                                 } else if automaticSample == nil {
                                     screenText("В выбранном фрагменте нет 2 секунд доступного аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").textStyle(PisaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 }
-                                screenButton(assignment == nil ? "Применить имя" : "Сохраняем…", action: applyName)
-                                    .actionButton(.primary).disabled(!canApplyName || assignment != nil)
+                                screenButton(assignment == nil ? "Применить имя" : "Сохраняем…") {
+                                    applyName(rememberVoice: remember && automaticSample != nil)
+                                }.actionButton(.primary).disabled(!canApplyName)
+                                if let assignmentError {
+                                    screenText(assignmentError)
+                                        .textStyle(PisaDesign.Typography.caption)
+                                        .foregroundStyle(.red)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    if remember, automaticSample != nil {
+                                        screenButton("Применить только к этой встрече") {
+                                            applyName(rememberVoice: false)
+                                        }.actionButton()
+                                    }
+                                }
                             }
                         } else { screenText("Выберите фрагмент слева").foregroundStyle(Color.mutedInk) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -148,7 +171,11 @@ struct VoiceManager: View {
                 .padding(.leading, PisaDesign.Spacing.section)
                 .frame(width: 350 * max(1, textScale))
             }
+            .disabled(assignment != nil)
         }.dialogContent().frame(width: 940, height: 660)
+            .interactiveDismissDisabled(assignment != nil)
+            .onChange(of: allMatching) { assignmentError = nil }
+            .onChange(of: remember) { assignmentError = nil }
             .background(ClickToUnfocus(onEscape: dismissSuggestions))
             .onDisappear { assignment?.cancel(); state.stopPlayback() }
     }
@@ -157,6 +184,7 @@ struct VoiceManager: View {
         FormTextField(title: "Имя участника", text: $name, isFocused: $nameFocused,
                       onSubmit: submitName, onCommand: handleNameCommand)
             .onChange(of: name) { _, newName in
+                assignmentError = nil
                 showSuggestions = nameFocused && newName != lastChosenName
                 selectedSuggestion = nil
             }
@@ -185,7 +213,7 @@ struct VoiceManager: View {
         if let index = selectedSuggestion, matches.indices.contains(index) {
             chooseSuggestion(matches[index])
         } else {
-            applyName()
+            applyName(rememberVoice: remember && automaticSample != nil)
         }
     }
 
@@ -240,6 +268,23 @@ struct VoiceManager: View {
             }
         }
         .background(SlimScrollbars().allowsHitTesting(false))
+    }
+
+    private func voiceGroup(_ speaker: String, replies: [TranscriptSegment], in meeting: Meeting) -> some View {
+        let previews = voiceSamples(for: speaker, in: replies)
+        let expanded = expandedGroups.contains(speaker)
+        return LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+            SelectableVoiceName(name: speaker)
+            if replies.count > previews.count {
+                screenButton(expanded ? "Свернуть реплики" : "Показать все реплики (\(replies.count))") {
+                    if expanded { expandedGroups.remove(speaker) }
+                    else { expandedGroups.insert(speaker) }
+                }.actionButton(size: .small)
+            }
+            ForEach(expanded ? replies : previews) { segment in
+                fragmentCard(segment, in: meeting)
+            }
+        }
     }
 
     private func fragmentCard(_ segment: TranscriptSegment, in meeting: Meeting) -> some View {

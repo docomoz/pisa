@@ -173,7 +173,7 @@ enum VoiceProfileTests {
         try check(selfSegments[0].audioFile == "test-mic.caf", "Rename changed the selected audio track")
         try await checkMergeAndExampleRemoval()
         try await checkEnrollmentFailures()
-        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label merge remove_sample enrollment_cancel enrollment_stale enrollment_save_failure")
+        print("VOICE_PROFILES_TEST_OK rename trim duplicate empty persistence failure_atomicity playback stop delete_examples preserve_other_voice rename_transcripts search restart stale_editor generic_label merge remove_sample enrollment_cancel enrollment_stale enrollment_save_failure conflict_meeting_only")
     }
 
     private static func checkEnrollmentFailures() async throws {
@@ -190,12 +190,16 @@ enum VoiceProfileTests {
         let segment = TranscriptSegment(start: 0, end: 3, speaker: "Спикер 1", text: "Первая реплика")
         state.voiceProfiles[0].examples?[0].meetingID = meeting.id
         state.voiceProfiles[0].examples?[0].segmentID = segment.id
+        // Independent examples make the competing profile eligible to reject enrollment.
+        state.voiceProfiles[0].examples?[1].embedding = [0.98, 0.2]
+        state.voiceProfiles[0].samples[1] = [0.98, 0.2]
         try state.library.saveVoices(state.voiceProfiles)
         let savedVoices = try Data(contentsOf: voicesURL)
         let savedExample = state.voiceProfiles[0].examples![0]
         try FileManager.default.copyItem(at: sampleFolder.appendingPathComponent(savedExample.file),
                                         to: state.library.audioURL(meeting.audioFiles[0]))
-        meeting.segments = [segment]
+        let secondReply = TranscriptSegment(start: 3, end: 4, speaker: segment.speaker, text: "Вторая реплика")
+        meeting.segments = [segment, secondReply]
         state.update(meeting)
         let meetingID = meeting.id
         let segmentID = segment.id
@@ -214,12 +218,12 @@ enum VoiceProfileTests {
             try check(try Set(FileManager.default.contentsOfDirectory(atPath: sampleFolder.path)) == savedFiles,
                       "Enrollment left a staged clip behind")
         }
-        func withStagedSample(_ action: (Task<Void, Never>) async throws -> Void) async throws {
+        func withStagedSample(_ action: (Task<Void, Error>) async throws -> Void) async throws {
             let started = DispatchSemaphore(value: 0)
             let finish = DispatchSemaphore(value: 0)
             let task = Task {
-                await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: name,
-                                        allMatching: false, remember: true) { _ in
+                try await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: name,
+                                            allMatching: false, remember: true) { _ in
                     started.signal()
                     guard finish.wait(timeout: .now() + 10) == .success else {
                         throw PisaError.message("Enrollment fixture did not release the extractor")
@@ -239,11 +243,13 @@ enum VoiceProfileTests {
             } catch {
                 task.cancel()
                 finish.signal()
-                await task.value
+                _ = await task.result
                 throw error
             }
             finish.signal()
-            await task.value
+            if case .success = await task.result {
+                throw PisaError.message("Cancelled or outdated enrollment reported success")
+            }
         }
 
         try await withStagedSample { task in task.cancel() }
@@ -254,11 +260,11 @@ enum VoiceProfileTests {
         }
         var edited = meeting
         edited.segments[0].text = "Исправленная реплика"
-        edited.segments[0].audioFile = meeting.audioFiles[0]
+        for index in edited.segments.indices { edited.segments[index].audioFile = meeting.audioFiles[0] }
         try checkUnchanged(expected: edited)
 
         try await withStagedSample { _ in
-            await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: "Новое имя",
+            try await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: "Новое имя",
                                     allMatching: false, remember: false)
         }
         edited.segments[0].speaker = "Новое имя"
@@ -269,10 +275,10 @@ enum VoiceProfileTests {
             let backup = destination.appendingPathExtension("backup")
             try FileManager.default.moveItem(at: destination, to: backup)
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-            state.message = nil
-            await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: name,
-                                    allMatching: false, remember: true, extractEmbedding: { _ in [1, 0] })
-            try check(state.message != nil, "Enrollment did not report its save failure")
+            let result: Void? = try? await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: name,
+                                                      allMatching: false, remember: true, extractEmbedding: { _ in [1, 0] })
+            try check(result == nil, "Enrollment did not return its save failure")
+            try check(state.message == nil, "Enrollment leaked an error to the main window")
             if destination == meetingURL {
                 try check(try Data(contentsOf: voicesURL) == savedVoices, "Meeting write failure still saved a new profile")
             } else {
@@ -282,6 +288,23 @@ enum VoiceProfileTests {
             try FileManager.default.moveItem(at: backup, to: destination)
             try checkUnchanged(expected: edited)
         }
+
+        let correctedName = "Другой участник"
+        var conflict: Error?
+        do {
+            try await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: correctedName,
+                                        allMatching: false, remember: true, extractEmbedding: { _ in [1, 0] })
+        } catch {
+            conflict = error
+        }
+        try check(conflict?.localizedDescription.contains(name) == true, "A conflicting voice must return the saved name to the editor")
+        try check(state.message == nil, "Voice conflict leaked an error to the main window")
+        try checkUnchanged(expected: edited)
+
+        try await state.assignVoice(meetingID: meetingID, segmentID: segmentID, name: correctedName,
+                                    allMatching: false, remember: false)
+        edited.segments[0].speaker = correctedName
+        try checkUnchanged(expected: edited)
     }
 
     private static func checkMergeAndExampleRemoval() async throws {
@@ -352,7 +375,7 @@ enum VoiceProfileTests {
         try expect(try state.library.read(trashed.id).segments[0].speaker == target.name, "Merge did not update a trashed meeting")
         try expect(state.meetings.first { $0.id == meeting.id }?.segments[0].speaker == target.name, "Merge did not update the open library")
 
-        await state.assignVoice(meetingID: meeting.id, segmentID: meeting.segments[0].id, name: target.name,
+        try await state.assignVoice(meetingID: meeting.id, segmentID: meeting.segments[0].id, name: target.name,
                           allMatching: false, remember: true, extractEmbedding: { _ in [1, 1] })
         let afterRemembering = Set(state.voiceProfiles[0].examples?.map(\.id) ?? [])
         try expect(afterRemembering.count == mergedIDs.count + 1 && mergedIDs.isSubset(of: afterRemembering), "Remembering a sample discarded merged clips")
