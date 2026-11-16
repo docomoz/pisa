@@ -3,16 +3,21 @@ import SwiftUI
 
 @MainActor
 enum TermReviewTests {
-    private static func fixture(_ state: AppState) throws -> Meeting {
+    private static func fixture(_ state: AppState, segmentCount: Int = 18) throws -> Meeting {
         state.preferences.vocabulary = "Сбер"
+        if segmentCount > 18 {
+            let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            let terms = (0..<96).map { "ТЕСТ" + String(letters[$0 / 26]) + String(letters[$0 % 26]) }
+            state.preferences.vocabulary += "\n" + terms.joined(separator: "\n")
+        }
         state.preferences.automaticRecording = false
         try state.library.savePreferences(state.preferences)
         var meeting = Meeting(title: "Обсуждение терминов", source: "Проверка интерфейса")
         meeting.status = .ready
-        meeting.duration = 360
+        meeting.duration = Double(segmentCount * 20)
         let forms = ["2ГИС'а", "2ГИС'е", "2ГИС'ом"]
         let misspellings = ["ЛПДов", "ЛПДом", "ЛПД"]
-        meeting.segments = (0..<18).map { index in
+        meeting.segments = (0..<segmentCount).map { index in
             let name = index.isMultiple(of: 2) ? "Куделька" : "куделька"
             let nameContext = index < 4 ? " Обсудили проект \(name)." : ""
             let text = "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. "
@@ -150,8 +155,9 @@ enum TermReviewTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Term-Review-Preview-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let state = AppState(rootURL: root)
+        let segmentCount = CommandLine.arguments.contains("--long-transcript-preview") ? 1_800 : 18
         let meeting = try !dictionary && CommandLine.arguments.contains("--technology-terms-preview")
-            ? technologyFixture(state) : fixture(state)
+            ? technologyFixture(state) : fixture(state, segmentCount: segmentCount)
         let large = CommandLine.arguments.contains("--large-text") || CommandLine.arguments.contains("--large-text-preview")
         let content: AnyView = dictionary
             ? AnyView(SettingsView(initialSection: "Словарь"))

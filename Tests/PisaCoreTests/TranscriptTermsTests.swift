@@ -2,6 +2,21 @@ import XCTest
 @testable import PisaCore
 
 final class TranscriptTermsTests: XCTestCase {
+    func testCancelledReviewDiscardsCandidatesAndMatches() async {
+        let segments = [segment("Обсудили B2B, ЛПР и договор.")]
+        let scan = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return [
+                TranscriptTerms.candidates(in: segments, vocabulary: "").count,
+                TranscriptTerms.matches("B2B", in: segments).count,
+                TranscriptTerms.matches("ЛПР", in: segments).count,
+                TranscriptTerms.matches("договор", in: segments).count
+            ]
+        }
+        let results = await scan.value
+        XCTAssertEqual(results, [0, 0, 0, 0])
+    }
+
     func testBuiltInMeetingTermsGroupObservedSpellingsAndKeepSearchRanges() throws {
         let segments = [segment("🎙 Для би ту би сравнили B2B и Б2Б'ом. Ещё работали с апишкой, GitHub и CI/CD. `битуби`.")]
         let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")

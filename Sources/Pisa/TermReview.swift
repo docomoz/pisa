@@ -5,11 +5,32 @@ struct TermReview: View {
     @Environment(\.dismiss) private var dismiss
     let meeting: Meeting
 
-    @State private var candidates: [TermCandidate] = []
-    @State private var segmentsByID: [UUID: TranscriptSegment] = [:]
+    private struct ReviewInput: Equatable, Sendable {
+        let segments: [TranscriptSegment]
+        let vocabulary: String
+
+        func indexSegments() -> [UUID: TranscriptSegment] {
+            Dictionary(segments.lazy.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+    }
+
+    private struct MatchRequest: Equatable, Sendable {
+        let input: ReviewInput
+        let source: String
+        let selectionID: UUID
+    }
+
+    private struct Matches: Sendable {
+        let request: MatchRequest
+        let occurrences: [TermOccurrence]
+        let segmentsByID: [UUID: TranscriptSegment]
+    }
+
+    @State private var candidateResult: (input: ReviewInput, candidates: [TermCandidate])?
+    @State private var matchResult: Matches?
+    @State private var selectionID = UUID()
     @State private var query = ""
     @State private var source: String?
-    @State private var occurrences: [TermOccurrence] = []
     @State private var replacement = ""
     @State private var notice: String?
     @State private var replacementFocused = false
@@ -18,15 +39,29 @@ struct TermReview: View {
     private var currentMeeting: Meeting? {
         state.meetings.first { $0.id == meeting.id && state.canReviewTerms($0) }
     }
+    private var input: ReviewInput {
+        ReviewInput(segments: currentMeeting?.segments ?? [], vocabulary: state.preferences.vocabulary)
+    }
+    private var matchRequest: MatchRequest? {
+        source.map { MatchRequest(input: input, source: $0, selectionID: selectionID) }
+    }
     private var term: String { replacement.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canReplace: Bool {
-        !term.isEmpty
-            && occurrences.allSatisfy { TranscriptTerms.replacement(for: $0, with: term) != nil }
-            && occurrences.contains { TranscriptTerms.replacement(for: $0, with: term) != $0.text }
+    private func canReplace(_ occurrences: [TermOccurrence], with term: String) -> Bool {
+        guard !term.isEmpty else { return false }
+        var hasChanges = false
+        for occurrence in occurrences {
+            guard let replacement = TranscriptTerms.replacement(for: occurrence, with: term) else { return false }
+            hasChanges = hasChanges || replacement != occurrence.text
+        }
+        return hasChanges
     }
 
     var body: some View {
+        let input = self.input
+        let request = matchRequest
+        let candidates = candidateResult?.input == input ? candidateResult?.candidates : nil
+        let matches = matchResult?.request == request ? matchResult : nil
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             HStack(spacing: PisaDesign.Spacing.related) {
                 SectionHeading("Разметка терминов", subtitle: "Проверьте написание в расшифровке и сохраните нужные слова для будущих встреч", style: .dialog)
@@ -35,8 +70,8 @@ struct TermReview: View {
             }
             if let currentMeeting {
                 HSplitView {
-                    candidatePane.frame(minWidth: 275, idealWidth: 300, maxWidth: 360)
-                    reviewPane(in: currentMeeting).frame(minWidth: 450)
+                    candidatePane(candidates, input: input).frame(minWidth: 275, idealWidth: 300, maxWidth: 360)
+                    reviewPane(in: currentMeeting, matches: matches).frame(minWidth: 450)
                 }
                 footer
             } else {
@@ -47,13 +82,12 @@ struct TermReview: View {
         .dialogContent()
         .frame(width: 940, height: 660)
         .background(ClickToUnfocus())
-        .onAppear { refresh() }
-        .onChange(of: currentMeeting?.segments) { refresh() }
-        .onChange(of: state.preferences.vocabulary) { refresh() }
+        .task(id: input) { await refreshCandidates(input) }
+        .task(id: request) { await refreshMatches(request) }
         .onDisappear { state.stopPlayback() }
     }
 
-    private var candidatePane: some View {
+    private func candidatePane(_ candidates: [TermCandidate]?, input: ReviewInput) -> some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                 SectionHeading("Поиск по тексту")
@@ -66,14 +100,15 @@ struct TermReview: View {
             }
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                 SectionHeading("Кандидаты", subtitle: "Названия и необычные слова из этой расшифровки")
-                if candidates.isEmpty {
-                    SupportingText("Кандидаты не найдены. Нужное слово можно найти вручную.")
-                } else {
+                if let candidates, !candidates.isEmpty {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
                             ForEach(candidates) { candidate in
                                 Button {
-                                    select(candidate.text, occurrences: candidate.occurrences)
+                                    select(candidate.text)
+                                    let request = MatchRequest(input: input, source: candidate.text, selectionID: selectionID)
+                                    matchResult = Matches(request: request, occurrences: candidate.occurrences,
+                                                          segmentsByID: input.indexSegments())
                                 } label: {
                                     VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
                                         HStack(spacing: PisaDesign.Spacing.related) {
@@ -99,6 +134,10 @@ struct TermReview: View {
                             }
                         }
                     }
+                } else if candidates == nil {
+                    SupportingText("Ищем кандидатов…")
+                } else {
+                    SupportingText("Кандидаты не найдены. Нужное слово можно найти вручную.")
                 }
             }
             Spacer(minLength: 0)
@@ -106,7 +145,7 @@ struct TermReview: View {
         .padding(.trailing, PisaDesign.Spacing.content)
     }
 
-    private func reviewPane(in meeting: Meeting) -> some View {
+    private func reviewPane(in meeting: Meeting, matches: Matches?) -> some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             if let source {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
@@ -116,26 +155,28 @@ struct TermReview: View {
                         .measuredForInterfaceTest(.termReplacement)
                     HStack(spacing: PisaDesign.Spacing.inline) {
                         screenButton("Исправить все", action: replace).actionButton(.primary)
-                            .disabled(!canReplace)
+                            .disabled(!canReplace(matches?.occurrences ?? [], with: term))
                         screenButton("Добавить в словарь", action: addTerm).actionButton()
                             .disabled(TranscriptTerms.adding(term, to: state.preferences.vocabulary) == state.preferences.vocabulary)
                     }
                 }
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                     SectionHeading("Вхождения")
-                    if occurrences.isEmpty {
-                        SupportingText("В расшифровке нет точных совпадений")
-                    } else {
+                    if let matches, !matches.occurrences.isEmpty {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
-                                ForEach(occurrences) { occurrence in
-                                    if let segment = segmentsByID[occurrence.segmentID] {
+                                ForEach(matches.occurrences) { occurrence in
+                                    if let segment = matches.segmentsByID[occurrence.segmentID] {
                                         occurrenceRow(occurrence, segment: segment, meeting: meeting)
                                     }
                                 }
                             }
                         }
                         .id(source)
+                    } else if matches == nil {
+                        SupportingText("Ищем вхождения…")
+                    } else {
+                        SupportingText("В расшифровке нет точных совпадений")
                     }
                 }
             } else {
@@ -194,34 +235,53 @@ struct TermReview: View {
     }
 
     private func search() {
-        guard let currentMeeting, !searchTerm.isEmpty else { return }
-        select(searchTerm, occurrences: TranscriptTerms.matches(searchTerm, in: currentMeeting.segments, vocabulary: state.preferences.vocabulary))
+        guard currentMeeting != nil, !searchTerm.isEmpty else { return }
+        select(searchTerm)
     }
 
-    private func select(_ text: String, occurrences: [TermOccurrence]) {
+    private func select(_ text: String) {
+        selectionID = UUID()
         source = text
         replacement = text
-        self.occurrences = occurrences
         notice = nil
     }
 
-    private func refresh() {
-        let segments = currentMeeting?.segments ?? []
-        segmentsByID = Dictionary(segments.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        refreshCandidates()
-        if let source { occurrences = TranscriptTerms.matches(source, in: segments, vocabulary: state.preferences.vocabulary) }
+    private func refreshCandidates(_ input: ReviewInput) async {
+        guard !input.segments.isEmpty, candidateResult?.input != input else { return }
+        guard let candidates = await Self.analyze({
+            TranscriptTerms.candidates(in: input.segments, vocabulary: input.vocabulary)
+        }), input == self.input else { return }
+        candidateResult = (input, candidates)
     }
 
-    private func refreshCandidates() {
-        candidates = TranscriptTerms.candidates(in: currentMeeting?.segments ?? [], vocabulary: state.preferences.vocabulary)
+    private func refreshMatches(_ request: MatchRequest?) async {
+        guard let request, !request.input.segments.isEmpty, matchResult?.request != request else { return }
+        guard let matches = await Self.analyze({
+            let input = request.input
+            let occurrences = TranscriptTerms.matches(request.source, in: input.segments, vocabulary: input.vocabulary)
+            return Matches(request: request, occurrences: occurrences, segmentsByID: input.indexSegments())
+        }), request == matchRequest else { return }
+        matchResult = matches
+    }
+
+    private nonisolated static func analyze<Result: Sendable>(_ work: @escaping @Sendable () -> Result) async -> Result? {
+        guard !Task.isCancelled else { return nil }
+        let worker = Task.detached(priority: .userInitiated, operation: work)
+        let result = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        return Task.isCancelled ? nil : result
     }
 
     private func replace() {
-        guard canReplace else { return }
-        let chosen = occurrences.filter { TranscriptTerms.replacement(for: $0, with: term) != $0.text }
-        guard !chosen.isEmpty else { return }
+        let corrected = term
+        guard let matches = matchResult, matches.request == matchRequest,
+              canReplace(matches.occurrences, with: corrected) else { return }
+        let occurrences = matches.occurrences
+        let chosen = occurrences.filter { TranscriptTerms.replacement(for: $0, with: corrected) != $0.text }
         do {
-            let corrected = term
             let original = source
             let correctedSource = TranscriptTerms.replacementSearchTerm(for: occurrences, with: corrected)
             try state.replaceTerms(chosen, with: corrected, meetingID: meeting.id)
@@ -229,7 +289,6 @@ struct TermReview: View {
             source = correctedSource
             replacement = corrected
             replacementFocused = false
-            refresh()
             notice = "Исправлено: \(chosen.count)"
         } catch { notice = error.localizedDescription }
     }
@@ -242,7 +301,6 @@ struct TermReview: View {
                 replacement = lastReplacement.source
             }
             lastReplacement = nil
-            refresh()
             notice = "Исправление отменено"
         } catch { notice = error.localizedDescription }
     }

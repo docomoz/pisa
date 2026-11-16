@@ -64,8 +64,12 @@ public enum TranscriptTerms {
         }
         var groups: [String: Group] = [:]
         var technologyGroups: [String: Group] = [:]
+        // The same spelling occurs in many turns. Its dictionary and family
+        // classification is independent of the surrounding sentence.
+        var eligibleForms: [String: (normalized: String, family: AbbreviationFamilies.Form?)?] = [:]
 
         for segment in segments {
+            guard !Task.isCancelled else { return [] }
             let text = segment.text
             let builtIn = technology.matches(in: text).filter { !speakers.contains(entityKey($0.term)) }
             for match in builtIn {
@@ -80,11 +84,16 @@ public enum TranscriptTerms {
                       !literals.contains(where: { NSIntersectionRange($0, match.range).length > 0 })
                 else { continue }
                 let token = String(text[range])
-                let family = families.form(token)
-                let normalized = key(family?.base ?? token)
-                guard (2...48).contains(token.count), !known.contains(key(token)),
-                      families.known(token) == nil,
-                      token.contains(where: \.isLetter) else { continue }
+                if eligibleForms[token] == nil {
+                    if (2...48).contains(token.count), token.contains(where: \.isLetter),
+                       !known.contains(key(token)), families.known(token) == nil {
+                        let family = families.form(token)
+                        eligibleForms.updateValue((key(family?.base ?? token), family), forKey: token)
+                    } else {
+                        eligibleForms.updateValue(nil, forKey: token)
+                    }
+                }
+                guard let entry = eligibleForms[token], let (normalized, family) = entry else { continue }
 
                 let stem = family?.base ?? String(token.prefix { $0 != "'" && $0 != "’" })
                 let score = signal(for: stem, normalized: key(stem), preceding: text[..<range.lowerBound])
@@ -127,7 +136,7 @@ public enum TranscriptTerms {
             return literalMatches(trimmed, in: segments, vocabulary: vocabulary)
         }
         let technology = TechnologyVocabulary(personalVocabulary: vocabulary)
-        return segments.flatMap { segment in
+        return collectMatches(in: segments) { segment in
             technology.matches(in: segment.text).filter { $0.term == trimmed }.map { technologyOccurrence($0, in: segment) }
         }
     }
@@ -138,20 +147,21 @@ public enum TranscriptTerms {
         let base = knownQuery.flatMap { $0.ending.isEmpty ? $0.base : nil } ?? trimmed
         if AbbreviationFamilies.isBase(base) {
             let queryFamily = AbbreviationFamilies(base)
-            return segments.flatMap { segment -> [TermOccurrence] in
+            let baseKey = key(base)
+            var formsByToken: [String: AbbreviationFamilies.Form?] = [:]
+            return collectMatches(in: segments) { segment in
                 let text = segment.text
                 let protected = TranscriptOrthography.literalRanges(in: text)
                 return word.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
                     guard let range = Range(match.range, in: text),
                           !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return nil }
                     let token = String(text[range])
-                    let form: AbbreviationFamilies.Form?
-                    if families.isExplicit(token) || families.hasKnownBase(token) {
-                        form = families.known(token)
-                    } else {
-                        form = queryFamily.known(token)
+                    if formsByToken[token] == nil {
+                        let form = families.isExplicit(token) || families.hasKnownBase(token)
+                            ? families.known(token) : queryFamily.known(token)
+                        formsByToken.updateValue(form, forKey: token)
                     }
-                    guard let form, key(form.base) == key(base) else { return nil }
+                    guard let form = formsByToken[token] ?? nil, key(form.base) == baseKey else { return nil }
                     return occurrence(match.range, in: segment, text: token, family: form)
                 }
             }
@@ -166,7 +176,7 @@ public enum TranscriptTerms {
         }.joined(separator: #"\p{Zs}+"#)
         let pattern = leadingBoundary + body + trailingBoundary
         guard let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return [] }
-        return segments.flatMap { segment -> [TermOccurrence] in
+        return collectMatches(in: segments) { segment in
             let text = segment.text
             let protected = TranscriptOrthography.literalRanges(in: text)
             return expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match -> TermOccurrence? in
@@ -176,6 +186,16 @@ public enum TranscriptTerms {
                 return occurrence(match.range, in: segment, text: String(text[range]))
             }
         }
+    }
+
+    private static func collectMatches(in segments: [TranscriptSegment],
+                                       find: (TranscriptSegment) -> [TermOccurrence]) -> [TermOccurrence] {
+        var matches: [TermOccurrence] = []
+        for segment in segments {
+            guard !Task.isCancelled else { return [] }
+            matches.append(contentsOf: find(segment))
+        }
+        return matches
     }
 
     public static func replacing(_ occurrences: [TermOccurrence], with replacement: String,
