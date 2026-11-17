@@ -48,7 +48,7 @@ struct LibrarySidebar: View {
                                 .textStyle(PisaDesign.Typography.caption)
                         } else {
                             screenText(meeting.title).textStyle(PisaDesign.Typography.captionMedium)
-                                .lineLimit(1).truncationMode(.tail).screenHelp(meeting.title)
+                                .lineLimit(2).truncationMode(.tail).screenHelp(meeting.title)
                         }
                         HStack(spacing: PisaDesign.Spacing.none) {
                             HStack(spacing: PisaDesign.Spacing.inline) {

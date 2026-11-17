@@ -108,7 +108,7 @@ enum InterfaceLayoutTests {
         let host = LayoutHost(MainView().environmentObject(state)
             .environment(\.websiteScreenshotParticipantOrder, participantOrder)
             .environment(\.showsControlKeyboardFocus, false),
-            size: CGSize(width: 1400, height: 850), scale: 1)
+            size: CGSize(width: 1480, height: 900), scale: 1)
         defer { host.close() }
         guard host.wait(for: { host.frames[.welcomeTitle]?.isEmpty == false }) else {
             throw PisaError.message("Главный экран не отобразился")
