@@ -285,7 +285,7 @@ struct MeetingView: View {
                     if visible { showsMeetingDetails = false }
                 }
             }
-            .padding(.top, showsTranscriptStatus ? PisaDesign.Spacing.related : PisaDesign.Spacing.content)
+            .padding(.top, showsTranscriptStatus ? PisaDesign.Spacing.inline : PisaDesign.Spacing.content)
             HStack(spacing: PisaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisaDesign.Spacing.content)
         }
         .padding(.top, PisaDesign.Spacing.related)
@@ -526,7 +526,7 @@ struct MeetingView: View {
     @ViewBuilder
     private func transcriptStatus(hasAudio: Bool, interruptedProgress: Meeting.InterruptedTranscriptionProgress?) -> some View {
         if showsTranscriptStatus {
-            VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                 HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
                     Group {
                         if isRecording && isTranscribing {

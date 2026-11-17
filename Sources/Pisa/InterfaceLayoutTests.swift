@@ -243,7 +243,7 @@ private final class LayoutSuite {
                 scenario = "\(meeting.title) \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
                 state.select(meeting.id)
                 host.settle()
-                if let title = checkMeetingHeader(in: host, titleGap: firstContent == .meetingStatus ? 12 : 16) {
+                if let title = checkMeetingHeader(in: host, titleGap: firstContent == .meetingStatus ? 8 : 16) {
                     equal(title.minY, reference.minY, "meeting title keeps its top inset across states")
                     equal(title.minX, reference.minX, "meeting title keeps its left inset across states")
                 }
@@ -307,7 +307,7 @@ private final class LayoutSuite {
                                                    .transcriptionProgressCaption, .transcriptionProgressRow]
         guard let measured = frames(elements, in: host) else { return nil }
         let (heading, action, caption, progress) = (measured[0], measured[1], measured[2], measured[3])
-        equal(caption.minY - max(heading.maxY, action.maxY), 12, "progress group starts below the status and actions")
+        equal(caption.minY - max(heading.maxY, action.maxY), 8, "progress group starts below the status and actions")
         equal(progress.minY - caption.maxY, 4, "progress caption sits directly above its bar")
         equal(progress.minX, caption.minX, "progress caption and bar align")
         return (heading, action)
