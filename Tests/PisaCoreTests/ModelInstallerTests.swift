@@ -23,6 +23,30 @@ final class ModelInstallerTests: XCTestCase {
         try await existing.install()
         let readyAfter = try await existing.isReady(); XCTAssertTrue(readyAfter)
     }
+    func testUpgradeProgressCountsOnlyFilesThatNeedDownloading() async throws {
+        let (root, existing) = try fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        let data = payload
+        try await ModelInstaller(root: root, assets: [existing]) { _, destination, _ in
+            try data.write(to: destination)
+        }.install()
+        let bytes = Int64(data.count)
+        let oldModel = ModelAsset(path: existing.path, url: existing.url, sha256: existing.sha256, bytes: bytes)
+        let newModel = ModelAsset(path: "Parakeet-TDT-v3/model.safetensors", url: existing.url,
+                                  sha256: existing.sha256, bytes: bytes)
+        let installer = ModelInstaller(root: root, assets: [oldModel, newModel]) { item, destination, report in
+            XCTAssertEqual(item.path, newModel.path)
+            try data.write(to: destination)
+            report(bytes / 2, bytes)
+        }
+        try await installer.install { progress in
+            XCTAssertEqual(progress.path, newModel.path)
+            XCTAssertEqual(progress.totalFiles, 1)
+            XCTAssertEqual(progress.expectedBytes, bytes)
+            XCTAssertLessThanOrEqual(progress.downloadedBytes, bytes)
+        }
+        let ready = try await installer.isReady()
+        XCTAssertTrue(ready)
+    }
     func testCorruptDownloadNeverReplacesExistingFileAndRetryRepairsIt() async throws {
         let (root, asset) = try fixture(); defer { try? FileManager.default.removeItem(at: root) }
         let destination = root.appendingPathComponent(asset.path)

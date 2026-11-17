@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// Isolated first-run state checks; never opens the real application library.
+/// Isolated setup and upgrade checks using a disposable library.
 @MainActor
 enum ModelSetupTests {
     static func run() async throws {
@@ -100,6 +100,29 @@ enum ModelSetupTests {
         try files.removeItem(at: managedPrimary)
         try await refresh(managed)
         try check(managed.phase == .available && !managed.presented, "Legacy managed Qwen became ready without Parakeet")
+        let primaryBytes = primaryFiles.values.reduce(Int64(0)) { $0 + Int64($1.count) }
+        let upgrade = makeSetup()
+        upgrade.check()
+        try await wait(upgrade)
+        try check(upgrade.presented && upgrade.upgradeDownloadBytes == primaryBytes,
+                  "An existing installation did not offer an upgrade sized to the missing Parakeet files")
+        upgrade.dismiss()
+        try check(!upgrade.presented && !upgrade.ready, "Postponing the upgrade enabled transcription")
+
+        let speakerFile = root.appendingPathComponent(speakerPath)
+        try files.removeItem(at: speakerFile)
+        try write(primaryConfig, to: managedPrimary.appendingPathComponent("config.json"))
+        try await refresh(upgrade)
+        try check(upgrade.upgradeDownloadBytes == Int64(weights.count * 2),
+                  "A partial upgrade counted installed files or omitted missing speaker files")
+        try write(weights, to: speakerFile)
+
+        let fresh = ModelSetup(root: root.appendingPathComponent("Empty"), manifestURL: manifest,
+                               customModel: { nil }, usesCustomModel: { false })
+        fresh.check()
+        try await wait(fresh)
+        try check(fresh.presented && fresh.phase == .available && fresh.upgradeDownloadBytes == nil,
+                  "A fresh installation was presented as an upgrade")
 
         try writeModel(primaryFiles, to: customPrimary)
         try writeModel(verifierFiles, to: customVerifier)
@@ -128,7 +151,8 @@ enum ModelSetupTests {
 
         try files.removeItem(at: managedPrimary)
         try await refresh(selectedVerifier)
-        try check(selectedVerifier.phase == .available, "A custom verifier bypassed the managed primary check")
+        try check(selectedVerifier.phase == .available && selectedVerifier.upgradeDownloadBytes == primaryBytes,
+                  "A valid custom Qwen did not qualify for a Parakeet-only upgrade")
 
         let selectedBoth = makeSetup(primary: customPrimary, verifier: customVerifier)
         try await refresh(selectedBoth)

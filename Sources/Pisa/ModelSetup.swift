@@ -8,6 +8,7 @@ final class ModelSetup: ObservableObject {
     @Published var progress: ModelInstallProgress?
     @Published var error: String?
     @Published var presented = false
+    @Published var upgradeDownloadBytes: Int64?
     private var operation: Task<Void, Never>?
     private var generation = UUID()
     private var didCheck = false
@@ -51,13 +52,24 @@ final class ModelSetup: ObservableObject {
             // Existing custom MLX folders remain supported, without applying the official
             // download's hashes to a different model version.
             let worker = Task.detached(priority: .utility) {
-                if invalidCustom { return false }
-                return (try? await installer.isReady()) == true
+                try? installer.missingAssets()
             }
-            let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            let missing = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, self.generation == token, !Task.isCancelled else { return }
-            self.phase = result ? .ready : .available
-            if !result && presentWhenNeeded { self.presented = true }
+            self.upgradeDownloadBytes = nil
+            if let missing {
+                let primaryPrefix = SpeechModelFiles.primaryDirectoryName + "/"
+                let verifierPrefix = SpeechModelFiles.verifierDirectoryName + "/"
+                let installedQwen = useCustomVerifier || (
+                    installer.assets.contains { $0.path.hasPrefix(verifierPrefix) } &&
+                    !missing.contains { $0.path.hasPrefix(verifierPrefix) }
+                )
+                if installedQwen && missing.contains(where: { $0.path.hasPrefix(primaryPrefix) }) {
+                    self.upgradeDownloadBytes = missing.reduce(0) { $0 + ($1.bytes ?? 0) }
+                }
+            }
+            self.phase = !invalidCustom && missing?.isEmpty == true ? .ready : .available
+            if !self.ready && presentWhenNeeded { self.presented = true }
         }
     }
     func install(onReady: @escaping () -> Void) {
@@ -109,6 +121,31 @@ final class ModelSetup: ObservableObject {
 struct ModelSetupView: View {
     @ObservedObject var setup: ModelSetup
     let onReady: () -> Void
+    private var isUpgrade: Bool { setup.upgradeDownloadBytes != nil }
+    private var title: String {
+        if isUpgrade { return setup.ready ? "Распознавание обновлено" : "Обновим распознавание речи" }
+        return setup.ready ? "Всё готово к первой встрече" : "Подготовим Pisa к работе"
+    }
+    private var subtitle: String {
+        if isUpgrade {
+            return setup.ready
+                ? "Parakeet v3 готов к расшифровке. Сохранённые записи и расшифровки на месте."
+                : "Parakeet v3 станет основной моделью расшифровки. Ваши записи и готовые расшифровки сохранятся."
+        }
+        return setup.ready
+            ? "Модели установлены. Перед записью macOS попросит доступ к микрофону и системному звуку."
+            : "Один раз загрузим модели для распознавания речи и участников. Затем встречи можно расшифровывать без интернета."
+    }
+    private var downloadSize: String {
+        guard let bytes = setup.upgradeDownloadBytes, bytes > 0 else { return "Загрузка моделей" }
+        let locale = Locale(identifier: "ru_RU")
+        if bytes >= 1_000_000_000 {
+            let size = (Double(bytes) / 1_000_000_000).formatted(.number.precision(.fractionLength(0...1)).locale(locale))
+            return "Около \(size) ГБ для обновления"
+        }
+        let size = (Double(bytes) / 1_000_000).rounded(.up).formatted(.number.locale(locale))
+        return "Около \(size) МБ для обновления"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
             HStack(spacing: PisaDesign.Spacing.related) {
@@ -117,14 +154,20 @@ struct ModelSetupView: View {
                 Spacer()
                 Eyebrow("НА ЭТОМ MAC")
             }.padding(.bottom, PisaDesign.Spacing.page)
-            SectionHeading(setup.ready ? "Всё готово к первой встрече" : "Подготовим Pisa к работе",
-                           subtitle: setup.ready ? "Модели установлены. Перед записью macOS попросит доступ к микрофону и системному звуку." : "Один раз загрузим модели для распознавания речи и участников. Затем встречи можно расшифровывать без интернета.",
-                           style: .page)
+            SectionHeading(title, subtitle: subtitle, style: .page)
                 .padding(.bottom, PisaDesign.Spacing.content)
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
-                item("waveform", "Речь и участники", "Русский и английский · локальная обработка")
-                Divider().opacity(0.5)
-                item("internaldrive", "Около 5,5 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
+                if isUpgrade {
+                    if !setup.ready {
+                        item("internaldrive", downloadSize, "Pisa скачает недостающие файлы с Hugging Face")
+                        Divider().opacity(0.5)
+                    }
+                    item("waveform", "Qwen останется на Mac", "Она перепроверяет отдельные фразы и термины")
+                } else {
+                    item("waveform", "Речь и участники", "Русский и английский · локальная обработка")
+                    Divider().opacity(0.5)
+                    item("internaldrive", "Около 5,5 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
+                }
             }.padding(PisaDesign.Spacing.content).plainSurface().padding(.bottom, PisaDesign.Spacing.section)
             if setup.busy {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
@@ -143,7 +186,9 @@ struct ModelSetupView: View {
             } else if let error = setup.error {
                 screenText(error).textStyle(PisaDesign.Typography.detail).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true).frame(minHeight: 66, alignment: .top)
             } else {
-                screenLabel(setup.ready ? "Можно начинать" : "Модели загрузятся из интернета", systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
+                screenLabel(setup.ready ? (isUpgrade ? "Можно расшифровывать" : "Можно начинать")
+                            : (isUpgrade ? "Для расшифровки нужно завершить обновление" : "Модели загрузятся из интернета"),
+                            systemImage: setup.ready ? "checkmark.circle.fill" : "lock.shield")
                     .textStyle(PisaDesign.Typography.detail).foregroundStyle(Color.moss)
                     .measuredForInterfaceTest(.setupStatus)
             }
@@ -152,11 +197,11 @@ struct ModelSetupView: View {
                 else if !setup.ready { screenButton("Позже") { setup.dismiss() }.actionButton().disabled(setup.busy) }
                 Spacer()
                 if setup.ready {
-                    screenButton("Начать работу") { setup.dismiss() }.actionButton(.primary).keyboardShortcut(.defaultAction)
+                    screenButton(isUpgrade ? "Готово" : "Начать работу") { setup.dismiss() }.actionButton(.primary).keyboardShortcut(.defaultAction)
                         .measuredForInterfaceTest(.setupAction)
                 }
                 else if setup.phase != .downloading {
-                    screenButton(setup.phase == .failed ? "Повторить загрузку" : "Загрузить модели") { setup.install(onReady: onReady) }.actionButton(.primary).disabled(setup.busy).keyboardShortcut(.defaultAction)
+                    screenButton(setup.phase == .failed ? "Повторить загрузку" : (isUpgrade ? "Обновить распознавание" : "Загрузить модели")) { setup.install(onReady: onReady) }.actionButton(.primary).disabled(setup.busy).keyboardShortcut(.defaultAction)
                         .measuredForInterfaceTest(.setupAction)
                 }
             }.padding(.top, PisaDesign.Spacing.section)

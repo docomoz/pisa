@@ -55,38 +55,40 @@ public struct ModelInstaller: Sendable {
         return true
     }
 
-    public func install(progress: @escaping @Sendable (ModelInstallProgress) -> Void = { _ in }) async throws {
+    public func missingAssets() throws -> [ModelAsset] {
         try validateManifest()
+        return try assets.filter {
+            try Task.checkCancellation()
+            return try !verified(root.appendingPathComponent($0.path), asset: $0)
+        }
+    }
+
+    public func install(progress: @escaping @Sendable (ModelInstallProgress) -> Void = { _ in }) async throws {
+        let missing = try missingAssets()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         // A temporary replacement needs space alongside an existing corrupt model.
-        let missing = try assets.filter { try !verified(root.appendingPathComponent($0.path), asset: $0) }
-        let missingPaths = Set(missing.map(\.path))
         let needed = missing.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
         let capacity = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
         if let capacity, needed > 0, capacity < needed || capacity - needed < 200_000_000 { throw ModelInstallError.insufficientSpace }
-        let expected = assets.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
         var completedBytes: Int64 = 0
-        for (index, asset) in assets.enumerated() {
+        for (index, asset) in missing.enumerated() {
             try Task.checkCancellation()
             let destination = root.appendingPathComponent(asset.path)
             let baseBytes = completedBytes
-            if missingPaths.contains(asset.path) {
-                try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let temporary = destination.deletingLastPathComponent().appendingPathComponent(".pisa-download-" + UUID().uuidString)
-                defer { try? FileManager.default.removeItem(at: temporary) }
-                try await download(asset, temporary) { received, total in
-                    progress(ModelInstallProgress(path: asset.path, completedFiles: index, totalFiles: assets.count, downloadedBytes: baseBytes + received, expectedBytes: expected > 0 ? expected : total, verifying: false))
-                }
-                try Task.checkCancellation()
-                progress(ModelInstallProgress(path: asset.path, completedFiles: index, totalFiles: assets.count, downloadedBytes: baseBytes + (asset.bytes ?? 0), expectedBytes: expected, verifying: true))
-                guard try verified(temporary, asset: asset) else { throw ModelInstallError.checksum(asset.path) }
-                try Task.checkCancellation()
-                // POSIX rename atomically replaces files on the same volume and preserves the old
-                // destination until the complete, verified replacement is available.
-                guard rename(temporary.path, destination.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let temporary = destination.deletingLastPathComponent().appendingPathComponent(".pisa-download-" + UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            try await download(asset, temporary) { received, total in
+                progress(ModelInstallProgress(path: asset.path, completedFiles: index, totalFiles: missing.count, downloadedBytes: baseBytes + received, expectedBytes: needed > 0 ? needed : total, verifying: false))
             }
+            try Task.checkCancellation()
+            progress(ModelInstallProgress(path: asset.path, completedFiles: index, totalFiles: missing.count, downloadedBytes: baseBytes + (asset.bytes ?? 0), expectedBytes: needed, verifying: true))
+            guard try verified(temporary, asset: asset) else { throw ModelInstallError.checksum(asset.path) }
+            try Task.checkCancellation()
+            // POSIX rename preserves the old destination until the replacement is verified.
+            guard rename(temporary.path, destination.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
             completedBytes += asset.bytes ?? 0
-            progress(ModelInstallProgress(path: asset.path, completedFiles: index + 1, totalFiles: assets.count, downloadedBytes: completedBytes, expectedBytes: expected, verifying: false))
+            progress(ModelInstallProgress(path: asset.path, completedFiles: index + 1, totalFiles: missing.count, downloadedBytes: completedBytes, expectedBytes: needed, verifying: false))
         }
     }
 

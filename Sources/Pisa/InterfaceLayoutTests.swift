@@ -326,15 +326,18 @@ private final class LayoutSuite {
     }
 
     private func checkSetup(_ setup: ModelSetup, scale: CGFloat) {
-        defer { setup.phase = .ready }
-        for phase in [ModelSetup.Phase.available, .ready] {
-            scenario = "model setup \(phase), \(Int(scale * 100))%"
-            setup.phase = phase
-            let host = LayoutHost(ModelSetupView(setup: setup, onReady: {}), size: CGSize(width: 600, height: 660), scale: scale)
-            defer { host.close() }
-            if let measured = frames([.setupStatus, .setupAction], in: host) {
-                equal(measured[1].minY - measured[0].maxY, 24, "setup status has one section gap before the primary button")
-                check(measured[1].maxY <= host.bounds.maxY, "primary action remains inside the window")
+        defer { setup.phase = .ready; setup.upgradeDownloadBytes = nil }
+        for upgrade in [false, true] {
+            setup.upgradeDownloadBytes = upgrade ? 2_509_042_622 : nil
+            for phase in [ModelSetup.Phase.available, .ready] {
+                scenario = "model \(upgrade ? "upgrade" : "setup") \(phase), \(Int(scale * 100))%"
+                setup.phase = phase
+                let host = LayoutHost(ModelSetupView(setup: setup, onReady: {}), size: CGSize(width: 600, height: 660), scale: scale)
+                defer { host.close() }
+                if let measured = frames([.setupStatus, .setupAction], in: host) {
+                    equal(measured[1].minY - measured[0].maxY, 24, "setup status has one section gap before the primary button")
+                    check(measured[1].maxY <= host.bounds.maxY, "primary action remains inside the window")
+                }
             }
         }
     }

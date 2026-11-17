@@ -247,6 +247,7 @@ final class InterfacePreview: NSObject {
             window.center()
         default:
             let setup = state.modelSetup
+            setup.upgradeDownloadBytes = CommandLine.arguments.contains("--model-upgrade-preview") ? 2_509_042_622 : nil
             setup.phase = sender.tag == 6 ? .ready : sender.tag == 7 ? .checking : sender.tag == 8 ? .downloading : sender.tag == 9 ? .failed : .available
             setup.error = sender.tag == 9 ? "Не удалось загрузить модель. Проверьте подключение к интернету и повторите попытку. Уже загруженные файлы сохранены." : nil
             setup.presented = true
