@@ -541,9 +541,9 @@ struct MeetingView: View {
                         screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
                     }
                     if isRecording && isTranscribing {
-                        screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
-                            .actionButton()
-                            .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
+                        screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") {
+                            state.toggleLivePause()
+                        }.actionButton()
                     } else if canStartLiveTranscription {
                         liveTranscriptionButton
                     } else if isQueued || (isTranscribing && !isSaving) {
@@ -599,6 +599,7 @@ struct MeetingView: View {
         if isSaving { return "Сохраняю запись" }
         if isQueued { return "В очереди на расшифровку" }
         if isTranscribing {
+            if isRecording && state.livePaused { return "Расшифровка на паузе. Запись продолжается." }
             if isRecording && !state.liveStatus.isEmpty { return state.liveStatus }
             if state.liveStatus == "Собираю расшифровку" { return state.liveStatus }
             let isLive = !state.liveStatus.isEmpty
