@@ -190,9 +190,19 @@ enum AudioPipelineTests {
         guard let short = payload["short"] else { throw PisaError.message("Missing short utterance") }
         try writeMicrophone(short.map { $0 * 0.1 })
         let shortOnly = try await Transcriber().transcribe(files: [(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
-        let shortText = shortOnly.map(\.text).joined(separator: " ").lowercased().filter { $0.isLetter }
+        // This fixture is exactly the Russian answer «да». The isolated model
+        // can write its Latin transliteration; surrounding Russian speech can
+        // correctly resolve it to Cyrillic. Do not translate any other text.
+        func canonicalShortAnswer(_ text: String) -> String? {
+            let punctuation = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?…"))
+            let answer = text.trimmingCharacters(in: punctuation).lowercased()
+            return answer == "da" || answer == "да" ? "да" : nil
+        }
+        let shortText = shortOnly.map(\.text).joined(separator: " ")
         print("QUIET_SHORT_NEAR_ASR", shortText)
-        guard !shortText.isEmpty else { throw PisaError.message("Quiet short near speech was rejected as nonspeech") }
+        guard let shortReference = canonicalShortAnswer(shortText), shortReference == "да" else {
+            throw PisaError.message("Expected the provided short fixture to contain exactly да")
+        }
 
         do {
             let writer = try AVAudioFile(forWriting: remote, settings: format.settings)
@@ -201,9 +211,9 @@ enum AudioPipelineTests {
             try writer.write(from: silence); writer.close()
         }
         let pairedShort = try await Transcriber().transcribe(files: [(mic,0),(remote,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
-        let pairedText = pairedShort.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ").lowercased().filter { $0.isLetter }
+        let pairedText = pairedShort.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ")
         print("QUIET_SHORT_SILENT_REFERENCE_ASR", pairedText)
-        guard pairedText.contains(shortText) else { throw PisaError.message("Quiet short near speech was lost with a silent reference") }
+        guard canonicalShortAnswer(pairedText) == shortReference else { throw PisaError.message("Quiet short near speech was lost with a silent reference") }
         let longFrames = 16000 * 60
         var longFar = [Float](repeating: 0, count: longFrames + 32000)
         for i in 0..<longFrames { longFar[i] = far[i % far.count] }
@@ -241,11 +251,11 @@ enum AudioPipelineTests {
                 print("QUIET_KNOWN_CROP_ASR", answer.text)
             }
             let result = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
-            let text = result.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ").lowercased()
+            let text = result.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ")
             print("QUIET_CLOCK_JUMP_ASR", "short", testShort, text)
             if testShort {
-                guard text.filter({ $0.isLetter }).contains(shortText) else { throw PisaError.message("Quiet short answer was lost at the clock jump") }
-            } else { guard text.contains("четверг") else { throw PisaError.message("Quiet near phrase was lost across the clock jump") } }
+                guard canonicalShortAnswer(text) == shortReference else { throw PisaError.message("Quiet short answer was lost at the clock jump") }
+            } else { guard text.lowercased().contains("четверг") else { throw PisaError.message("Quiet near phrase was lost across the clock jump") } }
         }
         let starts = [8.0,23.8,47.8]
         var boundary = [Float](repeating: 0, count: 16000 * 51)
