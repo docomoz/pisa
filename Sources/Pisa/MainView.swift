@@ -285,7 +285,7 @@ struct MeetingView: View {
                     if visible { showsMeetingDetails = false }
                 }
             }
-            .padding(.top, PisaDesign.Spacing.content)
+            .padding(.top, showsTranscriptStatus ? PisaDesign.Spacing.related : PisaDesign.Spacing.content)
             HStack(spacing: PisaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisaDesign.Spacing.content)
         }
         .padding(.top, PisaDesign.Spacing.related)
@@ -527,18 +527,22 @@ struct MeetingView: View {
     private func transcriptStatus(hasAudio: Bool, interruptedProgress: Meeting.InterruptedTranscriptionProgress?) -> some View {
         if showsTranscriptStatus {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-                HStack(spacing: PisaDesign.Spacing.related) {
-                    if isRecording && isTranscribing {
-                        screenText(transcriptStatusTitle)
-                            .textStyle(PisaDesign.Typography.detail)
-                            .foregroundStyle(Color.mutedInk)
-                    } else {
-                        SectionHeading(transcriptStatusTitle, subtitle: transcriptionDetail)
+                HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
+                    Group {
+                        if isRecording && isTranscribing {
+                            screenText(transcriptStatusTitle)
+                                .textStyle(PisaDesign.Typography.detail)
+                                .foregroundStyle(Color.mutedInk)
+                        } else {
+                            SectionHeading(transcriptStatusTitle)
+                        }
                     }
+                    .measuredForInterfaceTest(.transcriptionStatusHeading)
                     Spacer(minLength: PisaDesign.Spacing.none)
                     if meeting.status == .failed && meeting.deletedAt == nil
                         && hasAudio && state.canModify(meeting) {
                         screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
+                            .measuredForInterfaceTest(.transcriptionStatusAction)
                     }
                     if isRecording && isTranscribing {
                         screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") {
@@ -547,7 +551,7 @@ struct MeetingView: View {
                     } else if canStartLiveTranscription {
                         liveTranscriptionButton
                     } else if isQueued || (isTranscribing && !isSaving) {
-                        HStack(spacing: PisaDesign.Spacing.related) {
+                        HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
                             if state.canUseTurboTranscription(meeting.id) {
                                 screenToggle("Турбо-режим", isOn: Binding(
                                     get: { state.isTurboTranscriptionEnabled(for: meeting.id) },
@@ -560,6 +564,7 @@ struct MeetingView: View {
                                 screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
                             } else {
                                 screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton()
+                                    .measuredForInterfaceTest(.transcriptionStatusAction)
                             }
                         }
                         .fixedSize(horizontal: true, vertical: false)
@@ -570,9 +575,12 @@ struct MeetingView: View {
                     let fraction = isSaving ? nil : isLive ? liveAudioProgress : processingProgress
                     TranscriptionProgress(fraction: fraction,
                                           label: isSaving ? "Сохранение записи" : isLive ? "Доля обработанного аудио" : "Ход расшифровки",
+                                          caption: transcriptionDetail,
                                           roundsDown: isLive)
                 } else if let interruptedProgress {
                     interruptedProgressBar(interruptedProgress)
+                } else if let transcriptionDetail {
+                    SupportingText(transcriptionDetail, style: PisaDesign.Typography.detail)
                 }
             }
         }
@@ -584,11 +592,7 @@ struct MeetingView: View {
         case .savedAudio(let value): (label, fraction) = ("Обработано аудио", value)
         case .batch(let value): (label, fraction) = ("Ход обработки", value)
         }
-        return VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
-            SupportingText(label, style: PisaDesign.Typography.detail)
-                .accessibilityHidden(true)
-            TranscriptionProgress(fraction: fraction, label: label, roundsDown: true)
-        }
+        return TranscriptionProgress(fraction: fraction, label: label, caption: label, roundsDown: true)
     }
     private var liveTranscriptionButton: some View {
         screenButton((meeting.liveCommittedUntil ?? 0) > 0 ? "Продолжить расшифровку" : "Начать расшифровку") {
@@ -748,13 +752,26 @@ struct MeetingView: View {
 private struct TranscriptionProgress: View {
     let fraction: Double?
     let label: String
+    let caption: String?
     var roundsDown = false
     @Environment(\.locale) private var locale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+            if let caption {
+                SupportingText(caption, style: PisaDesign.Typography.detail)
+                    .accessibilityHidden(caption == label)
+                    .measuredForInterfaceTest(.transcriptionProgressCaption)
+            }
+            progressRow
+                .measuredForInterfaceTest(.transcriptionProgressRow)
+        }
+    }
+
+    private var progressRow: some View {
         let fraction = fraction.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }
-        HStack(spacing: PisaDesign.Spacing.related) {
+        return HStack(spacing: PisaDesign.Spacing.related) {
             GeometryReader { geometry in
                 let width = geometry.size.width
                 Capsule().fill(Color.moss.opacity(0.12))

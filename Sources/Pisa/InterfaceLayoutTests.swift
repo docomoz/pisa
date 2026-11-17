@@ -6,6 +6,7 @@ import SwiftUI
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
     case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
+    case transcriptionStatusHeading, transcriptionStatusAction, transcriptionProgressCaption, transcriptionProgressRow
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case setupStatus, setupAction
@@ -219,8 +220,9 @@ private final class LayoutSuite {
         interrupted.liveCommittedUntil = 0.4
         for meeting in [ready, saved, queued, processing, interrupted] { state.update(meeting) }
         state.processingID = processing.id
-        state.phase = "Распознавание"
-        state.progress = 0.42
+        state.phase = "Доля обработанного аудио"
+        state.progress = 0.99
+        state.preferences.quietProcessing = false
         state.enqueue(queued.id)
         state.preferences.vocabulary = "Писая\nЯндекс"
 
@@ -235,12 +237,13 @@ private final class LayoutSuite {
             guard let reference = checkMeetingHeader(in: host) else { continue }
             checkTranscript(in: host, wide: size.width > 980)
 
+            var processingPositions: (heading: CGRect, action: CGRect)?
             for (meeting, firstContent) in [(saved, InterfaceLayoutElement.waveform), (queued, .meetingStatus),
                                             (processing, .meetingStatus), (interrupted, .meetingStatus)] {
                 scenario = "\(meeting.title) \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
                 state.select(meeting.id)
                 host.settle()
-                if let title = checkMeetingHeader(in: host) {
+                if let title = checkMeetingHeader(in: host, titleGap: firstContent == .meetingStatus ? 12 : 16) {
                     equal(title.minY, reference.minY, "meeting title keeps its top inset across states")
                     equal(title.minX, reference.minX, "meeting title keeps its left inset across states")
                 }
@@ -252,6 +255,14 @@ private final class LayoutSuite {
                     if firstContent == .waveform {
                         equal(first.maxX, content.maxX, "automatic waveform fills the content width")
                     }
+                }
+                if meeting.id == processing.id {
+                    processingPositions = checkTranscriptionProgress(in: host)
+                } else if meeting.id == interrupted.id,
+                          let interruptedPositions = checkTranscriptionProgress(in: host),
+                          let processingPositions {
+                    equal(interruptedPositions.heading.minY, processingPositions.heading.minY, "status heading starts at the same height")
+                    equal(interruptedPositions.action.minY, processingPositions.action.minY, "action starts at the same height")
                 }
             }
         }
@@ -281,14 +292,25 @@ private final class LayoutSuite {
         equal(measured[3].minY - measured[2].maxY, 24, "welcome description-to-action gap")
     }
 
-    private func checkMeetingHeader(in host: LayoutHost) -> CGRect? {
+    private func checkMeetingHeader(in host: LayoutHost, titleGap: CGFloat = 16) -> CGRect? {
         if let header = frames([.mainToolbar, .meetingMetadata], in: host) {
             equal(header[1].minY - header[0].maxY, 12, "meeting metadata starts just below the main toolbar")
         }
         guard let measured = frames([.meetingTitle, .meetingContent], in: host) else { return nil }
-        equal(measured[1].minY - measured[0].maxY, 16, "single gap below the meeting title")
+        equal(measured[1].minY - measured[0].maxY, titleGap, "single gap below the meeting title")
         equal(measured[0].minX, measured[1].minX, "title and meeting content have the same left edge")
         return measured[0]
+    }
+
+    private func checkTranscriptionProgress(in host: LayoutHost) -> (heading: CGRect, action: CGRect)? {
+        let elements: [InterfaceLayoutElement] = [.transcriptionStatusHeading, .transcriptionStatusAction,
+                                                   .transcriptionProgressCaption, .transcriptionProgressRow]
+        guard let measured = frames(elements, in: host) else { return nil }
+        let (heading, action, caption, progress) = (measured[0], measured[1], measured[2], measured[3])
+        equal(caption.minY - max(heading.maxY, action.maxY), 12, "progress group starts below the status and actions")
+        equal(progress.minY - caption.maxY, 4, "progress caption sits directly above its bar")
+        equal(progress.minX, caption.minX, "progress caption and bar align")
+        return (heading, action)
     }
 
     private func checkTranscript(in host: LayoutHost, wide: Bool) {
