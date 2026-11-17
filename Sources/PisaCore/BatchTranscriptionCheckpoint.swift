@@ -53,9 +53,28 @@ final class BatchTranscriptionCheckpoint: Codable {
 
         var segments: [TranscriptSegment] = []
         var backchannels: [UUID: String] = [:]
+        var lexicalBackchannels: [UUID: String] = [:]
+        var uncertainShortLanguage: Set<UUID> = []
         var hypotheses: [UUID: RecognitionAcousticResult] = [:]
         var bounds: [UUID: Range<Double>] = [:]
         var recoveredAudio: [UUID: RecoveredAudio] = [:]
+
+        private enum CodingKeys: String, CodingKey {
+            case segments, backchannels, lexicalBackchannels, uncertainShortLanguage, hypotheses, bounds, recoveredAudio
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            segments = try container.decode([TranscriptSegment].self, forKey: .segments)
+            backchannels = try container.decode([UUID: String].self, forKey: .backchannels)
+            lexicalBackchannels = try container.decodeIfPresent([UUID: String].self, forKey: .lexicalBackchannels) ?? [:]
+            uncertainShortLanguage = try container.decodeIfPresent(Set<UUID>.self, forKey: .uncertainShortLanguage) ?? []
+            hypotheses = try container.decode([UUID: RecognitionAcousticResult].self, forKey: .hypotheses)
+            bounds = try container.decode([UUID: Range<Double>].self, forKey: .bounds)
+            recoveredAudio = try container.decode([UUID: RecoveredAudio].self, forKey: .recoveredAudio)
+        }
     }
 
     let inputs: Inputs
@@ -79,6 +98,8 @@ final class BatchTranscriptionCheckpoint: Codable {
     func trimUncommittedSegments(after count: Int) {
         for segment in recognition.segments.dropFirst(count) {
             recognition.backchannels[segment.id] = nil
+            recognition.lexicalBackchannels[segment.id] = nil
+            recognition.uncertainShortLanguage.remove(segment.id)
             recognition.hypotheses[segment.id] = nil
             recognition.bounds[segment.id] = nil
             recognition.recoveredAudio[segment.id] = nil

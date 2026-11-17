@@ -185,6 +185,16 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(TranscriptTerms.matches("что-то", in: segments).count, 2)
     }
 
+    func testCandidatesSkipOrdinaryEnglishRepliesDespiteRepetitionAndCapitalization() {
+        let segments = [
+            segment("Well, Right, Good. I think PostgreSQL works well."),
+            segment("I think you are right. We have a good API. I think so too.")
+        ]
+
+        XCTAssertEqual(Set(TranscriptTerms.candidates(in: segments, vocabulary: "").map(\.text)), ["PostgreSQL", "API"])
+        XCTAssertEqual(TranscriptTerms.matches("think", in: segments).count, 3)
+    }
+
     func testCandidatesSkipSystemPlanningTermsAndKeepManualSearch() {
         let segments = [segment("Обсудили Q1, Q2, Q3 и q4, затем Roadmap и Challenge. Сравнили роудмап, челлендж и кью три. Открыли API и Qwen3-ASR.")]
         XCTAssertEqual(Set(TranscriptTerms.candidates(in: segments, vocabulary: "").map(\.text)), ["API", "Qwen3-ASR"])

@@ -28,9 +28,9 @@ public enum TranscriptTerms {
     )
     private static let sentenceBreaks = Set<Character>(".!?…\n\r")
     private static let commonLatin: Set<String> = [
-        "and", "but", "for", "from", "have", "hello", "into", "just", "like",
-        "more", "okay", "please", "sorry", "that", "the", "their", "then", "there",
-        "these", "they", "this", "very", "was", "were", "what", "when", "which",
+        "and", "but", "for", "from", "good", "have", "hello", "into", "just", "like",
+        "more", "okay", "please", "right", "sorry", "that", "the", "their", "then", "there",
+        "these", "they", "think", "this", "very", "was", "well", "were", "what", "when", "which",
         "will", "with", "would", "yeah", "you", "your"
     ]
     private static let entityForms: Set<String> = {
@@ -409,13 +409,14 @@ public enum TranscriptTerms {
         if token.contains(where: \.isNumber) || (letters.first?.isLowercase == true && letters.contains(where: \.isUppercase)) {
             return 3
         }
+        if commonLatin.contains(normalized) { return 0 }
         if token.first?.isUppercase == true,
            let previous = preceding.last(where: { !$0.isWhitespace && !"«“\"'([—".contains($0) }),
            !sentenceBreaks.contains(previous) {
             return 3
         }
         if token.contains(where: { "-‐‑".contains($0) }) ||
-            (token.count >= 4 && token.allSatisfy({ $0.isASCII && $0.isLetter }) && !commonLatin.contains(normalized)) {
+            (token.count >= 4 && token.allSatisfy({ $0.isASCII && $0.isLetter })) {
             return 1
         }
         return 0

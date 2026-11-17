@@ -23,6 +23,9 @@ enum BackchannelLanguage {
     private static let literalMarks = try! NSRegularExpression(pattern:
         #"[/\\`"«»“”‘~@]|(?<![A-Za-z])['’]|['’](?![A-Za-z])|(?<=[A-Za-z])\.(?=[A-Za-z])"#)
     private static let fillerWords = try! NSRegularExpression(pattern: #"\p{L}+"#)
+    private static let latinSpeech = try! NSRegularExpression(pattern: #"\A[\P{L}\p{Latin}]*\p{Latin}[\P{L}\p{Latin}]*\z"#)
+    private static let lexicalLiteralMarks = CharacterSet(charactersIn: "_+#$%=<>[]{}|‹›„")
+    private static let lexicalWordLimit = 12
 
     static func shouldRecheck(_ text: String, duration: Double) -> Bool {
         guard duration <= 3, !containsLiteralMarks(text) else { return false }
@@ -33,6 +36,52 @@ enum BackchannelLanguage {
         return (1...3).contains(words.count) && words.joined().unicodeScalars.allSatisfy {
             (0x61...0x7A).contains($0.value)
         }
+    }
+
+    static func shouldRecheckLexical(_ text: String, duration: Double, vocabulary: String = "") -> Bool {
+        (0...6).contains(duration) && isLexicalSource(text, vocabulary: vocabulary)
+    }
+
+    private static func isLexicalSource(_ text: String, vocabulary: String) -> Bool {
+        guard !containsLiteralMarks(text), text.rangeOfCharacter(from: lexicalLiteralMarks) == nil else { return false }
+        let words = RussianRecognition.words(text)
+        return (1...lexicalWordLimit).contains(words.count)
+            && words.joined().unicodeScalars.allSatisfy { (0x61...0x7A).contains($0.value) }
+            && RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary)
+    }
+
+    /// The caller supplies unprompted multilingual recognition of the same audio.
+    /// The independent Russian recognizer must corroborate every word.
+    static func lexicalAlternative(original: String, russian: String, corroboration: String?, vocabulary: String = "") -> String? {
+        guard isLexicalSource(original, vocabulary: vocabulary), let corroboration else { return nil }
+        let words = RussianRecognition.words(russian)
+        guard (1...lexicalWordLimit).contains(words.count),
+              words.joined().unicodeScalars.allSatisfy({ (0x0430...0x044F).contains($0.value) }),
+              words == RussianRecognition.words(corroboration) else { return nil }
+        return russian.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Missing evidence from either recognizer cannot establish an empty turn.
+    static func hasNoSpeechEvidence(language: String?, text: String, corroboration: String?) -> Bool {
+        guard language?.lowercased() == "none", let corroboration else { return false }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && corroboration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func hasEnglishEvidence(language: String?, text: String) -> Bool {
+        let language = language?.lowercased()
+        guard language == "english" || language == "en" else { return false }
+        return latinSpeech.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
+    /// Independent agreement preserves foreign Latin speech regardless of its
+    /// language label. Punctuation and case do not change the spoken words.
+    static func confirmsLatinSource(original: String, reread: String) -> Bool {
+        guard [original, reread].allSatisfy({
+            latinSpeech.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil
+        }) else { return false }
+        let words = RussianRecognition.words(original)
+        return !words.isEmpty && words == RussianRecognition.words(reread)
     }
 
     /// A short lead-in can stabilize decoding without cutting or changing speech.
@@ -81,8 +130,22 @@ enum BackchannelLanguage {
         return !substantive.isEmpty && substantive == independent ? russian : nil
     }
 
-    static func resolve(_ segments: [TranscriptSegment], alternatives: [UUID: String], preceding: [TranscriptSegment], vocabulary: String = "") -> [TranscriptSegment] {
+    static func resolve(_ segments: [TranscriptSegment], alternatives: [UUID: String], lexicalAlternatives: [UUID: String] = [:],
+                        uncertain: Set<UUID> = [], preceding: [TranscriptSegment], vocabulary: String = "") -> [TranscriptSegment] {
+        var verifiedLexical: [UUID: String] = [:]
+        var unconfirmed: Set<UUID> = []
+        for segment in segments {
+            let candidate = lexicalAlternatives[segment.id]
+            let isUncertain = uncertain.contains(segment.id)
+            guard candidate != nil || isUncertain,
+                  shouldRecheckLexical(segment.text, duration: segment.end - segment.start, vocabulary: vocabulary) else { continue }
+            verifiedLexical[segment.id] = candidate
+            if isUncertain { unconfirmed.insert(segment.id) }
+        }
         let anchors = (preceding + segments).filter {
+            // Suspect text and its possible corrections cannot establish the
+            // conversation language on which those corrections depend.
+            guard verifiedLexical[$0.id] == nil, !unconfirmed.contains($0.id) else { return false }
             let words = RussianRecognition.words($0.text)
             let isShortSentence = (2...3).contains(words.count) && words.contains(where: shortSentenceWords.contains)
                 && !containsLiteralMarks($0.text)
@@ -92,7 +155,8 @@ enum BackchannelLanguage {
         }
         return segments.map { segment in
             let audioAlternative = shouldRecheck(segment.text, duration: segment.end - segment.start) ? alternatives[segment.id] : nil
-            guard let alternative = audioAlternative ?? localizedFiller(segment.text),
+            let fallback = unconfirmed.contains(segment.id) ? "Неразборчиво" : localizedFiller(segment.text)
+            guard let alternative = verifiedLexical[segment.id] ?? audioAlternative ?? fallback,
                   RussianRecognition.preservesVocabulary(candidate: alternative, original: segment.text, vocabulary: vocabulary) else { return segment }
             func gap(_ anchor: TranscriptSegment) -> Double { max(0, max(anchor.start - segment.end, segment.start - anchor.end)) }
             let nearby = anchors.filter { $0.id != segment.id && gap($0) <= 60 }

@@ -170,6 +170,154 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertEqual(BackchannelLanguage.resolve([english], alternatives: [english.id: "Вы готовы?"], preceding: [russian])[0].text, "Вы готовы?")
     }
 
+    func testVerifiedRussianTurnDoesNotBlockAnAdjacentFiller() {
+        let russian = segment(10, "Обсудим план работы команды на неделю.")
+        let mistranscribed = segment(12, "Well, I think.")
+        let filler = segment(13, "Yeah.")
+
+        let result = BackchannelLanguage.resolve([russian, mistranscribed, filler],
+            alternatives: [:], lexicalAlternatives: [mistranscribed.id: "Ну, я думаю."], preceding: [])
+
+        XCTAssertEqual(result.map(\.text), [russian.text, "Ну, я думаю.", "Да."])
+    }
+
+    func testLexicalRecheckIncludesLongerShortTurnsAndContractions() {
+        XCTAssertTrue(BackchannelLanguage.shouldRecheckLexical("It’s all right.", duration: 2.8))
+        XCTAssertTrue(BackchannelLanguage.shouldRecheckLexical("Yeah, I think that's a good", duration: 3.23))
+        XCTAssertTrue(BackchannelLanguage.shouldRecheckLexical("Oh, you can, what’s the capital?", duration: 1.37))
+        XCTAssertFalse(BackchannelLanguage.shouldRecheckLexical("It’s all right.", duration: 6.01))
+        XCTAssertFalse(BackchannelLanguage.shouldRecheckLexical("I really think you had the right answer when we first spoke yesterday.", duration: 5))
+        XCTAssertFalse(BackchannelLanguage.shouldRecheckLexical("Русский текст с English words.", duration: 3))
+    }
+
+    func testLexicalAlternativeRequiresIndependentAgreementOnRussianWords() {
+        let original = "Yeah, I think that’s a good"
+        let decoded = "Да, я ещё тогда об этом говорил."
+        let heard = "да я еще тогда об этом говорил"
+        XCTAssertEqual(BackchannelLanguage.lexicalAlternative(original: original, russian: decoded, corroboration: heard), decoded)
+        XCTAssertNil(BackchannelLanguage.lexicalAlternative(original: original, russian: decoded, corroboration: nil))
+        XCTAssertNil(BackchannelLanguage.lexicalAlternative(original: original, russian: decoded, corroboration: "да я еще об этом говорил"))
+        XCTAssertNil(BackchannelLanguage.lexicalAlternative(original: original, russian: original, corroboration: heard))
+        XCTAssertNil(BackchannelLanguage.lexicalAlternative(original: original, russian: original, corroboration: original))
+    }
+
+    func testNoSpeechRequiresExplicitAbstentionAndAnEmptyIndependentResult() {
+        XCTAssertTrue(BackchannelLanguage.hasNoSpeechEvidence(language: "None", text: " \n", corroboration: " \t"))
+        XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: nil, text: "", corroboration: ""))
+        XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: "None", text: "", corroboration: nil))
+        XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: "English", text: "", corroboration: ""))
+        XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: "Chinese", text: "", corroboration: ""))
+    }
+
+    func testAnyRecognizedSpeechPreventsNoSpeechRejection() {
+        XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: "None", text: "", corroboration: "да"))
+        for text in ["Угу.", "Well.", "好。"] {
+            XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: "None", text: text, corroboration: ""), text)
+        }
+    }
+
+    func testIndependentEnglishEvidenceRequiresExplicitLanguageAndLatinSpeech() {
+        XCTAssertTrue(BackchannelLanguage.hasEnglishEvidence(language: "English", text: "It's all right."))
+        XCTAssertTrue(BackchannelLanguage.hasEnglishEvidence(language: "en", text: "Beyoncé sang 2 songs."))
+        for (language, text) in [(nil, "Well."), ("Russian", "Good."), ("English", "…"), ("en", "2026"),
+                                 ("English", "Да."), ("en", "Good, да."), ("English", "好。")] {
+            XCTAssertFalse(BackchannelLanguage.hasEnglishEvidence(language: language, text: text), text)
+        }
+    }
+
+    func testIndependentAgreementPreservesForeignLatinSpeech() {
+        for (original, reread) in [("Bonjour!", "bonjour."), ("Hola, buenos dias.", "HOLA BUENOS DIAS"),
+                                    ("Ça va?", "ça va."), ("It's fine.", "It’s fine!")] {
+            XCTAssertTrue(BackchannelLanguage.confirmsLatinSource(original: original, reread: reread), original)
+        }
+        for (original, reread) in [("Bonjour.", "Hello."), ("Hola, buenos dias.", "Hola."),
+                                    ("Да.", "Да."), ("Good, да.", "Good, да."), ("好。", "好。"),
+                                    ("…", "…"), ("2026", "2026"), ("Well.", "")] {
+            XCTAssertFalse(BackchannelLanguage.confirmsLatinSource(original: original, reread: reread), original)
+        }
+    }
+
+    func testUnconfirmedTurnsUseRussianContextAndKeepTheirAudio() {
+        let russian = segment(10, "Обсудим план работы команды на неделю.", mic: false)
+        for mic in [true, false] {
+            let unclear = segment(12, "I mean.", mic: mic)
+            let filler = segment(13, "Yeah.", mic: mic)
+            let uncertain: Set<UUID> = [unclear.id, filler.id]
+            var marked = unclear
+            marked.text = "Неразборчиво"
+            var markedFiller = filler
+            markedFiller.text = "Неразборчиво"
+            var localized = filler
+            localized.text = "Да."
+
+            let result = BackchannelLanguage.resolve([unclear, filler], alternatives: [:], uncertain: uncertain, preceding: [russian])
+            XCTAssertEqual(result, [marked, markedFiller])
+
+            let withFiller = BackchannelLanguage.resolve([unclear, filler], alternatives: [:], uncertain: [unclear.id], preceding: [russian])
+            XCTAssertEqual(withFiller, [marked, localized])
+        }
+    }
+
+    func testUnconfirmedTurnsNeedIndependentRussianContext() {
+        let russian = segment(10, "Обсудим план работы команды на неделю.", mic: false)
+        let english = segment(12, "Are you ready?", mic: false)
+        let unclear = segment(14, "I mean.", mic: false)
+        let filler = segment(15, "Yeah.", mic: false)
+        let uncertain: Set<UUID> = [unclear.id, filler.id]
+        let source = [unclear, filler]
+        XCTAssertEqual(BackchannelLanguage.resolve(source, alternatives: [:], uncertain: uncertain, preceding: [russian, english]), source)
+        XCTAssertEqual(BackchannelLanguage.resolve(source, alternatives: [:], uncertain: uncertain, preceding: []), source)
+    }
+
+    func testUnconfirmedTurnsPreserveQuotesGlossaryAndLongSpeech() {
+        let russian = segment(10, "Обсудим план работы команды на неделю.")
+        let quoted = segment(12, "«I mean».")
+        let named = segment(14, "Well, Jira.")
+        var long = segment(16, "Please send this one later.")
+        long.end = 23
+        let source = [quoted, named, long]
+        let actual = BackchannelLanguage.resolve(source, alternatives: [:], uncertain: Set(source.map(\.id)),
+            preceding: [russian], vocabulary: "Jira")
+        XCTAssertEqual(actual, source)
+    }
+
+    func testAudioAlternativesOutrankTheUnclearMarker() {
+        let russian = segment(10, "Обсудим план работы команды на неделю.")
+        let lexical = segment(12, "I mean.")
+        let vocal = segment(14, "Um.")
+        let actual = BackchannelLanguage.resolve([lexical, vocal], alternatives: [lexical.id: "Я имею в виду.", vocal.id: "Эм."],
+            lexicalAlternatives: [lexical.id: "Я думаю."], uncertain: [lexical.id, vocal.id], preceding: [russian])
+        XCTAssertEqual(actual.map(\.text), ["Я думаю.", "Эм."])
+    }
+
+    func testLexicalRecheckPreservesQuotesIdentifiersAndGlossary() {
+        for text in ["‘Right’", "“It’s all right”", "\"Good\"", "«Well»", "`Well`", "well.example", "well_right", "C++", "Right/Good"] {
+            XCTAssertFalse(BackchannelLanguage.shouldRecheckLexical(text, duration: 2), text)
+            XCTAssertNil(BackchannelLanguage.lexicalAlternative(original: text, russian: "Да.", corroboration: "да"), text)
+        }
+        XCTAssertFalse(BackchannelLanguage.shouldRecheckLexical("Well, Jira.", duration: 2, vocabulary: "Jira"))
+        XCTAssertNil(BackchannelLanguage.lexicalAlternative(original: "Well, Jira.", russian: "Ну, Джира.", corroboration: "ну джира", vocabulary: "Jira"))
+    }
+
+    func testLexicalCorrectionsDoNotEstablishConversationLanguage() {
+        let first = segment(20, "Well, I think.")
+        var second = segment(22, "Yeah, I think that’s a good")
+        second.end = 25.23
+        let filler = segment(26, "Yeah.")
+        let turns = [first, second, filler]
+        let alternatives = [first.id: "Ну, я думаю.", second.id: "Да, я тоже так считаю."]
+        let result = BackchannelLanguage.resolve(turns, alternatives: [:], lexicalAlternatives: alternatives, preceding: [])
+        XCTAssertEqual(result.map(\.text), turns.map(\.text))
+
+        let russian = segment(15, "Обсудим план работы команды на неделю.")
+        let english = segment(19, "Are you ready?")
+        let withEnglish = BackchannelLanguage.resolve(turns, alternatives: [:], lexicalAlternatives: alternatives, preceding: [russian, english])
+        XCTAssertEqual(withEnglish.map(\.text), turns.map(\.text))
+
+        let withRussian = BackchannelLanguage.resolve(turns, alternatives: [:], lexicalAlternatives: alternatives, preceding: [russian])
+        XCTAssertEqual(withRussian.map(\.text), ["Ну, я думаю.", "Да, я тоже так считаю.", "Да."])
+    }
+
     func testFillerFallbackPreservesQuotedAndPathLikeLiterals() {
         let russian = segment(25, "Теперь обсудим следующий вопрос проекта")
         for text in ["`Yes`", "«Yes»", "\"Yes\"", "'Yes'.", "yes/yes", "yes.yes"] {
