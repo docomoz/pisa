@@ -226,10 +226,33 @@ public enum LivePipelineTests {
             if mode == "crash", fraction >= 0.90 { _exit(77) }
         }
         defer { progress.cancel() }
+        let timeoutValue = ProcessInfo.processInfo.environment["PISA_BATCH_RESUME_TIMEOUT_SECONDS"] ?? "120"
+        guard let timeout = Double(timeoutValue), timeout.isFinite, (1...1800).contains(timeout) else {
+            throw PisaError.message("PISA_BATCH_RESUME_TIMEOUT_SECONDS must be between 1 and 1800")
+        }
         state.enqueue(meeting.id)
-        let deadline = ContinuousClock.now + .seconds(120)
-        while state.processingID != nil, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(30))
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        do {
+            while state.processingID != nil, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(30))
+            }
+            guard state.processingID == nil else {
+                throw PisaError.message("Batch resume timed out after \(timeout) seconds at \(state.progress): \(state.phase)")
+            }
+        } catch {
+            // The launcher exits after this method throws. Do not destroy MLX's
+            // process-wide state while a synchronous load/decode is still active.
+            // This independent task also drains when the test task was cancelled.
+            let drain = Task { @MainActor in
+                state.cancelProcessing()
+                while state.processingID != nil {
+                    try? await Task.sleep(for: .milliseconds(30))
+                }
+            }
+            // AppState clears processingID only in the worker's terminal defer,
+            // after transcribe has returned and its local models have unwound.
+            await drain.value
+            throw error
         }
         let latest = try library.read(meeting.id)
         guard state.processingID == nil, let initialFraction, initialFraction >= expectedStart else {
