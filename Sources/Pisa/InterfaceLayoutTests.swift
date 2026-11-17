@@ -237,7 +237,7 @@ private final class LayoutSuite {
             guard let reference = checkMeetingHeader(in: host) else { continue }
             checkTranscript(in: host, wide: size.width > 980)
 
-            var processingPositions: (heading: CGRect, action: CGRect)?
+            var processingPositions: (heading: CGRect, action: CGRect, progress: CGRect)?
             for (meeting, firstContent) in [(saved, InterfaceLayoutElement.waveform), (queued, .meetingStatus),
                                             (processing, .meetingStatus), (interrupted, .meetingStatus)] {
                 scenario = "\(meeting.title) \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
@@ -258,11 +258,20 @@ private final class LayoutSuite {
                 }
                 if meeting.id == processing.id {
                     processingPositions = checkTranscriptionProgress(in: host)
+                    // Preparing a resumed recording has no known duration yet.
+                    // Its caption and bar must not disappear and shift the transcript.
+                    state.liveStatus = "Подготавливаю аудио"
+                    host.settle()
+                    if let preparing = checkTranscriptionProgress(in: host), let processingPositions {
+                        equal(preparing.progress.minY, processingPositions.progress.minY, "preparing keeps the progress bar in place")
+                    }
+                    state.liveStatus = ""
                 } else if meeting.id == interrupted.id,
                           let interruptedPositions = checkTranscriptionProgress(in: host),
                           let processingPositions {
                     equal(interruptedPositions.heading.minY, processingPositions.heading.minY, "status heading starts at the same height")
                     equal(interruptedPositions.action.minY, processingPositions.action.minY, "action starts at the same height")
+                    equal(interruptedPositions.progress.minY, processingPositions.progress.minY, "progress stays at the same height when transcription stops")
                 }
             }
         }
@@ -302,7 +311,7 @@ private final class LayoutSuite {
         return measured[0]
     }
 
-    private func checkTranscriptionProgress(in host: LayoutHost) -> (heading: CGRect, action: CGRect)? {
+    private func checkTranscriptionProgress(in host: LayoutHost) -> (heading: CGRect, action: CGRect, progress: CGRect)? {
         let elements: [InterfaceLayoutElement] = [.transcriptionStatusHeading, .transcriptionStatusAction,
                                                    .transcriptionProgressCaption, .transcriptionProgressRow]
         guard let measured = frames(elements, in: host) else { return nil }
@@ -310,7 +319,7 @@ private final class LayoutSuite {
         equal(caption.minY - max(heading.maxY, action.maxY), 8, "progress group starts below the status and actions")
         equal(progress.minY - caption.maxY, 4, "progress caption sits directly above its bar")
         equal(progress.minX, caption.minX, "progress caption and bar align")
-        return (heading, action)
+        return (heading, action, progress)
     }
 
     private func checkTranscript(in host: LayoutHost, wide: Bool) {

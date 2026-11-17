@@ -527,48 +527,13 @@ struct MeetingView: View {
     private func transcriptStatus(hasAudio: Bool, interruptedProgress: Meeting.InterruptedTranscriptionProgress?) -> some View {
         if showsTranscriptStatus {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
-                    Group {
-                        if isRecording && isTranscribing {
-                            screenText(transcriptStatusTitle)
-                                .textStyle(PisaDesign.Typography.detail)
-                                .foregroundStyle(Color.mutedInk)
-                        } else {
-                            SectionHeading(transcriptStatusTitle)
-                        }
+                if state.canUseTurboTranscription(meeting.id) && !isSaving && (isQueued || isTranscribing) {
+                    ViewThatFits(in: .horizontal) {
+                        transcriptionStatusRow(hasAudio: hasAudio, compact: false)
+                        transcriptionStatusRow(hasAudio: hasAudio, compact: true)
                     }
-                    .measuredForInterfaceTest(.transcriptionStatusHeading)
-                    Spacer(minLength: PisaDesign.Spacing.none)
-                    if meeting.status == .failed && meeting.deletedAt == nil
-                        && hasAudio && state.canModify(meeting) {
-                        screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
-                            .measuredForInterfaceTest(.transcriptionStatusAction)
-                    }
-                    if isRecording && isTranscribing {
-                        screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") {
-                            state.toggleLivePause()
-                        }.actionButton()
-                    } else if canStartLiveTranscription {
-                        liveTranscriptionButton
-                    } else if isQueued || (isTranscribing && !isSaving) {
-                        HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
-                            if state.canUseTurboTranscription(meeting.id) {
-                                screenToggle("Турбо-режим", isOn: Binding(
-                                    get: { state.isTurboTranscriptionEnabled(for: meeting.id) },
-                                    set: { state.setTurboTranscription($0, for: meeting.id) }
-                                ))
-                                .textStyle(PisaDesign.Typography.detail)
-                                .screenHelp("Повышает приоритет распознавания. Mac может нагреваться сильнее.")
-                            }
-                            if isQueued {
-                                screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
-                            } else {
-                                screenButton("Остановить обработку") { state.cancelProcessing() }.actionButton()
-                                    .measuredForInterfaceTest(.transcriptionStatusAction)
-                            }
-                        }
-                        .fixedSize(horizontal: true, vertical: false)
-                    }
+                } else {
+                    transcriptionStatusRow(hasAudio: hasAudio, compact: false)
                 }
                 if isSaving || (isTranscribing && !isRecording && !state.livePaused) {
                     let isLive = !isSaving && !state.liveStatus.isEmpty
@@ -582,6 +547,54 @@ struct MeetingView: View {
                 } else if let transcriptionDetail {
                     SupportingText(transcriptionDetail, style: PisaDesign.Typography.detail)
                 }
+            }
+        }
+    }
+    private func transcriptionStatusRow(hasAudio: Bool, compact: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
+            Group {
+                if isRecording && isTranscribing {
+                    screenText(transcriptStatusTitle)
+                        .textStyle(PisaDesign.Typography.detail)
+                        .foregroundStyle(Color.mutedInk)
+                } else {
+                    SectionHeading(transcriptStatusTitle)
+                }
+            }
+            .measuredForInterfaceTest(.transcriptionStatusHeading)
+            Spacer(minLength: PisaDesign.Spacing.none)
+            if meeting.status == .failed && meeting.deletedAt == nil && hasAudio && !isQueued {
+                screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
+                    .disabled(!state.canModify(meeting))
+                    .measuredForInterfaceTest(.transcriptionStatusAction)
+            }
+            if isRecording && isTranscribing {
+                screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") {
+                    state.toggleLivePause()
+                }.actionButton()
+            } else if canStartLiveTranscription {
+                liveTranscriptionButton
+            } else if isQueued || (isTranscribing && !isSaving) {
+                HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
+                    if state.canUseTurboTranscription(meeting.id) {
+                        screenToggle(compact ? "Турбо" : "Турбо-режим", isOn: Binding(
+                            get: { state.isTurboTranscriptionEnabled(for: meeting.id) },
+                            set: { state.setTurboTranscription($0, for: meeting.id) }
+                        ))
+                        .textStyle(PisaDesign.Typography.detail)
+                        .accessibilityLabel("Турбо-режим")
+                        .screenHelp("Повышает приоритет распознавания. Mac может нагреваться сильнее.")
+                    }
+                    if isQueued {
+                        screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
+                    } else {
+                        screenButton(compact ? "Остановить" : "Остановить обработку") { state.cancelProcessing() }
+                            .actionButton()
+                            .accessibilityLabel("Остановить обработку")
+                            .measuredForInterfaceTest(.transcriptionStatusAction)
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
     }
@@ -613,12 +626,14 @@ struct MeetingView: View {
     }
     private var transcriptionDetail: String? {
         guard isTranscribing, !isRecording, !isSaving else { return nil }
-        if !state.liveStatus.isEmpty { return liveAudioProgress == nil ? nil : "Доля обработанного аудио" }
+        if !state.liveStatus.isEmpty { return "Доля обработанного аудио" }
         if !state.phase.isEmpty { return state.phase }
         return finishesRecording ? "Запись сохранена" : nil
     }
     private var liveAudioProgress: Double? {
-        LiveTranscriptionSchedule.audioProgress(committed: meeting.liveCommittedUntil, duration: state.liveAudioDuration)
+        // Use the saved duration until the worker measures the audio tracks.
+        LiveTranscriptionSchedule.audioProgress(committed: meeting.liveCommittedUntil,
+                                                duration: state.liveAudioDuration ?? meeting.duration)
     }
     private var processingProgress: Double? { state.phase.isEmpty ? nil : state.progress }
     private func saveTitle(resetIfEmpty: Bool = false) {
