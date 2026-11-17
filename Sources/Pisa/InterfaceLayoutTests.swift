@@ -59,9 +59,21 @@ private struct InterfaceMeasurement: ViewModifier {
 @MainActor
 enum InterfaceLayoutTests {
     private struct WebsiteFixture: Decodable {
-        struct Line: Decodable { let speaker: String; let text: String }
+        struct Line: Decodable {
+            let speaker: String
+            let text: String
+            let start: TimeInterval
+            let end: TimeInterval
+        }
+        struct Recording: Decodable {
+            let title: String
+            let date: String
+            let duration: TimeInterval
+        }
         let title: String
-        let otherTitles: [String]
+        let date: String
+        let duration: TimeInterval
+        let otherMeetings: [Recording]
         let dialogue: [Line]
     }
 
@@ -78,11 +90,24 @@ enum InterfaceLayoutTests {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let state = AppState(rootURL: root)
         state.modelSetup.phase = .ready
+        state.preferences.summaryOnboardingAcknowledged = true
+        let dateParser = ISO8601DateFormatter()
+        func recording(title: String, date: String, duration: TimeInterval) throws -> Meeting {
+            guard let date = dateParser.date(from: date), duration > 0 else {
+                throw PisaError.message("Некорректная дата или длительность демонстрационной встречи")
+            }
+            var meeting = Meeting(title: title, source: "Zoom")
+            meeting.status = .ready
+            meeting.date = date
+            meeting.duration = duration
+            return meeting
+        }
         let participantOrder = fixture.dialogue.reduce(into: [String]()) { names, line in
             if !names.contains(line.speaker) { names.append(line.speaker) }
         }
         let host = LayoutHost(MainView().environmentObject(state)
-            .environment(\.websiteScreenshotParticipantOrder, participantOrder),
+            .environment(\.websiteScreenshotParticipantOrder, participantOrder)
+            .environment(\.showsControlKeyboardFocus, false),
             size: CGSize(width: 1400, height: 850), scale: 1)
         defer { host.close() }
         guard host.wait(for: { host.frames[.welcomeTitle]?.isEmpty == false }) else {
@@ -90,19 +115,15 @@ enum InterfaceLayoutTests {
         }
         try host.savePNG(to: output.appendingPathComponent("welcome.png"))
 
-        var meeting = Meeting(title: fixture.title, source: "Zoom")
-        meeting.status = .ready
-        meeting.duration = 180
-        meeting.date = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 17, hour: 10, minute: 30)) ?? Date()
-        meeting.segments = fixture.dialogue.enumerated().map { index, line in
-            TranscriptSegment(start: Double(index * 8), end: Double(index * 8 + 3), speaker: line.speaker, text: line.text)
+        var meeting = try recording(title: fixture.title, date: fixture.date, duration: fixture.duration)
+        meeting.segments = try fixture.dialogue.map { line in
+            guard line.start >= 0, line.end > line.start, line.end <= meeting.duration else {
+                throw PisaError.message("Некорректное время демонстрационной реплики")
+            }
+            return TranscriptSegment(start: line.start, end: line.end, speaker: line.speaker, text: line.text)
         }
-        for (index, title) in fixture.otherTitles.enumerated().reversed() {
-            var other = Meeting(title: title, source: "Zoom")
-            other.status = .ready
-            other.duration = 2400
-            other.date = Calendar.current.date(byAdding: .day, value: -(index + 1), to: meeting.date) ?? meeting.date
-            state.update(other)
+        for other in fixture.otherMeetings.reversed() {
+            state.update(try recording(title: other.title, date: other.date, duration: other.duration))
         }
         state.update(meeting)
         state.select(meeting.id)
