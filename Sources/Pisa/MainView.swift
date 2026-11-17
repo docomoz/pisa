@@ -285,7 +285,7 @@ struct MeetingView: View {
                     if visible { showsMeetingDetails = false }
                 }
             }
-            .padding(.top, PisaDesign.Spacing.content)
+            .padding(.top, showsTranscriptStatus ? PisaDesign.Spacing.related : PisaDesign.Spacing.content)
             HStack(spacing: PisaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisaDesign.Spacing.content)
         }
         .padding(.top, PisaDesign.Spacing.related)

@@ -240,7 +240,7 @@ private final class LayoutSuite {
                 scenario = "\(meeting.title) \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
                 state.select(meeting.id)
                 host.settle()
-                if let title = checkMeetingHeader(in: host) {
+                if let title = checkMeetingHeader(in: host, titleGap: firstContent == .meetingStatus ? 12 : 16) {
                     equal(title.minY, reference.minY, "meeting title keeps its top inset across states")
                     equal(title.minX, reference.minX, "meeting title keeps its left inset across states")
                 }
@@ -281,12 +281,12 @@ private final class LayoutSuite {
         equal(measured[3].minY - measured[2].maxY, 24, "welcome description-to-action gap")
     }
 
-    private func checkMeetingHeader(in host: LayoutHost) -> CGRect? {
+    private func checkMeetingHeader(in host: LayoutHost, titleGap: CGFloat = 16) -> CGRect? {
         if let header = frames([.mainToolbar, .meetingMetadata], in: host) {
             equal(header[1].minY - header[0].maxY, 12, "meeting metadata starts just below the main toolbar")
         }
         guard let measured = frames([.meetingTitle, .meetingContent], in: host) else { return nil }
-        equal(measured[1].minY - measured[0].maxY, 16, "single gap below the meeting title")
+        equal(measured[1].minY - measured[0].maxY, titleGap, "single gap below the meeting title")
         equal(measured[0].minX, measured[1].minX, "title and meeting content have the same left edge")
         return measured[0]
     }
