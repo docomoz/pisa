@@ -12,30 +12,40 @@ final class ModelSetup: ObservableObject {
     private var generation = UUID()
     private var didCheck = false
     private(set) var installedUsingCustom = false
+    private(set) var installedUsingCustomVerifier = false
     private let root: URL
     private let manifestURL: URL?
     private let customModel: () -> URL?
     private let usesCustomModel: () -> Bool
+    private let customVerifier: () -> URL?
+    private let usesCustomVerifier: () -> Bool
     var busy: Bool { phase == .checking || phase == .downloading }
     var ready: Bool { phase == .ready }
-    init(root: URL, manifestURL: URL? = Bundle.main.url(forResource: "models", withExtension: "json"), customModel: @escaping () -> URL?, usesCustomModel: @escaping () -> Bool) {
+    init(root: URL, manifestURL: URL? = Bundle.main.url(forResource: "models", withExtension: "json"), customModel: @escaping () -> URL?, usesCustomModel: @escaping () -> Bool,
+         customVerifier: @escaping () -> URL? = { nil }, usesCustomVerifier: @escaping () -> Bool = { false }) {
         self.root = root; self.manifestURL = manifestURL; self.customModel = customModel; self.usesCustomModel = usesCustomModel
+        self.customVerifier = customVerifier; self.usesCustomVerifier = usesCustomVerifier
     }
-    private func installer(usingCustom: Bool = false) throws -> ModelInstaller {
+    private func installer(usingCustom: Bool = false, usingCustomVerifier: Bool = false) throws -> ModelInstaller {
         guard let manifestURL else { throw ModelInstallError.invalidManifest }
         let assets = try JSONDecoder().decode([ModelAsset].self, from: Data(contentsOf: manifestURL))
-        return ModelInstaller(root: root, assets: usingCustom ? assets.filter { !$0.path.hasPrefix("Qwen3-ASR/") } : assets)
+        return ModelInstaller(root: root, assets: assets.filter {
+            !(usingCustom && $0.path.hasPrefix(SpeechModelFiles.primaryDirectoryName + "/")) &&
+            !(usingCustomVerifier && $0.path.hasPrefix(SpeechModelFiles.verifierDirectoryName + "/"))
+        })
     }
     func check(presentWhenNeeded: Bool = true) {
         guard !busy || !didCheck else { return }
         didCheck = true; phase = .checking; error = nil; progress = nil
         let token = UUID(); generation = token
         let custom = customModel()
-        let useCustom = usesCustomModel() && custom.map(Self.customIsUsable) == true
+        let useCustom = usesCustomModel() && custom.map { Self.customIsUsable($0, kind: .parakeet) } == true
+        let useCustomVerifier = usesCustomVerifier() && customVerifier().map { Self.customIsUsable($0, kind: .qwen) } == true
         installedUsingCustom = useCustom
-        let invalidCustom = usesCustomModel() && !useCustom
+        installedUsingCustomVerifier = useCustomVerifier
+        let invalidCustom = usesCustomModel() && !useCustom || usesCustomVerifier() && !useCustomVerifier
         let installer: ModelInstaller
-        do { installer = try self.installer(usingCustom: useCustom) }
+        do { installer = try self.installer(usingCustom: useCustom, usingCustomVerifier: useCustomVerifier) }
         catch { self.error = error.localizedDescription; phase = .failed; presented = true; return }
         operation = Task { [weak self] in
             // Existing custom MLX folders remain supported, without applying the official
@@ -54,9 +64,11 @@ final class ModelSetup: ObservableObject {
         guard !busy else { return }
         Analytics.modelInstallStarted()
         let installer: ModelInstaller
-        let useCustom = usesCustomModel() && customModel().map(Self.customIsUsable) == true
+        let useCustom = usesCustomModel() && customModel().map { Self.customIsUsable($0, kind: .parakeet) } == true
+        let useCustomVerifier = usesCustomVerifier() && customVerifier().map { Self.customIsUsable($0, kind: .qwen) } == true
         installedUsingCustom = useCustom
-        do { installer = try self.installer(usingCustom: useCustom) }
+        installedUsingCustomVerifier = useCustomVerifier
+        do { installer = try self.installer(usingCustom: useCustom, usingCustomVerifier: useCustomVerifier) }
         catch { Analytics.modelInstallFailed(); self.error = error.localizedDescription; phase = .failed; return }
         error = nil; progress = nil; phase = .downloading
         let token = UUID(); generation = token
@@ -84,15 +96,10 @@ final class ModelSetup: ObservableObject {
             }
         }
     }
-    private static func customIsUsable(_ url: URL) -> Bool {
+    private static func customIsUsable(_ url: URL, kind: SpeechModelFiles.Kind) -> Bool {
         let granted = url.startAccessingSecurityScopedResource()
         defer { if granted { url.stopAccessingSecurityScopedResource() } }
-        func exists(_ name: String) -> Bool {
-            guard let size = try? url.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
-            return size > 0
-        }
-        return exists("config.json") && exists("model.safetensors") && exists("tokenizer_config.json") &&
-            (exists("tokenizer.json") || exists("vocab.json") && exists("merges.txt"))
+        return SpeechModelFiles.isUsable(at: url, kind: kind)
     }
     func cancel() { operation?.cancel() }
     func cancelAndWait() async { operation?.cancel(); await operation?.value }
@@ -117,7 +124,7 @@ struct ModelSetupView: View {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
                 item("waveform", "Речь и участники", "Русский и английский · локальная обработка")
                 Divider().opacity(0.5)
-                item("internaldrive", "Около 3 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
+                item("internaldrive", "Около 5,5 ГБ на Mac", "Загрузка с Hugging Face · аудио остаётся у вас")
             }.padding(PisaDesign.Spacing.content).plainSurface().padding(.bottom, PisaDesign.Spacing.section)
             if setup.busy {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {

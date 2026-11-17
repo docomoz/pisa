@@ -22,6 +22,7 @@ enum RecognitionQualityTests {
         var russianVerification: Bool?
         var contextualVerification: Bool?
         var diagnostics: Bool?
+        var verifierDirectory: String?
     }
 
     private struct ReplayEnvelope: Decodable {
@@ -40,7 +41,7 @@ enum RecognitionQualityTests {
         let repeatFirstPass: Bool?
     }
 
-    @MainActor private static func replay(_ request: Replay, root: URL, modelDirectory: URL) async throws {
+    @MainActor private static func replay(_ request: Replay, root: URL, modelDirectory: URL, verifierDirectory: URL) async throws {
         let began = Date()
         let meeting = request.meeting
         let targetIDs = Set(request.targets)
@@ -65,6 +66,7 @@ enum RecognitionQualityTests {
         let transcriber = Transcriber()
         let result = try await transcriber.replayRecognitionContext(meeting.segments, files: files,
             modelDirectory: modelDirectory, speakerDirectory: root.appendingPathComponent("Models/Speakers"),
+            verifierDirectory: verifierDirectory,
             vocabulary: request.vocabulary, selected: targetIDs, suppliedBounds: supplied,
             repeatFirstPass: request.repeatFirstPass ?? true)
         let segments = result.filter { targetIDs.contains($0.id) }
@@ -84,21 +86,22 @@ enum RecognitionQualityTests {
         let preferencesURL = userRoot.appendingPathComponent("preferences.json")
         let preferences = FileManager.default.fileExists(atPath: preferencesURL.path)
             ? try JSONDecoder().decode(Preferences.self, from: Data(contentsOf: preferencesURL)) : Preferences()
-        let directory: URL
-        if let bookmark = preferences.modelBookmark {
-            var stale = false
-            directory = try URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-        } else { directory = userRoot.appendingPathComponent("Models/Qwen3-ASR") }
+        let locations = try RecognitionModelLocations(preferences: preferences, models: userRoot.appendingPathComponent("Models"))
+        let directory = locations.primary
         let granted = directory.startAccessingSecurityScopedResource()
         defer { if granted { directory.stopAccessingSecurityScopedResource() } }
         if CommandLine.arguments.contains("--recognition-context-replay") {
             let request = try JSONDecoder().decode(ReplayEnvelope.self, from: data)
-            try await replay(request.replay, root: userRoot, modelDirectory: directory)
+            try await replay(request.replay, root: userRoot, modelDirectory: directory, verifierDirectory: locations.verifier)
             print("RECOGNITION_QUALITY_OK")
             return
         }
         let request = try JSONDecoder().decode(Request.self, from: data)
-        let modes = Set(["pipeline", "acoustic", "auto", "russian", "unpenalized", "russian-unpenalized"])
+        if let path = request.verifierDirectory, !NSString(string: path).isAbsolutePath {
+            throw PisaError.message("Verifier directory must be an absolute path")
+        }
+        let verifierDirectory = request.verifierDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? locations.verifier
+        let modes = Set(["pipeline", "parakeet", "parakeet-float32-audio", "parakeet-bfloat16-audio", "acoustic", "auto", "russian", "unpenalized", "russian-unpenalized"])
         guard !request.fixtures.isEmpty, request.modes.allSatisfy(modes.contains),
               request.fixtures.allSatisfy({ !$0.samples.isEmpty && $0.samples.count <= 16000 * 120 && $0.samples.allSatisfy(\.isFinite) }),
               request.fixtures.allSatisfy({ ($0.timelineStart ?? 0).isFinite && ($0.timelineStart ?? 0) >= 0 }),
@@ -145,9 +148,11 @@ enum RecognitionQualityTests {
                         try referenceWriter.write(from: referenceBuffer); referenceWriter.close()
                         files.append((referenceURL, timelineStart))
                     }
+                    await transcriber.resetRecognitionPerformanceDiagnostics()
                     let began = Date()
                     let recognized = try await transcriber.transcribe(files: files, modelDirectory: directory,
                         context: fixture.context ?? "", speakerDirectory: userRoot.appendingPathComponent("Models/Speakers"),
+                        verifierDirectory: verifierDirectory,
                         profiles: [], quiet: false, live: live, russianVerification: request.russianVerification ?? true,
                         contextualVerification: request.contextualVerification ?? true,
                         preceding: preceding,
@@ -161,7 +166,10 @@ enum RecognitionQualityTests {
                         "segments": segments.map { ["start": $0.start - timelineStart, "end": $0.end - timelineStart, "text": $0.text] }]
                     if fixture.contextGroup != nil { extra["contextStart"] = timelineStart; extra["precedingCount"] = preceding.count }
                     if live { extra["russianVerifierLoaded"] = await transcriber.liveRussianModelIdentity() != nil }
-                    if request.diagnostics == true { extra["contextDiagnostics"] = await transcriber.recognitionContextDiagnostics() }
+                    if request.diagnostics == true {
+                        extra["contextDiagnostics"] = await transcriber.recognitionContextDiagnostics()
+                        extra["recognitionPerformance"] = await transcriber.recognitionPerformanceDiagnostics()
+                    }
                     try emit(name: fixture.name, mode: "pipeline", text: segments.map(\.text).joined(separator: " "),
                              seconds: Date().timeIntervalSince(began), extra: extra)
                 }
@@ -188,12 +196,29 @@ enum RecognitionQualityTests {
                          extra: extra)
             }
         }
-        let rawModes = request.modes.filter { $0 != "pipeline" && $0 != "acoustic" }
+        let primaryModes = request.modes.filter { ["parakeet", "parakeet-float32-audio", "parakeet-bfloat16-audio"].contains($0) }
+        if !primaryModes.isEmpty {
+            let session = try ParakeetRecognitionSession(primaryDirectory: directory, verifierDirectory: verifierDirectory)
+            for fixture in request.fixtures {
+                for mode in primaryModes {
+                    let began = Date()
+                    let result = mode == "parakeet-bfloat16-audio"
+                        ? session.primary.generate(audio: MLXArray(fixture.samples).asType(.bfloat16), generationParameters: ParakeetRecognitionSession.primaryParameters)
+                        : session.generate(fixture.samples)
+                    try emit(name: fixture.name, mode: mode, text: result.text,
+                             seconds: Date().timeIntervalSince(began),
+                             extra: ["model": mode == "parakeet-bfloat16-audio" ? "parakeet-native-float32-bfloat16-audio" : "parakeet-native-float32-audio", "primaryLoadSeconds": session.primaryLoadSeconds])
+                }
+            }
+        }
+        let rawModes = request.modes.filter { $0 != "pipeline" && $0 != "acoustic" && !primaryModes.contains($0) }
         if !rawModes.isEmpty {
             let previousLimit = Memory.cacheLimit
             Memory.cacheLimit = 256 * 1024 * 1024
             defer { Memory.clearCache(); Memory.cacheLimit = previousLimit }
-            let model = try await Qwen3ASRModel.fromModelDirectory(directory)
+            let access = verifierDirectory.startAccessingSecurityScopedResource()
+            defer { if access { verifierDirectory.stopAccessingSecurityScopedResource() } }
+            let model = try await Qwen3ASRModel.fromModelDirectory(verifierDirectory)
             for fixture in request.fixtures {
                 let duration = Double(fixture.samples.count) / 16000
                 for mode in rawModes {

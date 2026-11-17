@@ -2,7 +2,7 @@ import Foundation
 import NaturalLanguage
 
 enum RecognitionConsensus {
-    private static let wordPattern = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+"#)
+    private static let wordPattern = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+|[\p{Sc}%‰‱]"#)
     private static let meaningMarkers: Set<String> = [
         "не", "ни", "нет", "нельзя", "никогда", "никто", "ничего", "нигде", "никак", "без", "или", "либо",
     ]
@@ -345,8 +345,21 @@ enum RecognitionConsensus {
         word.unicodeScalars.allSatisfy { (0x0430...0x044f).contains($0.value) }
     }
 
+    // Preserve quantity units and symbols against local deletion or duplication.
+    // Symbols must also be tokens: otherwise a prefix "$" can fall outside a
+    // span anchored on the number, silently deleting its spoken currency unit.
+    // This does not establish equivalence or protect all spelled-out amounts.
+    private static let quantityUnits: Set<String> = [
+        "доллар", "доллара", "доллару", "долларом", "долларе", "доллары", "долларов", "долларам", "долларами", "долларах",
+        "рубль", "рубля", "рублю", "рублем", "рубле", "рубли", "рублей", "рублям", "рублями", "рублях",
+        "евро", "цент", "цента", "центу", "центом", "центе", "центы", "центов", "центам", "центами", "центах",
+        "фунт", "фунта", "фунту", "фунтом", "фунте", "фунты", "фунтов", "фунтам", "фунтами", "фунтах",
+        "юань", "юаня", "юаню", "юанем", "юане", "юани", "юаней", "юаням", "юанями", "юанях",
+        "процент", "процента", "проценту", "процентом", "проценте", "проценты", "процентов", "процентам", "процентами", "процентах", "промилле"
+    ]
+
     private static func isReplaceable(_ word: String) -> Bool {
-        isRussian(word) && !meaningMarkers.contains(word)
+        isRussian(word) && !meaningMarkers.contains(word) && !quantityUnits.contains(word)
     }
 
     private static func differingWords(_ first: [String], _ second: [String]) -> (Range<Int>, Range<Int>) {

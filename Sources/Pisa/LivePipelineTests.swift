@@ -20,11 +20,8 @@ public enum LivePipelineTests {
         let preferencesURL = userRoot.appendingPathComponent("preferences.json")
         let preferences = FileManager.default.fileExists(atPath: preferencesURL.path)
             ? try JSONDecoder().decode(Preferences.self, from: Data(contentsOf: preferencesURL)) : Preferences()
-        let model: URL
-        if let data = preferences.modelBookmark {
-            var stale = false
-            model = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-        } else { model = userRoot.appendingPathComponent("Models/Qwen3-ASR") }
+        let locations = try RecognitionModelLocations(preferences: preferences, models: userRoot.appendingPathComponent("Models"))
+        let model = locations.primary, verifier = locations.verifier
         let access = model.startAccessingSecurityScopedResource()
         defer { if access { model.stopAccessingSecurityScopedResource() } }
         let speakerDirectory = userRoot.appendingPathComponent("Models/Speakers")
@@ -85,7 +82,7 @@ public enum LivePipelineTests {
             defer { try? FileManager.default.removeItem(at: temp) }
             let files = try CaptureWindow.copy(boundaries(), start: window.start, end: min(available, window.end + 2), directory: temp)
             try check(!files.isEmpty, "No fixture tracks in window")
-            var result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: "", speakerDirectory: speakerDirectory, profiles: [], quiet: true, live: true) { _, _ in }
+            var result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: "", speakerDirectory: speakerDirectory, verifierDirectory: verifier, profiles: [], quiet: true, live: true) { _, _ in }
             guard let identity = await transcriber.liveModelIdentity() else { throw PisaError.message("Live model not retained") }
             if let initialModel { try check(identity == initialModel, "Model was not reused across windows") }
             else { initialModel = identity }
@@ -97,7 +94,7 @@ public enum LivePipelineTests {
                 if !stopped { _ = scheduler.deferBoundary(window); return }
                 // Same conservative fallback as AppState after stop.
                 let fallbackFiles = try CaptureWindow.copy(boundaries(), start: window.start, end: window.end, directory: temp)
-                result = try await transcriber.transcribe(files: fallbackFiles.map { ($0.url, $0.offset) }, modelDirectory: model, context: "", speakerDirectory: speakerDirectory, profiles: [], quiet: true, live: true) { _, _ in }
+                result = try await transcriber.transcribe(files: fallbackFiles.map { ($0.url, $0.offset) }, modelDirectory: model, context: "", speakerDirectory: speakerDirectory, verifierDirectory: verifier, profiles: [], quiet: true, live: true) { _, _ in }
                 commitEnd = window.end
             } else { result.removeAll { $0.end > commitEnd } }
             result = try result.map { original in
@@ -159,7 +156,7 @@ public enum LivePipelineTests {
             try append(cancelWriter, samples: cancelAudio, from: 0, to: cancelAudio.count)
             cancelWriter.close()
             let cancelTask = Task(priority: .utility) {
-                try await transcriber.transcribe(files: [(cancelMic, 0)], modelDirectory: model, context: "", speakerDirectory: speakerDirectory, profiles: [], quiet: true, live: true) { _, _ in }
+                try await transcriber.transcribe(files: [(cancelMic, 0)], modelDirectory: model, context: "", speakerDirectory: speakerDirectory, verifierDirectory: verifier, profiles: [], quiet: true, live: true) { _, _ in }
             }
             do {
                 let deadline = Date().addingTimeInterval(30)

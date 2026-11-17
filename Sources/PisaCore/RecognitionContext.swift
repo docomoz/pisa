@@ -16,6 +16,8 @@ struct RecognitionContext {
         fileprivate let neighbors: Neighbors
         fileprivate let endingSites: [String: String]
         fileprivate let competingEndings: Set<String>
+        fileprivate let sharedNameTerms: Set<String>
+        fileprivate let explicitNumericTerms: Set<String>
 
         /// Small source intervals for an optional acoustic recheck. These
         /// ranges point into `original` and never authorize a text change.
@@ -158,6 +160,18 @@ struct RecognitionContext {
         let entityContext = surrounding.filter { distance($0) <= 120 }.map { Self.withoutLiterals($0.text) }
         let exactMentions = Set(surrounding.flatMap { Self.tokens(Self.withoutLiterals($0.text)) }.map(\.text))
         let lexicon = Self.terms(in: vocabulary)
+        // Agreement can hide a shared name error after a prompt-free primary
+        // decode. Only a unique, anchored near-miss of an explicitly listed,
+        // locally established name may schedule more audio; it is not evidence
+        // that the glossary form was spoken.
+        var sharedNames: [String: String] = [:]
+        for term in lexicon where entityContext.contains(where: { Self.establishesTerm(term, in: $0) }) {
+            if let span = Self.sharedEstablishedNameSpan(in: target.text, corroboration: acoustic, term: term) {
+                sharedNames[term] = Self.tokens(target.text)[span.lowerBound].text
+            }
+        }
+        let sharedNameCounts = Dictionary(grouping: sharedNames, by: { $0.value.lowercased() })
+        sharedNames = sharedNames.filter { sharedNameCounts[$0.value.lowercased()]?.count == 1 }
         var selected: [(term: String, forms: [String], established: Bool, strength: Int)] = []
         var endingSites: [String: String] = [:]
         for term in lexicon {
@@ -170,6 +184,7 @@ struct RecognitionContext {
             let forms = Self.hintForms(for: term)
             guard missing || fused || !forms.isEmpty else { continue }
             let possibleMisses = observed.filter { !Self.isTermForm($0.text, of: term) }.map(\.text)
+                + (sharedNames[term].map { [$0] } ?? [])
             let near = forms.compactMap { form -> (String, Int)? in
                 let score = possibleMisses.compactMap { Self.phoneticScore($0, form, term: term) }.min()
                 return score.map { (form, $0) }
@@ -211,7 +226,37 @@ struct RecognitionContext {
         return Retry(hints: hints, context: context, terms: focused.map(\.term),
                      established: Set(focused.filter(\.established).map(\.term)),
                      phoneticTerms: Set(focused.map(\.term)).intersection(exactMentions), neighbors: neighbors,
-                     endingSites: endingSites, competingEndings: competingEndings)
+                     endingSites: endingSites, competingEndings: competingEndings,
+                     sharedNameTerms: Set(sharedNames.keys).intersection(focused.map(\.term)),
+                     explicitNumericTerms: Set(Self.terms(in: spokenVocabulary.decodingVocabulary)
+                        .filter { RecognitionVocabulary.numericForms(for: $0) != nil }).intersection(focused.map(\.term)))
+    }
+
+    private static func sharedEstablishedNameSpan(in original: String, corroboration: String,
+                                                  term: String) -> Range<Int>? {
+        guard term.count >= 5, term == term.capitalized, isRussianWord(term) else { return nil }
+        let source = tokens(original), acoustic = tokens(corroboration)
+        let forms = hintForms(for: term)
+        let candidates = source.indices.filter { index in
+            let token = source[index], span = index..<(index + 1)
+            guard !isTermForm(token.text, of: term), isRussian(token),
+                  safe(span, in: source, text: original),
+                  forms.contains(where: { (phoneticScore(token.text, $0, term: term) ?? Int.max) <= 1 }),
+                  let (left, right) = anchors(around: span, in: source),
+                  left.count == 2, right.count == 2,
+                  matches(in: source, left: left, right: right) == [span] else { return false }
+            // Bare paths/handles must not become speculative name candidates.
+            let before = original[..<token.range.lowerBound].last
+            let after = original[token.range.upperBound...].first
+            guard ![before, after].compactMap({ $0 }).contains(where: { "/\\_@".contains($0) }) else { return false }
+            let matches = matches(in: acoustic, left: left, right: right)
+            guard matches.count == 1, let heard = matches.first, heard.count == 1,
+                  acoustic[heard.lowerBound].key == token.key,
+                  safe(heard, in: acoustic, text: corroboration) else { return false }
+            return true
+        }
+        guard candidates.count == 1, let index = candidates.first else { return nil }
+        return index..<(index + 1)
     }
 
     private static func targetSpans(in original: String, corroboration: String?, retry: Retry) -> [Range<String.Index>] {
@@ -221,6 +266,10 @@ struct RecognitionContext {
         var choices: [Range<Int>: Int] = [:]
         for term in retry.terms {
             let forms = hintForms(for: term)
+            if retry.sharedNameTerms.contains(term), let corroboration,
+               let span = sharedEstablishedNameSpan(in: original, corroboration: corroboration, term: term) {
+                choices[span] = 1
+            }
             if retry.phoneticTerms.contains(term), isLatinInitialism(term), let corroboration {
                 for span in phoneticBoundarySites(in: original, corroboration: corroboration, term: term) {
                     choices[span] = 1
@@ -313,11 +362,6 @@ struct RecognitionContext {
                 let sourceRange = range(in: source, old)
                 let previous = String(original[sourceRange])
                 guard previous != proposed else { continue }
-                if old.count > 1, RecognitionConsensus.isNumberWord(source[old.lowerBound].key) { continue }
-                if previous.first?.isNumber == true, RecognitionVocabulary.numericForms(for: term) != nil {
-                    let written = String(previous.prefix { $0.isNumber || $0.isUppercase })
-                    guard AbbreviationFamilies.aliases(for: term).contains(written) else { continue }
-                }
                 if left.count == 1 || right.count == 1 {
                     // One nearby anchor must not turn two recognizable names
                     // into a different person merely because a retry agrees.
@@ -334,6 +378,22 @@ struct RecognitionContext {
                     guard matchesInEvidence.count == 1, let heardSpan = matchesInEvidence.first,
                           safe(heardSpan, in: evidence, text: text) else { return nil }
                     return String(text[range(in: evidence, heardSpan)])
+                }
+                let literalSafeEnding = ordinaryNumericSpan(sourceRange, in: original)
+                    && ordinaryNumericSpan(candidateRange, in: candidate)
+                    && matchesInEvidence.first.map { match in
+                        ordinaryNumericSpan(range(in: evidence, match), in: acoustic ?? "")
+                    } == true
+                let complementaryEnding = candidateIsAcoustic && retry.explicitNumericTerms.contains(term)
+                    && literalSafeEnding
+                    && primarySupportsNumericEnding(previous: previous, proposed: proposed, heard: heard,
+                                                    term: term, lexicon: lexicon)
+                if !complementaryEnding {
+                    if old.count > 1, RecognitionConsensus.isNumberWord(source[old.lowerBound].key) { continue }
+                    if previous.first?.isNumber == true, RecognitionVocabulary.numericForms(for: term) != nil {
+                        let written = String(previous.prefix { $0.isNumber || $0.isUppercase })
+                        guard AbbreviationFamilies.aliases(for: term).contains(written) else { continue }
+                    }
                 }
                 if contraction != nil {
                     guard let heard, (isTermForm(heard, of: term) && equivalentForm(heard, proposed, term: term))
@@ -355,7 +415,8 @@ struct RecognitionContext {
                 } else {
                     replacement = supportedEdit(previous: previous, proposed: proposed, heard: heard,
                         term: term, established: retry.established.contains(term), candidateIsAcoustic: candidateIsAcoustic,
-                        phoneticBoundaryEstablished: retry.phoneticTerms.contains(term), boundaryEvidence: confirmations)
+                        phoneticBoundaryEstablished: retry.phoneticTerms.contains(term), boundaryEvidence: confirmations,
+                        complementaryNumericEnding: complementaryEnding)
                 }
                 guard let replacement else { continue }
                 if !edits.contains(where: { $0.0 == sourceRange && $0.1 == replacement }) {
@@ -932,15 +993,62 @@ struct RecognitionContext {
         return distance <= 3
     }
 
+    private static func ordinaryNumericSpan(_ range: Range<String.Index>, in text: String) -> Bool {
+        let literalMarkers = "/\\@_#~`"
+        let before = text[..<range.lowerBound].last
+        let after = text[range.upperBound...].first
+        return !(before.map { literalMarkers.contains($0) } ?? false)
+            && !(after.map { literalMarkers.contains($0) } ?? false)
+            && !text[range].contains(where: literalMarkers.contains)
+    }
+
+    /// The first pass already supplies the ending; the independent decode
+    /// supplies the complete number and base. A fresh acoustic candidate must
+    /// confirm that same ending. Only a single doubled stem consonant may be
+    /// removed, never arbitrary phonetic substitutions or numeral changes.
+    private static func primarySupportsNumericEnding(previous: String, proposed: String, heard: String?,
+                                                       term: String, lexicon: [String]) -> Bool {
+        guard let numerals = RecognitionVocabulary.numericForms(for: term), let heard,
+              let proposedForm = AbbreviationFamilies.parse(RecognitionVocabulary.apply(to: proposed, vocabulary: term), as: term),
+              AbbreviationFamilies.caseEndings.contains(proposedForm.ending),
+              let heardForm = AbbreviationFamilies.parse(RecognitionVocabulary.apply(to: heard, vocabulary: term), as: term),
+              heardForm.ending.isEmpty,
+              !lexicon.contains(where: { $0 != term && isTermForm(previous, of: $0) }),
+              previous.allSatisfy({ $0.isLetter || $0.isNumber || " \t-‐‑'’".contains($0) }) else { return false }
+        let digits = String(term.prefix(while: \.isNumber))
+        let prefixes = ([digits] + numerals).sorted { $0.count > $1.count }
+        let lower = previous.lowercased()
+        let ending = proposedForm.ending
+        let aliases = AbbreviationFamilies.aliases(for: term).map { String($0.dropFirst(digits.count)).lowercased() }
+        for prefix in prefixes where lower.hasPrefix(prefix) {
+            var tail = String(lower.dropFirst(prefix.count))
+            tail = tail.trimmingCharacters(in: CharacterSet(charactersIn: " \t-‐‑"))
+            guard tail.hasSuffix(ending) else { continue }
+            var stem = String(tail.dropLast(ending.count))
+            if stem.last == "'" || stem.last == "’" { stem.removeLast() }
+            if aliases.contains(stem) { return true }
+            let letters = Array(stem)
+            guard letters.count >= 2 else { continue }
+            for index in 1..<letters.count where letters[index] == letters[index - 1]
+                && "бвгджзйклмнпрстфхцчшщbcdfghjklmnpqrstvwxyz".contains(letters[index]) {
+                var shortened = letters
+                shortened.remove(at: index)
+                if aliases.contains(String(shortened)) { return true }
+            }
+        }
+        return false
+    }
+
     private static func supportedEdit(previous: String, proposed: String, heard: String?, term: String,
                                       established: Bool, candidateIsAcoustic: Bool,
-                                      phoneticBoundaryEstablished: Bool, boundaryEvidence: [String]) -> String? {
+                                      phoneticBoundaryEstablished: Bool, boundaryEvidence: [String],
+                                      complementaryNumericEnding: Bool) -> String? {
         if isTermForm(proposed, of: term) {
             let canonical = RecognitionVocabulary.numericForms(for: term) != nil
                 ? RecognitionVocabulary.apply(to: proposed, vocabulary: term) : proposed
             guard let heard else { return nil }
             if isTermForm(heard, of: term) {
-                return equivalentForm(heard, canonical, term: term) ? canonical : nil
+                return equivalentForm(heard, canonical, term: term) || complementaryNumericEnding ? canonical : nil
             }
             // Neither the first-pass wording nor a text proposal can replace
             // an independent observation of the ambiguous span.

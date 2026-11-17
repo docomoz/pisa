@@ -42,11 +42,8 @@ enum EchoDiagnostics {
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisa")
         let library = try MeetingLibrary(root: root)
         let preferences = try library.preferences()
-        let model: URL
-        if let bookmark = preferences.modelBookmark {
-            var stale = false
-            model = try URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-        } else { model = root.appendingPathComponent("Models/Qwen3-ASR") }
+        let locations = try RecognitionModelLocations(preferences: preferences, models: root.appendingPathComponent("Models"))
+        let model = locations.primary, verifier = locations.verifier
         let access = model.startAccessingSecurityScopedResource()
         defer { if access { model.stopAccessingSecurityScopedResource() } }
         let fixture = CommandLine.arguments.contains("--fixture-preview")
@@ -73,7 +70,7 @@ enum EchoDiagnostics {
                 clips.append((destination, 0))
             }
             let began = Date()
-            let result = try await Transcriber().transcribe(files: clips, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: root.appendingPathComponent("Models/Speakers"), profiles: [], quiet: true) { _, _ in }
+            let result = try await Transcriber().transcribe(files: clips, modelDirectory: model, context: preferences.vocabulary, speakerDirectory: root.appendingPathComponent("Models/Speakers"), verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
             let visible = result.filter { $0.end > time - base && $0.start < duration + time - base }
             let mic = visible.filter { $0.speaker == "Я" }
             let original = meeting.segments.filter { $0.end > time && $0.start < time + duration && $0.speaker == "Я" }

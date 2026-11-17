@@ -19,7 +19,7 @@ actor Transcriber {
         var retry: Retry?
     }
 
-    private var liveModel: Qwen3ASRModel?
+    private var liveModel: ParakeetRecognitionSession?
     private var liveActivity: SpeechDetector?
     private var liveVoices: SpeakerEngine?
     private var liveRussian: RussianSpeechRecognizer?
@@ -32,7 +32,12 @@ actor Transcriber {
     func recognitionContextDiagnostics() -> [[String: String]] { contextDiagnostics }
 
     private var performanceDiagnostics: [String: Double]?
-    func resetRecognitionPerformanceDiagnostics() { performanceDiagnostics = [:] }
+    func resetRecognitionPerformanceDiagnostics() {
+        performanceDiagnostics = Dictionary(uniqueKeysWithValues:
+            ["parakeet", "qwen", "giga", "parakeetLoad", "qwenLoad", "speakerLoad", "gigaLoad", "diarization"].flatMap { [$0 + "Calls", $0 + "Seconds"] }
+                .map { ($0, 0.0) })
+        performanceDiagnostics?["qwenLoadFailures"] = 0
+    }
     func recognitionPerformanceDiagnostics() -> [String: Double] { performanceDiagnostics ?? [:] }
 
     private func measureRecognition<T>(_ kind: String, _ body: () throws -> T) rethrows -> T {
@@ -50,26 +55,37 @@ actor Transcriber {
         return measureRecognition("giga") { russian.recognizeDetailed(samples) }
     }
 
+    private func verificationModel(_ session: ParakeetRecognitionSession) async throws -> Qwen3ASRModel {
+        let beforeCount = session.verifierLoadCount, beforeSeconds = session.verifierLoadSeconds
+        let beforeFailures = session.verifierLoadFailures
+        defer {
+            performanceDiagnostics?["qwenLoadCalls", default: 0] += Double(session.verifierLoadCount - beforeCount)
+            performanceDiagnostics?["qwenLoadSeconds", default: 0] += session.verifierLoadSeconds - beforeSeconds
+            performanceDiagnostics?["qwenLoadFailures", default: 0] += Double(session.verifierLoadFailures - beforeFailures)
+        }
+        return try await session.verifier()
+    }
+
     /// Used by the local synthetic integration fixture to check session reuse.
-    func liveModelIdentity() -> ObjectIdentifier? { liveModel.map(ObjectIdentifier.init) }
+    func liveModelIdentity() -> ObjectIdentifier? { liveModel.map { ObjectIdentifier($0.primary) } }
     func liveRussianModelIdentity() -> ObjectIdentifier? { liveRussian.map(ObjectIdentifier.init) }
     func shortDecodeIsActive() -> Bool { activeShortDecodes > 0 }
 
-    private func decodeShortMicrophone(_ model: Qwen3ASRModel, audio: MLXArray, maxTokens: Int) async throws -> STTOutput {
+    private func decodeShortMicrophone(_ model: ParakeetModel, audio: MLXArray) async throws -> STTOutput {
         try Task.checkCancellation()
         activeShortDecodes += 1
         let began = ProcessInfo.processInfo.systemUptime
         defer {
             activeShortDecodes -= 1
-            performanceDiagnostics?["qwenCalls", default: 0] += 1
-            performanceDiagnostics?["qwenSeconds", default: 0] += ProcessInfo.processInfo.systemUptime - began
+            performanceDiagnostics?["parakeetCalls", default: 0] += 1
+            performanceDiagnostics?["parakeetSeconds", default: 0] += ProcessInfo.processInfo.systemUptime - began
         }
         // The short streaming API preserves a missing language as nil, rather
         // than substituting English. Drain it in an independent collector:
         // cancellation must not release MLX state while its producer still runs.
         let collector = Task<STTOutput, Error> {
             var final: STTOutput?
-            for try await update in model.generateStream(audio: audio, maxTokens: maxTokens, context: "", language: nil, chunkDuration: 24, repetitionPenalty: 1.1) {
+            for try await update in model.generateStream(audio: audio, generationParameters: ParakeetRecognitionSession.primaryParameters) {
                 if case .result(let result) = update { final = result }
             }
             guard let final else { throw PisaError.message("Распознавание не вернуло результат") }
@@ -88,32 +104,37 @@ actor Transcriber {
     }
 
     func transcribe(files: [(URL, Double)], modelDirectory: URL, context: String,
-                    speakerDirectory: URL, profiles: [VoiceProfile]? = nil, quiet: Bool = true,
+                    speakerDirectory: URL, verifierDirectory: URL? = nil, profiles: [VoiceProfile]? = nil, quiet: Bool = true,
                     performance: TranscriptionPerformance? = nil, live: Bool = false, russianVerification: Bool = true,
                     contextualVerification: Bool = true, preceding: [TranscriptSegment] = [], collectDiagnostics: Bool = false,
                     retainProcessedMicrophone: Bool = true, checkpointURL: URL? = nil,
                     progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
-        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory, verifierDirectory: verifierDirectory,
             profiles: profiles, performance: performance ?? TranscriptionPerformance(mode: quiet ? .quiet : .normal), live: live,
             russianVerification: russianVerification, contextualVerification: contextualVerification, preceding: preceding,
             collectDiagnostics: collectDiagnostics, retainProcessedMicrophone: retainProcessedMicrophone, checkpointURL: checkpointURL, progress: progress).segments
     }
 
-    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
+    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, verifierDirectory: URL? = nil,
                           performance: TranscriptionPerformance, preceding: [TranscriptSegment],
                           boundaryCheck: WindowBoundaryCheck?) async throws -> WindowPass {
-        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory,
+        try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory, verifierDirectory: verifierDirectory,
             performance: performance, live: true, preceding: preceding, boundaryCheck: boundaryCheck) { _, _ in }
     }
 
-    private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL,
+    private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, verifierDirectory: URL? = nil,
                                  profiles: [VoiceProfile]? = nil, performance: TranscriptionPerformance, live: Bool,
                                  russianVerification: Bool = true, contextualVerification: Bool = true,
                                  preceding: [TranscriptSegment], collectDiagnostics: Bool = false,
                                  boundaryCheck: WindowBoundaryCheck? = nil, retainProcessedMicrophone: Bool = false, checkpointURL: URL? = nil,
                                  progress: @escaping @Sendable (Double, String) async -> Void) async throws -> WindowPass {
         contextDiagnostics = []
-        guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path), FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("model.safetensors").path) else { throw PisaError.message("Выберите папку модели Qwen3-ASR с config.json и model.safetensors") }
+        guard SpeechModelFiles.isUsable(at: modelDirectory, kind: .parakeet) else { throw PisaError.message("Выберите папку модели Parakeet с config.json и model.safetensors") }
+        let verifierDirectory = ParakeetRecognitionPolicy.verifierDirectory(explicit: verifierDirectory, speakerDirectory: speakerDirectory)
+        // Checkpoint stamps also need custom-folder access before the lazy model
+        // session is created. Its own grant survives across live windows.
+        let verifierAccess = verifierDirectory.startAccessingSecurityScopedResource()
+        defer { if verifierAccess { verifierDirectory.stopAccessingSecurityScopedResource() } }
         let previousCacheLimit = Memory.cacheLimit
         if live && previousLiveCacheLimit == nil { previousLiveCacheLimit = previousCacheLimit }
         Memory.cacheLimit = 256 * 1024 * 1024
@@ -128,8 +149,8 @@ actor Transcriber {
             let bundledModels = [Bundle.main.url(forResource: "silero_vad", withExtension: "onnx")].compactMap { $0 }
             let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
             let inputs = try BatchTranscriptionCheckpoint.Inputs(files: files, model: modelDirectory,
-                vocabulary: context, variants: [:], build: build,
-                supportingModels: speakerFiles + russianFiles + bundledModels)
+                vocabulary: context, variants: ParakeetRecognitionPolicy.checkpointVariants, build: build,
+                supportingModels: speakerFiles + russianFiles + bundledModels + ParakeetRecognitionPolicy.verifierCheckpointFiles(directory: verifierDirectory, speakerDirectory: speakerDirectory))
             let saved = try await ProtectedFileRead.waitForAccess(read: {
                 try BatchTranscriptionCheckpoint.load(from: checkpointURL)
             }, onDenied: {})
@@ -198,18 +219,33 @@ actor Transcriber {
         await report(0.12, "Загружаю модель в память")
         let activity: SpeechDetector
         if let existing = live ? liveActivity : nil { activity = existing } else { activity = try SpeechDetector(); if live { liveActivity = activity } }
-        let model: Qwen3ASRModel
-        if let existing = live ? liveModel : nil { model = existing } else { model = try await Qwen3ASRModel.fromModelDirectory(modelDirectory); if live { liveModel = model } }
+        let model: ParakeetRecognitionSession
+        if let existing = live ? liveModel : nil,
+           existing.primaryDirectory == modelDirectory.standardizedFileURL,
+           existing.verifierDirectory == verifierDirectory.standardizedFileURL {
+            model = existing
+        } else {
+            model = try measureRecognition("parakeetLoad") {
+                try ParakeetRecognitionSession(primaryDirectory: modelDirectory, verifierDirectory: verifierDirectory)
+            }
+            if live { liveModel = model }
+        }
         let voices: SpeakerEngine?
         if live, let existing = liveVoices { voices = existing }
-        else { voices = FileManager.default.fileExists(atPath: speakerDirectory.appendingPathComponent("titanet.onnx").path) ? try SpeakerEngine(directory: speakerDirectory) : nil; if live { liveVoices = voices } }
+        else {
+            voices = FileManager.default.fileExists(atPath: speakerDirectory.appendingPathComponent("titanet.onnx").path)
+                ? try measureRecognition("speakerLoad") { try SpeakerEngine(directory: speakerDirectory) } : nil
+            if live { liveVoices = voices }
+        }
         let russian: RussianSpeechRecognizer?
         if !russianVerification { russian = nil }
         else if live, let existing = liveRussian { russian = existing }
         else {
             // Existing/custom installations can still transcribe while the new
             // optional acoustic verifier is unavailable or cannot be loaded.
-            russian = try? RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent().appendingPathComponent(RussianSpeechRecognizer.directoryName))
+            russian = try? measureRecognition("gigaLoad") {
+                try RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent().appendingPathComponent(RussianSpeechRecognizer.directoryName))
+            }
             if live { liveRussian = russian }
         }
         var startedRecognition = false
@@ -279,7 +315,9 @@ actor Transcriber {
                     if energy > 0.000001 {
                         var regions = isMic
                             ? [VoiceRegion(start: max(0, range.start - start), end: min(duration, range.end - start), embedding: nil)]
-                            : voices?.regions(samples, extractEmbeddings: false) ?? []
+                            : voices.map { voices in
+                                measureRecognition("diarization") { voices.regions(samples, extractEmbeddings: false) }
+                            } ?? []
                         var protectedShortSpeech: [Range<Int>] = []
                         if !isMic {
                             // VAD recovers speech that segmentation missed. Acoustic
@@ -392,7 +430,8 @@ actor Transcriber {
                             } else { expandedSamples = nil }
                             let inferenceStarted = ContinuousClock.now
                             let recognized = try await recognize(regionSamples, expandedSamples: expandedSamples, model: model,
-                                russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic)
+                                russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic,
+                                diagnostic: collectDiagnostics ? (speech.lowerBound, url.lastPathComponent) : nil)
                             try await performance.pace(after: inferenceStarted)
                             guard let recognized else { continue }
                             let speaker = isMic ? "Я" : TranscriptSegment.unidentifiedSpeaker
@@ -518,8 +557,12 @@ actor Transcriber {
                 try Task.checkCancellation()
                 let replayBegan = ContinuousClock.now
                 let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
+                guard model.canVerify else { continue }
+                let verifier: Qwen3ASRModel
+                do { verifier = try await verificationModel(model) }
+                catch is ParakeetRecognitionSession.VerifierUnavailable { continue }
                 let reread = measureRecognition("qwen") {
-                    model.generate(audio: MLXArray(samples), maxTokens: maxTokens, context: "", language: "Russian",
+                    verifier.generate(audio: MLXArray(samples), maxTokens: maxTokens, context: "", language: "Russian",
                         chunkDuration: 30, repetitionPenalty: 1.1)
                 }
                 try await performance.pace(after: replayBegan)
@@ -564,16 +607,21 @@ actor Transcriber {
     /// Replay selected turns against a frozen meeting transcript and existing
     /// audio. Caller can supply the exact padded file-local decode intervals.
     func replayRecognitionContext(_ frozen: [TranscriptSegment], files: [(URL, Double)],
-        modelDirectory: URL, speakerDirectory: URL, vocabulary: String, selected: Set<UUID>,
+        modelDirectory: URL, speakerDirectory: URL, verifierDirectory: URL? = nil, vocabulary: String, selected: Set<UUID>,
         suppliedBounds: [UUID: Range<Double>], repeatFirstPass: Bool) async throws -> [TranscriptSegment] {
         contextDiagnostics = []
         prepareVocabulary(vocabulary)
         let priorLimit = Memory.cacheLimit
         Memory.cacheLimit = 256 * 1024 * 1024
         defer { Memory.clearCache(); Memory.cacheLimit = priorLimit }
-        let model = try await Qwen3ASRModel.fromModelDirectory(modelDirectory)
-        let russian = try RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent()
-            .appendingPathComponent(RussianSpeechRecognizer.directoryName))
+        let model = try measureRecognition("parakeetLoad") {
+            try ParakeetRecognitionSession(primaryDirectory: modelDirectory,
+                verifierDirectory: ParakeetRecognitionPolicy.verifierDirectory(explicit: verifierDirectory, speakerDirectory: speakerDirectory))
+        }
+        let russian = try measureRecognition("gigaLoad") {
+            try RussianSpeechRecognizer(directory: speakerDirectory.deletingLastPathComponent()
+                .appendingPathComponent(RussianSpeechRecognizer.directoryName))
+        }
         var segments = frozen.sorted { $0.start < $1.start }
         var bounds = suppliedBounds
         var hypotheses: [UUID: RecognitionAcousticResult] = [:]
@@ -593,7 +641,7 @@ actor Transcriber {
                 if repeatFirstPass,
                    let recognized = try await recognize(samples, expandedSamples: nil, model: model, russian: russian,
                                                   vocabulary: vocabulary, duration: segment.end - segment.start,
-                                                  isMic: name.contains("-mic.")) {
+                                                  isMic: name.contains("-mic."), diagnostic: (segment.start, name)) {
                     segments[index].text = recognized.text
                     hypotheses[segment.id] = recognized.acoustic
                 } else {
@@ -611,17 +659,22 @@ actor Transcriber {
     /// Use a frozen, chronological first pass from both tracks. A proposed
     /// correction never becomes evidence for a later correction in this pass.
     private func contextualRevision(_ segments: [TranscriptSegment], preceding: [TranscriptSegment],
-        files: [(URL, Double)], bounds: [UUID: Range<Double>], hypotheses: [UUID: RecognitionAcousticResult], model: Qwen3ASRModel,
+        files: [(URL, Double)], bounds: [UUID: Range<Double>], hypotheses: [UUID: RecognitionAcousticResult], model: ParakeetRecognitionSession,
         russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance, collectDiagnostics: Bool,
         selected: Set<UUID>? = nil, checkpoint: BatchTranscriptionCheckpoint? = nil, checkpointURL: URL? = nil,
         progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
-        guard let russian else {
+        guard let russian, model.canVerify else {
             try Task.checkCancellation()
+            if collectDiagnostics {
+                contextDiagnostics += segments.map { ["start": String($0.start), "track": $0.audioFile ?? "",
+                    "source": $0.text, "independent": hypotheses[$0.id]?.text ?? "", "kind": "first-pass"] }
+            }
             await progress(1, "Расшифровка готова")
             return segments
         }
         let snapshot = RecognitionContext(segments: segments, preceding: preceding)
         var revised = segments
+        do {
         let start = min(max(0, checkpoint?.revisionCount ?? 0), segments.count)
         for index in 0..<start {
             if let text = checkpoint?.revisions[revised[index].id] { revised[index].text = text }
@@ -662,11 +715,12 @@ actor Transcriber {
                 let audio = MLXArray(samples)
                 for prompt in (hints.isEmpty ? [""] : [hints, ""]) {
                     try Task.checkCancellation()
+                    let verifier = try await verificationModel(model)
                     let output = RecognitionPromptEcho.decode(context: prompt, vocabulary: prompt, text: { $0.text }) {
                         let prompt = $0
                         return decodeCache.value(samples: samples, context: prompt, language: "Russian", maxTokens: 96) {
                             measureRecognition("qwen") {
-                                model.generate(audio: audio, maxTokens: 96, context: prompt, language: "Russian",
+                                verifier.generate(audio: audio, maxTokens: 96, context: prompt, language: "Russian",
                                                chunkDuration: 30, repetitionPenalty: 1.1)
                             }
                         }
@@ -702,9 +756,10 @@ actor Transcriber {
                 try Task.checkCancellation()
                 let audio = MLXArray(samples)
                 let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
+                let verifier = try await verificationModel(model)
                 let output = decodeCache.value(samples: samples, context: "", language: "Russian", maxTokens: maxTokens) {
                     measureRecognition("qwen") {
-                        model.generate(audio: audio, maxTokens: maxTokens, context: "", language: "Russian",
+                        verifier.generate(audio: audio, maxTokens: maxTokens, context: "", language: "Russian",
                             chunkDuration: 30, repetitionPenalty: 1.1)
                     }
                 }
@@ -756,14 +811,15 @@ actor Transcriber {
             let acoustic = hypotheses[segment.id] ?? acousticRecognition(samples, using: russian)
             let began = ContinuousClock.now
             func decode(_ prompt: String, samples: [Float], retry: RecognitionContext.Retry,
-                        applyVocabulary: Bool = true) throws -> String {
+                        applyVocabulary: Bool = true) async throws -> String {
+                let verifier = try await verificationModel(model)
                 let audio = MLXArray(samples)
                 func generate(_ context: String) throws -> STTOutput {
                     try Task.checkCancellation()
                     let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
                     return decodeCache.value(samples: samples, context: context, language: "Russian", maxTokens: maxTokens) {
                         measureRecognition("qwen") {
-                            model.generate(audio: audio, maxTokens: maxTokens, context: context,
+                            verifier.generate(audio: audio, maxTokens: maxTokens, context: context,
                                 language: "Russian", chunkDuration: 30, repetitionPenalty: 1.1)
                         }
                     }
@@ -778,8 +834,8 @@ actor Transcriber {
             }
             var lastCandidate = ""
             func consider(_ samples: [Float], evidence: RecognitionAcousticResult?, source: String,
-                          retry: RecognitionContext.Retry, prompt: String, kind: String) throws -> String? {
-                let candidate = try decode(prompt, samples: samples, retry: retry)
+                          retry: RecognitionContext.Retry, prompt: String, kind: String) async throws -> String? {
+                let candidate = try await decode(prompt, samples: samples, retry: retry)
                 lastCandidate = candidate
                 if collectDiagnostics {
                     contextDiagnostics.append(["start": String(segment.start), "track": name, "source": source,
@@ -795,7 +851,7 @@ actor Transcriber {
                     corroboration: canonical, retry: retry, vocabulary: vocabulary)
             }
             func focused(_ samples: [Float], evidence: RecognitionAcousticResult?, retry: RecognitionContext.Retry,
-                         kind: String) throws -> String? {
+                         kind: String) async throws -> String? {
                 guard let evidence else { return nil }
                 let targets = retry.targetSpans(in: segment.text, corroboration: spokenVocabulary.apply(to: evidence.text))
                 let ranges = RecognitionAudioFocus.ranges(original: segment.text,
@@ -824,7 +880,7 @@ actor Transcriber {
                         continue probe
                     }
                     var cropApproved = false
-                    if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: retry.hints, kind: kind) {
+                    if let revised = try await consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: retry.hints, kind: kind) {
                         approved.append(revised)
                         cropApproved = true
                     }
@@ -854,7 +910,7 @@ actor Transcriber {
                     if let heard {
                         let canonical = spokenVocabulary.apply(to: heard.text)
                         if retry.hasEstablishedAcousticTerm(in: canonical) {
-                            let unprompted = try decode("", samples: clip, retry: retry)
+                            let unprompted = try await decode("", samples: clip, retry: retry)
                             if collectDiagnostics {
                                 contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-independent",
                                     "source": segment.text, "candidate": canonical, "independent": unprompted])
@@ -879,7 +935,7 @@ actor Transcriber {
                             if margin > 0, a == lower, b == upper { continue }
                             let probeSamples = Array(samples[a..<b])
                             if margin > 0 { expandedProbe = probeSamples }
-                            let probe = try decode("", samples: probeSamples, retry: retry, applyVocabulary: false)
+                            let probe = try await decode("", samples: probeSamples, retry: retry, applyVocabulary: false)
                             unprompted.append(probe)
                             if collectDiagnostics {
                                 contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-unprompted",
@@ -891,7 +947,7 @@ actor Transcriber {
                                 original: segment.text, candidate: candidate, unprompted: unprompted,
                                 retry: retry, vocabulary: vocabulary)
                             if disambiguated == nil, let expandedProbe {
-                                let expandedCandidate = try decode(retry.hints, samples: expandedProbe, retry: retry)
+                                let expandedCandidate = try await decode(retry.hints, samples: expandedProbe, retry: retry)
                                 if collectDiagnostics {
                                     contextDiagnostics.append(["start": String(segment.start), "kind": kind + "-expanded",
                                         "source": segment.text, "candidate": expandedCandidate])
@@ -913,8 +969,8 @@ actor Transcriber {
                     if checkBoundary, let heard {
                         let a = max(0, lower - 4_800), b = min(samples.count, upper + 4_800)
                         if a > 0 || b < samples.count {
-                            let wide = try decode("", samples: samples, retry: retry, applyVocabulary: false)
-                            let narrow = try decode("", samples: Array(samples[a..<b]), retry: retry, applyVocabulary: false)
+                            let wide = try await decode("", samples: samples, retry: retry, applyVocabulary: false)
+                            let narrow = try await decode("", samples: Array(samples[a..<b]), retry: retry, applyVocabulary: false)
                             if collectDiagnostics {
                                 contextDiagnostics.append(["start": String(segment.start), "kind": "phonetic-boundary-unprompted",
                                     "source": segment.text, "independent": heard.text, "candidate": wide, "narrow": narrow])
@@ -933,18 +989,18 @@ actor Transcriber {
                     if let heard, !heard.text.isEmpty {
                         let prompt = RussianRecognition.context(vocabulary: retry.hints,
                             hypothesis: spokenVocabulary.promptHypothesis(heard.text))
-                        if let revised = try consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: prompt, kind: kind + "-acoustic") { approved.append(revised); continue probe }
+                        if let revised = try await consider(clip, evidence: heard, source: segment.text, retry: retry, prompt: prompt, kind: kind + "-acoustic") { approved.append(revised); continue probe }
                     }
                 }
                 return RecognitionContext.mergeIndependentRevisions(original: segment.text, revisions: approved)
             }
             var accepted: String?
             if let retry {
-                accepted = try consider(samples, evidence: acoustic, source: segment.text, retry: retry,
+                accepted = try await consider(samples, evidence: acoustic, source: segment.text, retry: retry,
                                         prompt: retry.hints, kind: "hints")
-                if accepted == nil { accepted = try focused(samples, evidence: acoustic, retry: retry, kind: "focus") }
+                if accepted == nil { accepted = try await focused(samples, evidence: acoustic, retry: retry, kind: "focus") }
                 if accepted == nil, retry.context != retry.hints {
-                    accepted = try consider(samples, evidence: acoustic, source: segment.text, retry: retry,
+                    accepted = try await consider(samples, evidence: acoustic, source: segment.text, retry: retry,
                                             prompt: retry.context, kind: "neighbors")
                 }
             }
@@ -957,7 +1013,7 @@ actor Transcriber {
                     joined.text += continuation.suffix
                     if let boundaryRetry = snapshot.plan(for: joined, independent: heard.text,
                                                          vocabulary: vocabulary, spokenVocabulary: spokenVocabulary) {
-                        let replacement = try consider(expanded, evidence: heard, source: joined.text, retry: boundaryRetry,
+                        let replacement = try await consider(expanded, evidence: heard, source: joined.text, retry: boundaryRetry,
                                                        prompt: boundaryRetry.hints, kind: "right-anchor")
                         accepted = replacement.flatMap(continuation.splice)
                             ?? RecognitionContext.revisedAcrossBoundary(original: segment.text, candidate: lastCandidate,
@@ -977,6 +1033,9 @@ actor Transcriber {
         try Task.checkCancellation()
         await progress(1, "Расшифровка готова")
         return revised
+        } catch is ParakeetRecognitionSession.VerifierUnavailable {
+            return revised
+        }
     }
 
     private static func contextSamples(_ url: URL, start: Double, end: Double) throws -> [Float] {
@@ -1003,7 +1062,8 @@ actor Transcriber {
         return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
     }
 
-    private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: Qwen3ASRModel, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool) async throws -> RecognizedSpeech? {
+    private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: ParakeetRecognitionSession, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool,
+                           diagnostic: (start: Double, track: String)? = nil) async throws -> RecognizedSpeech? {
         let audio = MLXArray(samples)
         let maxTokens = min(768, max(64, Int(duration * 16)))
         let decodeCache = RecognitionDecodeCache<STTOutput>()
@@ -1011,52 +1071,61 @@ actor Transcriber {
         // On brief replies the vocabulary can be longer than the speech itself.
         let decodingVocabulary = spokenVocabulary.decodingVocabulary
         let context = duration >= 2 ? vocabulary : ""
-        func generate(language: String?, context: String, audioSamples: [Float]? = nil, promptVocabulary: String? = nil) throws -> STTOutput {
+        func generate(language: String?, context: String, audioSamples: [Float]? = nil, promptVocabulary: String? = nil) async throws -> STTOutput {
+            let verifier = try await verificationModel(model)
             let input = audioSamples.map { MLXArray($0) } ?? audio
             return try RecognitionPromptEcho.decode(context: context, vocabulary: promptVocabulary ?? vocabulary, text: { $0.text }) { prompt in
                 try Task.checkCancellation()
                 return decodeCache.value(samples: audioSamples ?? samples, context: prompt, language: language, maxTokens: maxTokens) {
                     measureRecognition("qwen") {
-                        model.generate(audio: input, maxTokens: maxTokens, context: prompt,
+                        verifier.generate(audio: input, maxTokens: maxTokens, context: prompt,
                                        language: language, chunkDuration: 30, repetitionPenalty: 1.1)
                     }
                 }
             }
         }
         let shortMic = isMic && duration <= 1.5
-        let detected: STTOutput
+        var result: STTOutput
         if shortMic {
-            detected = try await decodeShortMicrophone(model, audio: audio, maxTokens: maxTokens)
+            result = try await decodeShortMicrophone(model.primary, audio: audio)
         } else {
-            detected = try generate(language: nil, context: context)
+            result = measureRecognition("parakeet") { model.generate(samples) }
         }
-        let language = detected.language?.lowercased()
-        guard language != "none", !detected.text.isEmpty else { return nil }
-        let allowed = language == "russian" || language == "english"
-        let result: STTOutput
-        let retryLanguage = shortMic
-            ? !allowed && MicrophoneLanguage.shouldRetryRussian(duration: duration, language: detected.language,
-                languageIsExplicit: detected.language != nil, text: detected.text, supportedLanguages: model.config.supportLanguages)
-            : !allowed
-        if retryLanguage || MeetingSpeechText.containsForeignLetters(detected.text) {
-            result = try generate(language: allowed ? detected.language : "Russian", context: "")
-        } else {
-            result = detected
+        if let diagnostic {
+            contextDiagnostics.append(["kind": "primary", "engine": "parakeet-tdt-v3",
+                "start": String(diagnostic.start), "track": diagnostic.track, "source": result.text])
         }
+        // This is an exceptional invalid-output reread, not a second primary
+        // decoder. Do not replace valid Parakeet turns or force foreign Latin
+        // speech into Russian merely because no language tag was emitted.
+        if MeetingSpeechText.containsForeignLetters(result.text), model.canVerify {
+            do {
+                let checked = try await generate(language: nil, context: "")
+                if MeetingSpeechText.accepts(checked.text) { result = checked }
+            } catch is ParakeetRecognitionSession.VerifierUnavailable { }
+        }
+        // Parakeet does not detect language. Its echoed/default language field
+        // must never force a Russian retry or suppress Russian quality checks.
+        let isRussian = ParakeetRecognitionPolicy.hasRussianTextEvidence(result.text)
         var text = spokenVocabulary.apply(to: result.text.trimmingCharacters(in: .whitespacesAndNewlines))
         var acoustic: RecognitionAcousticResult?
         guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
               !MeetingSpeechText.containsForeignLetters(text) else { return nil }
         try Task.checkCancellation()
+        guard model.canVerify else {
+            return RecognizedSpeech(text: text, acoustic: isRussian && duration >= 2
+                ? acousticRecognition(samples, using: russian) : nil)
+        }
+        do {
         if BackchannelLanguage.shouldRecheck(text, duration: duration) {
-            let decoded = try generate(language: "Russian", context: "")
+            let decoded = try await generate(language: "Russian", context: "")
             var alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
                 corroboration: acousticRecognition(samples, using: russian)?.text, vocabulary: vocabulary)
             if alternative == nil, let russian {
                 let retry = BackchannelLanguage.retryAudio(samples)
                 let independent = acousticRecognition(retry, using: russian)?.text
                 if independent != nil {
-                    let checked = try generate(language: "Russian", context: "", audioSamples: retry)
+                    let checked = try await generate(language: "Russian", context: "", audioSamples: retry)
                     alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: checked.text),
                         corroboration: independent, vocabulary: vocabulary)
                 }
@@ -1067,13 +1136,13 @@ actor Transcriber {
         // seconds, or clip its last syllable during an overlapping next turn.
         // Verify such replies with independent audio evidence, never a sentence
         // copied into the prompt. Expanded sound is accepted only on agreement.
-        if result.language?.lowercased() == "russian", (0.35..<2).contains(duration),
+        if isRussian, (0.35..<2).contains(duration),
            (2...6).contains(RussianRecognition.words(text).count), let russian,
            let independent = acousticRecognition(samples, using: russian)?.text,
            RussianRecognition.words(independent) != RussianRecognition.words(text) {
             let hints = spokenVocabulary.relevantTerms(in: [text, independent])
             if !hints.isEmpty {
-                let checked = try generate(language: "Russian", context: hints, promptVocabulary: hints)
+                let checked = try await generate(language: "Russian", context: hints, promptVocabulary: hints)
                 let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
                 if let revised = RecognitionConsensus.revisedText(original: text, candidate: candidate,
                     corroboration: independent, vocabulary: vocabulary, allowShortTurn: true) {
@@ -1081,7 +1150,7 @@ actor Transcriber {
                 }
             }
             if let expandedSamples, let independent = acousticRecognition(expandedSamples, using: russian)?.text {
-                let checked = try generate(language: "Russian", context: "", audioSamples: expandedSamples)
+                let checked = try await generate(language: "Russian", context: "", audioSamples: expandedSamples)
                 let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
                 if let revised = RecognitionConsensus.revisedText(original: text, candidate: candidate,
                     corroboration: independent, vocabulary: vocabulary, allowShortTurn: true, expandedAudio: true) {
@@ -1089,17 +1158,17 @@ actor Transcriber {
                 }
             }
         }
-        if result.language?.lowercased() == "russian", duration >= 2,
+        if isRussian, duration >= 2,
            let rawResult = acousticRecognition(samples, using: russian) {
             let rawHypothesis = rawResult.text
             acoustic = rawResult
             let (hypothesis, usesCyrillicHints) = spokenVocabulary.promptResult(rawHypothesis)
-            if RussianRecognition.shouldRecheck(language: result.language, duration: duration, original: text, alternative: hypothesis) {
+            if RussianRecognition.shouldRecheck(language: isRussian ? "Russian" : nil, duration: duration, original: text, alternative: hypothesis) {
                 try Task.checkCancellation()
                 let canonical = spokenVocabulary.apply(to: rawHypothesis)
                 if RussianRecognition.canRevise(original: text, corroboration: rawHypothesis, hypothesis: hypothesis,
                                                  vocabulary: vocabulary, dictionaryCorroboration: canonical) {
-                    let checked = try generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
+                    let checked = try await generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: hypothesis))
                     let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
                     if checked.language?.lowercased() == "russian",
                        let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
@@ -1116,7 +1185,7 @@ actor Transcriber {
                 // name heard by the verifier; keep successful repairs intact.
                 if let focusedName = spokenVocabulary.focusedNameHypothesis(original: text, corroboration: rawHypothesis) {
                     try Task.checkCancellation()
-                    let focused = try generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: focusedName))
+                    let focused = try await generate(language: nil, context: RussianRecognition.context(vocabulary: context, hypothesis: focusedName))
                     let candidate = spokenVocabulary.apply(to: focused.text.trimmingCharacters(in: .whitespacesAndNewlines))
                     if focused.language?.lowercased() == "russian",
                        let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
@@ -1131,9 +1200,9 @@ actor Transcriber {
         // An intact letter stem and a spoken ending can survive even when a
         // fused numeral is misspelled. Use that spelling only as an audio hint;
         // accept the same form only at matching, unique neighboring words.
-        if result.language?.lowercased() == "russian",
+        if isRussian,
            let numericContext = spokenVocabulary.numericRepairContext(in: text) {
-            let checked = try generate(language: "Russian", context: numericContext, promptVocabulary: numericContext)
+            let checked = try await generate(language: "Russian", context: numericContext, promptVocabulary: numericContext)
             if let revised = spokenVocabulary.restoringNumericName(original: text, candidate: checked.text) {
                 text = revised
             }
@@ -1142,18 +1211,18 @@ actor Transcriber {
         // towards losing its spoken case ending. Re-decode only an observed
         // numeric name with alternative spellings, then keep just the locally
         // anchored ending. Unrelated speech never receives these extra hints.
-        if result.language?.lowercased() == "russian",
+        if isRussian,
            spokenVocabulary.needsNumericEndingCheck(in: text) {
-            let checked = try generate(language: "Russian", context: decodingVocabulary,
+            let checked = try await generate(language: "Russian", context: decodingVocabulary,
                 promptVocabulary: decodingVocabulary)
             let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
             if let revised = RussianRecognition.restoringNumericEndings(original: text, candidate: candidate, vocabulary: vocabulary) {
                 text = revised
             }
         }
-        if result.language?.lowercased() == "russian", duration >= 2, let acoustic,
+        if isRussian, duration >= 2, let acoustic,
            let hint = spokenVocabulary.technologyRereadHint(in: text) {
-            let checked = try generate(language: "Russian", context: hint.term, promptVocabulary: hint.term)
+            let checked = try await generate(language: "Russian", context: hint.term, promptVocabulary: hint.term)
             let candidate = spokenVocabulary.apply(to: checked.text.trimmingCharacters(in: .whitespacesAndNewlines))
             if let revised = RecognitionContext.revisedTechnicalTerm(original: text, candidate: candidate,
                 corroboration: spokenVocabulary.apply(to: acoustic.text), term: hint.term,
@@ -1162,5 +1231,8 @@ actor Transcriber {
             }
         }
         return RecognizedSpeech(text: text, acoustic: acoustic)
+        } catch is ParakeetRecognitionSession.VerifierUnavailable {
+            return RecognizedSpeech(text: text, acoustic: acoustic)
+        }
     }
 }

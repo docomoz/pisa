@@ -28,6 +28,7 @@
 		1E165C658689465880571524 /* EditingFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4372C3819919DBAD303147D8 /* EditingFocus.swift */; };
 		1E9D0A42770530C80FB7144C /* TranscriptionPerformance.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB763672C0F4D3588895F796 /* TranscriptionPerformance.swift */; };
 		1F25AB284DDA1AEC20C6DD95 /* EchoReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38C1A8E594A73300F1080C5 /* EchoReference.swift */; };
+		1FBBB29EE118FEA79266BCD6 /* ParakeetRecognitionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA64D00F8DB669B2E5F9B0B8 /* ParakeetRecognitionPolicy.swift */; };
 		2136909BE7A95CFEEE101B92 /* AudioPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2EC6CCDB888FABD0FA5E88 /* AudioPreview.swift */; };
 		224EDA62EA1256A020F88B14 /* SegmentAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF3BEDD8CDBA151455DDDE26 /* SegmentAudioPlayer.swift */; };
 		247485382CBC1E91351E29DB /* HorizontalWheelScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = E362F69823EB290411A34C68 /* HorizontalWheelScroll.swift */; };
@@ -71,6 +72,7 @@
 		60E08A59149306BD49A925BA /* TranscriptTerms.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5876C31605FCDE488079838B /* TranscriptTerms.swift */; };
 		62E86156EDEE8DC7AAF3FAC4 /* libsherpa-onnx-c-api.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D291CE6A71D59344D1F0137 /* libsherpa-onnx-c-api.dylib */; };
 		670576BF975CAB2A253D7F03 /* SourceLinkPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0A7EC519AF4D6E008A508C /* SourceLinkPreview.swift */; };
+		679153E3F433B46574154EAA /* ParakeetRecognitionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA64D00F8DB669B2E5F9B0B8 /* ParakeetRecognitionPolicy.swift */; };
 		67AC047F1B0BC9E3492DCCA5 /* EchoAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A0C57A54D9BC112131B7E70 /* EchoAlignment.swift */; };
 		684E2EFCB5289FE0B04D283C /* RecognitionDecodeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4A9D654E07720102E9905E /* RecognitionDecodeCache.swift */; };
 		693EB07FE0A717E87BC546B9 /* ModelSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C15CB351413AB8A913001F5 /* ModelSetup.swift */; };
@@ -83,6 +85,7 @@
 		6DE8296612D1F30F96A389DA /* RecognitionBoundaryOverlap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3342B6AC4E206748D7298D8F /* RecognitionBoundaryOverlap.swift */; };
 		6FC2B91F93F2BA005D56288F /* ScreenTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C356774CFAF6F48F19F436D /* ScreenTypography.swift */; };
 		711BD3C57C72ED05EF7F741F /* PopupMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 114A6BB73B85839658DAE664 /* PopupMenu.swift */; };
+		71A8D0CC058FCBB9D9409416 /* SpeechModelFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EE6E587FFC4FDB83CC2192 /* SpeechModelFiles.swift */; };
 		71EBA2844D4D9E5729E3310C /* UsageAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46276700021C9135252E97F2 /* UsageAnalytics.swift */; };
 		7219EE209DD31E0B81AC4D77 /* LibrarySearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C131E4CF5FEB12195987B254 /* LibrarySearchIndex.swift */; };
 		72387820EC4DF45D48E8BFA3 /* PisaTechnologyCompanies.deflate in Resources */ = {isa = PBXBuildFile; fileRef = 28A4BDF0FD2A113169F207BA /* PisaTechnologyCompanies.deflate */; };
@@ -127,6 +130,7 @@
 		9B1A1805CBD5FF0A6848D3E8 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A5D2C49053F8B24C85FC899 /* Library.swift */; };
 		9D44977CF3D9293332EE2269 /* TranscriptOrthography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F2320FEC329CB186F897CC /* TranscriptOrthography.swift */; };
 		9DAB479E6CE805150B5345A2 /* MCPAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38F945507AE7C0953D9172D0 /* MCPAnalytics.swift */; };
+		9EAD5B6B57D6CE3DB47A47A3 /* RecognitionModelLocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F7CB609C7BC939DC58AAC3 /* RecognitionModelLocations.swift */; };
 		A22735668EF27758A1577AF0 /* RecognitionAudioFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C1AC9B6624860455BB87B22 /* RecognitionAudioFocus.swift */; };
 		A3266430B19264BBD26A8D01 /* ModelInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26B179D0C5A09CBBBF692B80 /* ModelInstaller.swift */; };
 		A3A6E288AE79B7AB00404334 /* PisaTechnologyCompanies-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 80B54B2DB090C892AD08AE7C /* PisaTechnologyCompanies-LICENSE.txt */; };
@@ -156,6 +160,7 @@
 		C3BC0C3A20C33393248D2CD6 /* MeetingAudioExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF7EC9BC88334474E23D9EE2 /* MeetingAudioExport.swift */; };
 		C4EEAE31BF38B47EFE706812 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AC07B603173D8C455213156C /* libc++.tbd */; };
 		C50D9F8132B5573056DC996C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5517DF5750CF205195C82361 /* main.swift */; };
+		C7904F1EEA8BB448AF0A01BF /* SpeechModelFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EE6E587FFC4FDB83CC2192 /* SpeechModelFiles.swift */; };
 		C84B471E8A57681FBC9A5C55 /* TechnologyCompanyVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C227C7452111CDE3AD97ABE2 /* TechnologyCompanyVocabulary.swift */; };
 		CAE6196DE51E6E677D91C29C /* SpeakerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC98329225F73C1EEFC4280 /* SpeakerEngine.swift */; };
 		CAF656250A2254867BD8A3BD /* MeetingTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143E4F26FAD559D1934D4579 /* MeetingTitleTests.swift */; };
@@ -175,6 +180,7 @@
 		DBC1557C7F0D5C843B2E7D3F /* Transcriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF921A61EBBF1A12C9BBC00 /* Transcriber.swift */; };
 		DCBE6A44EA931F9334144774 /* LiveTranscriptionSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDCCB52BCC5D588B7FD6FA4 /* LiveTranscriptionSchedule.swift */; };
 		DDC8E1F7062C87194F80DF24 /* TranscriptTerms.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5876C31605FCDE488079838B /* TranscriptTerms.swift */; };
+		DEC0F9531425DA23E37819EB /* ParakeetRecognitionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2647CDAE538E6CA25B31E56 /* ParakeetRecognitionSession.swift */; };
 		DFC59A280B271555AB216B6A /* EchoRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8595A3A785F717082EAC66 /* EchoRegressionTests.swift */; };
 		E1086A7FD8AACA4686A3F11F /* TranscriptEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6804780222FB96C5F4FD2EC1 /* TranscriptEvidence.swift */; };
 		E3C34C7B22F8F49CD75F5480 /* AboutWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153E89CCB11496610D329BF7 /* AboutWindow.swift */; };
@@ -292,6 +298,7 @@
 		8C4A9D654E07720102E9905E /* RecognitionDecodeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionDecodeCache.swift; sourceTree = "<group>"; };
 		8D914A6B3157FBA63372BE23 /* SlimScrollbars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlimScrollbars.swift; sourceTree = "<group>"; };
 		90391FF4B4FA8508C90F7BEC /* MeetingTitles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTitles.swift; sourceTree = "<group>"; };
+		90EE6E587FFC4FDB83CC2192 /* SpeechModelFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechModelFiles.swift; sourceTree = "<group>"; };
 		97094D84D523BCD693218204 /* MeetingSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSearch.swift; sourceTree = "<group>"; };
 		9756103EBE979F632A21B531 /* SpeakerEmbeddingInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEmbeddingInput.swift; sourceTree = "<group>"; };
 		99A8439E80C30F869F89F0DF /* VoiceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceManager.swift; sourceTree = "<group>"; };
@@ -306,6 +313,7 @@
 		AC07B603173D8C455213156C /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		ACE4470EAB9EF99B723009FB /* PisaYoWords-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "PisaYoWords-LICENSE.txt"; sourceTree = "<group>"; };
 		AE353CAD1BC385D7F6B1EF6D /* BrandMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMark.swift; sourceTree = "<group>"; };
+		BA64D00F8DB669B2E5F9B0B8 /* ParakeetRecognitionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParakeetRecognitionPolicy.swift; sourceTree = "<group>"; };
 		BAC98329225F73C1EEFC4280 /* SpeakerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerEngine.swift; sourceTree = "<group>"; };
 		BC0BDDD2630165DD58B3BAF3 /* AppTypography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTypography.swift; sourceTree = "<group>"; };
 		BF8595A3A785F717082EAC66 /* EchoRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EchoRegressionTests.swift; sourceTree = "<group>"; };
@@ -338,8 +346,10 @@
 		DA7797D0B55DB223FE7D2585 /* RecognitionMeetingBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionMeetingBenchmark.swift; sourceTree = "<group>"; };
 		DE33ABDE044BC8DF6DFB0231 /* TechnologyVocabularyCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TechnologyVocabularyCatalog.swift; sourceTree = "<group>"; };
 		E217CA015ED5B87EFB23B66D /* RecognitionConsensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionConsensus.swift; sourceTree = "<group>"; };
+		E2647CDAE538E6CA25B31E56 /* ParakeetRecognitionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParakeetRecognitionSession.swift; sourceTree = "<group>"; };
 		E362F69823EB290411A34C68 /* HorizontalWheelScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalWheelScroll.swift; sourceTree = "<group>"; };
 		E3F6C804951BD8D9156B4EDF /* PisaMCP */ = {isa = PBXFileReference; includeInIndex = 0; path = PisaMCP; sourceTree = BUILT_PRODUCTS_DIR; };
+		E3F7CB609C7BC939DC58AAC3 /* RecognitionModelLocations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionModelLocations.swift; sourceTree = "<group>"; };
 		E4D7327E0618067A637D24DD /* MeetingTitleModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingTitleModel.swift; sourceTree = "<group>"; };
 		E50CC8ED210829368C1FA349 /* MeetingSummaryOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeetingSummaryOnboarding.swift; sourceTree = "<group>"; };
 		E766938E4181D500740B5173 /* SpeechChunking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechChunking.swift; sourceTree = "<group>"; };
@@ -471,12 +481,14 @@
 				143E4F26FAD559D1934D4579 /* MeetingTitleTests.swift */,
 				1C15CB351413AB8A913001F5 /* ModelSetup.swift */,
 				CDD9718759457A97C6A09438 /* ModelSetupTests.swift */,
+				E2647CDAE538E6CA25B31E56 /* ParakeetRecognitionSession.swift */,
 				5067BFAEA91A5F259873DEE6 /* PCMRead.swift */,
 				83224764ACBA5C3B27DABFF0 /* PisaApp.swift */,
 				114A6BB73B85839658DAE664 /* PopupMenu.swift */,
 				22607AFCF76389820EDE7D7A /* QuitShortcut.swift */,
 				DA7797D0B55DB223FE7D2585 /* RecognitionMeetingBenchmark.swift */,
 				A93F50E976C912315FB27E46 /* RecognitionMeetingPreview.swift */,
+				E3F7CB609C7BC939DC58AAC3 /* RecognitionModelLocations.swift */,
 				59558E31DD6B72CCB917A254 /* RecognitionQualityTests.swift */,
 				421D7787C7BB6334E699E13A /* RussianSpeechRecognizer.swift */,
 				65ADF6186BEFA77C171DFEAE /* SavedAudioPlayer.swift */,
@@ -522,6 +534,7 @@
 				0973D0332507F4F7F3170A68 /* MicrophoneLanguage.swift */,
 				26B179D0C5A09CBBBF692B80 /* ModelInstaller.swift */,
 				7803AC9848D7A70B3A3C4096 /* Models.swift */,
+				BA64D00F8DB669B2E5F9B0B8 /* ParakeetRecognitionPolicy.swift */,
 				88B9F7625E98F1D438D8E7EA /* ProtectedFileRead.swift */,
 				0C1AC9B6624860455BB87B22 /* RecognitionAudioFocus.swift */,
 				3342B6AC4E206748D7298D8F /* RecognitionBoundaryOverlap.swift */,
@@ -540,6 +553,7 @@
 				7E3D7361B9BBE73329828EA4 /* SpeakerTurnPartition.swift */,
 				E766938E4181D500740B5173 /* SpeechChunking.swift */,
 				16D88E5581A59E47F6AD8E2A /* SpeechCoverage.swift */,
+				90EE6E587FFC4FDB83CC2192 /* SpeechModelFiles.swift */,
 				F3531AF4D3773F1FCEAACBF7 /* SpokenVocabulary.swift */,
 				C227C7452111CDE3AD97ABE2 /* TechnologyCompanyVocabulary.swift */,
 				D3F3D0B0073B28BFA7077E41 /* TechnologyVocabulary.swift */,
@@ -749,6 +763,7 @@
 				F25D1721607724B67003933D /* MicrophoneLanguage.swift in Sources */,
 				AFF6F046D6C90B772291C1A2 /* ModelInstaller.swift in Sources */,
 				2EBE21553CF42680DAFF063A /* Models.swift in Sources */,
+				679153E3F433B46574154EAA /* ParakeetRecognitionPolicy.swift in Sources */,
 				4330DFFFFFCA39C919F64E77 /* ProtectedFileRead.swift in Sources */,
 				A22735668EF27758A1577AF0 /* RecognitionAudioFocus.swift in Sources */,
 				6DE8296612D1F30F96A389DA /* RecognitionBoundaryOverlap.swift in Sources */,
@@ -767,6 +782,7 @@
 				6CA437543B39FE7DE6DF1ABA /* SpeakerTurnPartition.swift in Sources */,
 				BC0CA1D56B6E526ADA973BE1 /* SpeechChunking.swift in Sources */,
 				9AD593CAF8395C0A23D9D32D /* SpeechCoverage.swift in Sources */,
+				C7904F1EEA8BB448AF0A01BF /* SpeechModelFiles.swift in Sources */,
 				B1EE2E88007D4314C164862A /* SpokenVocabulary.swift in Sources */,
 				48A2A3706DED851425647004 /* TechnologyCompanyVocabulary.swift in Sources */,
 				32F6136A7779C0B49B70D726 /* TechnologyVocabulary.swift in Sources */,
@@ -845,6 +861,8 @@
 				924BF338D8A0CCD8C95F044C /* ModelSetupTests.swift in Sources */,
 				0B2BAAA661BAA6E1AC8D74D5 /* Models.swift in Sources */,
 				904BF0DBF1C10E9095EEAE71 /* PCMRead.swift in Sources */,
+				1FBBB29EE118FEA79266BCD6 /* ParakeetRecognitionPolicy.swift in Sources */,
+				DEC0F9531425DA23E37819EB /* ParakeetRecognitionSession.swift in Sources */,
 				47F1FFF0F8D058F90F251306 /* PisaApp.swift in Sources */,
 				711BD3C57C72ED05EF7F741F /* PopupMenu.swift in Sources */,
 				4FB0C4F26B96D6BC31330596 /* ProtectedFileRead.swift in Sources */,
@@ -857,6 +875,7 @@
 				CD8C7044B44FE911F2A3B4FD /* RecognitionDecodeCache.swift in Sources */,
 				ABE648BA104937DEF13E9EE2 /* RecognitionMeetingBenchmark.swift in Sources */,
 				5A6823126EE46FDEE7C3B109 /* RecognitionMeetingPreview.swift in Sources */,
+				9EAD5B6B57D6CE3DB47A47A3 /* RecognitionModelLocations.swift in Sources */,
 				D72265B37D85926A97DD443C /* RecognitionPromptEcho.swift in Sources */,
 				936276A9D1C5B05FB6F48BCC /* RecognitionQualityTests.swift in Sources */,
 				96EFD859521E8478CB64D222 /* RecognitionTimedWords.swift in Sources */,
@@ -881,6 +900,7 @@
 				03D8CBBBF34D2A81DE99E2DA /* SpeechChunking.swift in Sources */,
 				3DF0147A9CE6B4A8287E7181 /* SpeechCoverage.swift in Sources */,
 				C13A63352FE24DEF4C03A42A /* SpeechDetector.swift in Sources */,
+				71A8D0CC058FCBB9D9409416 /* SpeechModelFiles.swift in Sources */,
 				874E2CEDD95B67A5AF5FCE69 /* SpokenVocabulary.swift in Sources */,
 				A89E1645439EE6F38AC44C83 /* StatusBarController.swift in Sources */,
 				2D4B967E8C791664A2BAFBA8 /* SystemAudioTap.swift in Sources */,

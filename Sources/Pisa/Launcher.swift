@@ -192,7 +192,7 @@ enum Launcher {
                 do {
                     guard let manifest = Bundle.main.url(forResource: "models", withExtension: "json") else { throw ModelInstallError.invalidManifest }
                     let assets = try JSONDecoder().decode([ModelAsset].self, from: Data(contentsOf: manifest))
-                    guard let small = assets.first(where: { $0.path == "Qwen3-ASR/config.json" }) else { throw ModelInstallError.invalidManifest }
+                    guard let small = assets.first(where: { $0.path == SpeechModelFiles.primaryDirectoryName + "/config.json" }) else { throw ModelInstallError.invalidManifest }
                     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
                     let fixture = root.appendingPathComponent("manifest.json")
                     try JSONEncoder().encode([small]).write(to: fixture)
@@ -418,7 +418,7 @@ enum Launcher {
             Task {
                 do {
                     let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisa")
-                    let model = root.appendingPathComponent("Models/Qwen3-ASR")
+                    let model = root.appendingPathComponent("Models/" + SpeechModelFiles.primaryDirectoryName)
                     let audio = root.appendingPathComponent("smoke.wav")
                     let segments = try await Transcriber().transcribe(files: [(audio, 0)], modelDirectory: model, context: "", speakerDirectory: root.appendingPathComponent("Models/Speakers"), profiles: []) { _, _ in }
                     guard !segments.isEmpty else { throw PisaError.message("No transcription returned") }

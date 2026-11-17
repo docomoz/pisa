@@ -119,7 +119,7 @@ struct SettingsView: View {
     }
     private var modelSettings: some View {
         columns {
-            FormSection("Qwen3-ASR", subtitle: "Локальное распознавание русской речи на Apple Silicon") {
+            FormSection("Parakeet v3", subtitle: "Локальное распознавание с перепроверкой терминов") {
                 screenLabel(
                     state.modelReady ? "Модель готова" : "Модели ещё не установлены",
                     systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive"
@@ -139,7 +139,7 @@ struct SettingsView: View {
                     }.actionButton()
                     screenButton("Выбрать папку модели…") { state.chooseModel() }.actionButton()
                 }
-                SupportingText("Pisa загрузит проверенные модели речи и участников с Hugging Face — около 3 ГБ. Можно также выбрать свою папку с моделью Qwen3-ASR в формате MLX.")
+                SupportingText("Pisa загрузит проверенные модели речи и участников с Hugging Face — около 5,5 ГБ. Можно также выбрать свою папку с моделью Parakeet v3 в формате MLX.")
             }
         } right: {
             FormSection("Производительность") {

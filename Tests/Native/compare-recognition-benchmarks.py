@@ -47,9 +47,18 @@ def compare(before, after):
             raise ValueError("Benchmark must hold the same Turbo activity as the app")
         if not result["segments"]:
             raise ValueError("An empty transcript cannot validate recognition quality")
+        if "primaryRecognizer" not in result:
+            # Reports from before the migration did not identify Qwen explicitly.
+            primary, primary_calls = "Qwen", "qwenCalls"
+        elif result["primaryRecognizer"] == "parakeet-tdt-v3":
+            primary, primary_calls = "Parakeet", "parakeetCalls"
+        else:
+            raise ValueError(f"Unsupported primary recognizer: {result['primaryRecognizer']!r}")
         metrics = result.get("recognitionPerformance", {})
-        if not all(metrics.get(key, 0) > 0 for key in ["qwenCalls", "gigaCalls"]):
-            raise ValueError("Both recognition models must have run")
+        for recognizer, key in [(primary, primary_calls), ("GigaAM", "gigaCalls")]:
+            calls = metrics.get(key, 0)
+            if type(calls) not in (int, float) or not 0 < calls < math.inf:
+                raise ValueError(f"Benchmark must record positive {recognizer} calls ({key})")
     first, second = groups(before["segments"]), groups(after["segments"])
     report = dict(removed_segments=0, added_segments=0, text_changes=0,
                   speaker_changes=0, remote_embedding_changes=0,

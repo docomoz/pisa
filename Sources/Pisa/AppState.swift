@@ -376,11 +376,17 @@ final class AppState: ObservableObject {
             if folderFilter == folder.id { openFolder() }
         } catch { message = error.localizedDescription }
     }
-    lazy var modelSetup = ModelSetup(root: library.root.appendingPathComponent("Models"), customModel: { [weak self] in self?.modelURL() }, usesCustomModel: { [weak self] in self?.preferences.modelBookmark != nil })
+    lazy var modelSetup = ModelSetup(root: library.root.appendingPathComponent("Models"),
+        customModel: { [weak self] in self?.modelURL() },
+        usesCustomModel: { [weak self] in self?.preferences.parakeetModelBookmark != nil },
+        customVerifier: { [weak self] in self?.verifierModelURL() },
+        usesCustomVerifier: { [weak self] in self?.preferences.modelBookmark != nil })
     private var modelSetupObservation: AnyCancellable?
     var modelReady: Bool { modelSetup.ready }
     func modelInstallationCompleted() {
-        if !modelSetup.installedUsingCustom { preferences.modelBookmark = nil; preferences.modelDisplayPath = nil; savePreferences() }
+        if !modelSetup.installedUsingCustom { preferences.parakeetModelBookmark = nil; preferences.parakeetModelDisplayPath = nil }
+        if !modelSetup.installedUsingCustomVerifier { preferences.modelBookmark = nil; preferences.modelDisplayPath = nil }
+        savePreferences()
     }
     var mcpPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/pisa-mcp").path }
     init(rootURL: URL? = nil) {
@@ -810,6 +816,7 @@ final class AppState: ObservableObject {
         }
         var pass = try await transcriber.transcribeWindow(files: files.map { ($0.url, $0.offset) }, modelDirectory: model,
             context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"),
+            verifierDirectory: verifierModelURL(),
             performance: transcriptionPerformance, preceding: preceding, boundaryCheck: boundaryCheck)
         pass.segments = try pass.segments.map { segment in
             var mapped = segment
@@ -901,7 +908,7 @@ final class AppState: ObservableObject {
                     .filter { FileManager.default.fileExists(atPath: $0.0.path) }
                 guard !files.isEmpty else { throw PisaError.message("Аудио этой встречи недоступно") }
                 let result = try await transcriber.transcribe(files: files, modelDirectory: model, context: vocabulary,
-                    speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), performance: transcriptionPerformance,
+                    speakerDirectory: library.root.appendingPathComponent("Models/Speakers"), verifierDirectory: verifierModelURL(), performance: transcriptionPerformance,
                     retainProcessedMicrophone: m.audioArchive == nil, checkpointURL: checkpointURL) { [self] fraction, description in
                     await self.updateProcessingProgress(fraction, description)
                 }
@@ -1476,15 +1483,24 @@ final class AppState: ObservableObject {
         if !search.isEmpty { refreshSearch() }
     }
     func modelURL() -> URL? {
-        if let data = preferences.modelBookmark { var stale = false; return try? URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale) }
-        let local = library.root.appendingPathComponent("Models/Qwen3-ASR")
+        guard let local = try? RecognitionModelLocations.primary(preferences: preferences, models: library.root.appendingPathComponent("Models")) else { return nil }
+        if preferences.parakeetModelBookmark != nil { return local }
         return FileManager.default.fileExists(atPath: local.appendingPathComponent("config.json").path) ? local : nil
+    }
+    func verifierModelURL() -> URL? {
+        try? RecognitionModelLocations.verifier(preferences: preferences, models: library.root.appendingPathComponent("Models"))
     }
     func chooseModel() {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.message = "Папка Qwen3-ASR в формате MLX. Все вычисления останутся на Mac"
+        panel.message = "Папка Parakeet v3 в формате MLX. Все вычисления останутся на Mac"
         if panel.runModal() == .OK, let url = panel.url {
-            do { preferences.modelBookmark = try url.bookmarkData(options: .withSecurityScope); preferences.modelDisplayPath = url.path; savePreferences(); modelSetup.check(presentWhenNeeded: false); objectWillChange.send() } catch { message = error.localizedDescription }
+            let granted = url.startAccessingSecurityScopedResource()
+            defer { if granted { url.stopAccessingSecurityScopedResource() } }
+            guard SpeechModelFiles.isUsable(at: url, kind: .parakeet) else {
+                message = "В этой папке не найдена модель Parakeet v3 с поддержкой русской речи"
+                return
+            }
+            do { preferences.parakeetModelBookmark = try url.bookmarkData(options: .withSecurityScope); preferences.parakeetModelDisplayPath = url.path; savePreferences(); modelSetup.check(presentWhenNeeded: false); objectWillChange.send() } catch { message = error.localizedDescription }
         }
     }
     func chooseExportFolder() {

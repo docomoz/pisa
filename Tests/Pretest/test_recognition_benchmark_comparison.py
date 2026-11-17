@@ -95,6 +95,34 @@ class BenchmarkComparisonTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     comparison.compare(self.before, self.after)
 
+    def test_parakeet_primary_can_finish_without_loading_the_qwen_verifier(self):
+        self.after["primaryRecognizer"] = "parakeet-tdt-v3"
+        self.after["recognitionPerformance"] = {"parakeetCalls": 18, "qwenCalls": 0, "gigaCalls": 10}
+        self.assertTrue(comparison.compare(self.before, self.after)["equivalent"])
+        self.assertTrue(comparison.compare(self.after, self.after)["equivalent"])
+
+    def test_parakeet_result_requires_both_primary_and_independent_calls(self):
+        self.after["primaryRecognizer"] = "parakeet-tdt-v3"
+        for key in ("parakeetCalls", "gigaCalls"):
+            for value in (None, 0, float("inf")):
+                with self.subTest(key=key, value=value):
+                    metrics = {"parakeetCalls": 18, "qwenCalls": 5, "gigaCalls": 10}
+                    if value is None:
+                        metrics.pop(key)
+                    else:
+                        metrics[key] = value
+                    self.after["recognitionPerformance"] = metrics
+                    with self.assertRaisesRegex(ValueError, key):
+                        comparison.compare(self.before, self.after)
+
+    def test_parakeet_counters_do_not_replace_legacy_qwen_without_the_primary_marker(self):
+        self.after["recognitionPerformance"] = {"parakeetCalls": 18, "qwenCalls": 0, "gigaCalls": 10}
+        with self.assertRaisesRegex(ValueError, "qwenCalls"):
+            comparison.compare(self.before, self.after)
+        self.after["primaryRecognizer"] = "typo"
+        with self.assertRaisesRegex(ValueError, "Unsupported primary recognizer"):
+            comparison.compare(self.before, self.after)
+
     def test_small_vector_drift_is_reported_separately(self):
         self.after["segments"][0]["embedding"][0] += 1e-7
         result = comparison.compare(self.before, self.after)

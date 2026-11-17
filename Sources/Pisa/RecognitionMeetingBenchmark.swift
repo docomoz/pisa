@@ -22,21 +22,22 @@ enum RecognitionMeetingBenchmark {
         }
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisa")
         let model: URL
+        let verifier: URL
         let speakers: URL
         if let directory = request.modelsDirectory {
             guard NSString(string: directory).isAbsolutePath else {
                 throw PisaError.message("Benchmark modelsDirectory must be an absolute path")
             }
             let models = URL(fileURLWithPath: directory, isDirectory: true)
-            model = models.appendingPathComponent("Qwen3-ASR")
+            model = models.appendingPathComponent(SpeechModelFiles.primaryDirectoryName)
+            verifier = models.appendingPathComponent(SpeechModelFiles.verifierDirectoryName)
             speakers = models.appendingPathComponent("Speakers")
         } else {
             let preferences = try JSONDecoder().decode(Preferences.self,
                 from: Data(contentsOf: root.appendingPathComponent("preferences.json")))
-            if let bookmark = preferences.modelBookmark {
-                var stale = false
-                model = try URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-            } else { model = root.appendingPathComponent("Models/Qwen3-ASR") }
+            let locations = try RecognitionModelLocations(preferences: preferences, models: root.appendingPathComponent("Models"))
+            model = locations.primary
+            verifier = locations.verifier
             speakers = root.appendingPathComponent("Models/Speakers")
         }
         let granted = model.startAccessingSecurityScopedResource()
@@ -63,7 +64,7 @@ enum RecognitionMeetingBenchmark {
         let began = DispatchTime.now().uptimeNanoseconds
         let segments = try await Task(executorPreference: performance, priority: .userInitiated) {
             try await transcriber.transcribe(files: files, modelDirectory: model,
-                context: request.vocabulary, speakerDirectory: speakers,
+                context: request.vocabulary, speakerDirectory: speakers, verifierDirectory: verifier,
                 profiles: request.profiles, performance: performance, collectDiagnostics: true) { fraction, phase in
                     let event: [String: Any] = ["kind": "progress", "fraction": fraction, "phase": phase,
                         "elapsedSeconds": elapsed(since: began), "thermalState": ProcessInfo.processInfo.thermalState.rawValue]
@@ -77,6 +78,7 @@ enum RecognitionMeetingBenchmark {
         let encodedSegments = try JSONSerialization.jsonObject(with: JSONEncoder().encode(segments))
         let result: [String: Any] = [
             "kind": "result", "mode": "batch-turbo", "turboActivityHeld": true,
+            "primaryRecognizer": "parakeet-tdt-v3", "primaryPrecision": "float32",
             "meetingID": request.meeting.id.uuidString,
             "audioSeconds": request.meeting.duration, "seconds": seconds,
             "segments": encodedSegments,

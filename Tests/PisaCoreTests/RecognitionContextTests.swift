@@ -225,6 +225,41 @@ final class RecognitionContextTests: XCTestCase {
             spokenVocabulary: SpokenVocabulary(vocabulary)))
     }
 
+    func testSharedEstablishedNameMissOnlySchedulesIndependentAudioVerification() throws {
+        let original = "Мы работали в Конторе и обсуждали результаты вчера."
+        let correct = original.replacingOccurrences(of: "Конторе", with: "Контуре")
+        let target = segment(100, 110, original)
+        let previous = segment(70, 80, "Ранее мы обсуждали работу Контура.")
+        let retry = try XCTUnwrap(RecognitionContext(segments: [previous, target]).plan(for: target,
+            independent: original, vocabulary: "Контур", spokenVocabulary: SpokenVocabulary("Контур")))
+        XCTAssertEqual(retry.targetSpans(in: original, corroboration: original).map { String(original[$0]) }, ["Конторе"])
+        XCTAssertNil(RecognitionContext.revisedText(original: original, candidate: correct,
+            corroboration: original, retry: retry, vocabulary: "Контур"))
+        XCTAssertEqual(RecognitionContext.revisedText(original: original, candidate: correct,
+            corroboration: correct, retry: retry, vocabulary: "Контур"), correct)
+    }
+
+    func testSharedNameMissNeedsExplicitEstablishedUniqueUnquotedEvidence() {
+        let previous = segment(70, 80, "Ранее мы обсуждали работу Контура.")
+        let ordinary = "Мы работали в Конторе и обсуждали результаты вчера."
+        for (text, context, vocabulary) in [
+            (ordinary, [TranscriptSegment](), "Контур"),
+            (ordinary, [previous], ""),
+            ("Мы работали в «Конторе» и обсуждали результаты вчера.", [previous], "Контур"),
+            ("Мы работали в /Конторе/ и обсуждали результаты вчера.", [previous], "Контур"),
+            ("Мы работали в Конторе и обсуждали результаты, потом работали в Конторе и обсуждали планы.", [previous], "Контур")
+        ] {
+            let target = segment(100, 110, text)
+            let retry = RecognitionContext(segments: context + [target]).plan(for: target,
+                independent: text, vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary(vocabulary))
+            if text.contains("«") {
+                // Existing disagreement logic can plan from unquoted acoustic
+                // evidence; protected original text must still have no target.
+                XCTAssertTrue(retry?.targetSpans(in: text, corroboration: text).isEmpty ?? true)
+            } else { XCTAssertNil(retry, text) }
+        }
+    }
+
     func testTwoIndependentlyAnchoredNameOccurrencesCanBeCorrectedTogether() throws {
         let original = "Мы работали в Конторе и обсуждали результаты, потом снова посетили Контору на следующей неделе."
         let candidate = original.replacingOccurrences(of: "Конторе", with: "Контуре").replacingOccurrences(of: "Контору", with: "Контуру")
@@ -845,6 +880,64 @@ final class RecognitionContextTests: XCTestCase {
             corroboration: heard, duration: 1.37, vocabulary: "Наташа"))
         XCTAssertNil(RecognitionContext.wordRichShortTurn(original: source, candidate: "Наташа кивнула, сказала да.",
             corroboration: heard, duration: 0.6, vocabulary: "Наташа"))
+    }
+
+    func testNumericNameKeepsEndingAlreadyHeardByPrimary() throws {
+        for (term, heardStem) in [("2ГИС", "два Гиссе"), ("7АБВ", "семь Аббве")] {
+            let original = "Мы работали в \(heardStem) над новым проектом, потом встретились со Сбером."
+            let acoustic = original.replacingOccurrences(of: heardStem, with: term)
+            let expected = original.replacingOccurrences(of: heardStem, with: term + "'е")
+            let candidate = expected.replacingOccurrences(of: "Сбером", with: "сбором")
+            let target = segment(100, 108, original)
+            let vocabulary = term + ", Сбер"
+            let retry = try XCTUnwrap(RecognitionContext(segments: [target]).plan(for: target,
+                independent: acoustic, vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary(vocabulary)))
+            XCTAssertEqual(RecognitionContext.revisedText(original: original, candidate: candidate,
+                corroboration: acoustic, retry: retry, vocabulary: vocabulary), expected)
+            XCTAssertNil(RecognitionContext.revisedText(original: original, candidate: candidate,
+                corroboration: acoustic, retry: retry, vocabulary: vocabulary, candidateIsAcoustic: false))
+        }
+    }
+
+    func testNumericNameEndingRequiresExactComplementaryEvidence() throws {
+        let good = "Мы работали в два Гиссе над новым проектом вчера."
+        let target = segment(100, 108, good)
+        let vocabulary = "2ГИС"
+        let acoustic = good.replacingOccurrences(of: "два Гиссе", with: "2ГИС")
+        let candidate = good.replacingOccurrences(of: "два Гиссе", with: "2ГИС'е")
+        let retry = try XCTUnwrap(RecognitionContext(segments: [target]).plan(for: target,
+            independent: acoustic, vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary(vocabulary)))
+        for source in ["два Гисс", "два Гисса", "три Гиссе", "два Гиксе", "два Гисссе", "два/Гиссе", "/два Гиссе/", "@дваГиссе", "«два Гиссе»"] {
+            XCTAssertNil(RecognitionContext.revisedText(original: good.replacingOccurrences(of: "два Гиссе", with: source),
+                candidate: candidate, corroboration: acoustic, retry: retry, vocabulary: vocabulary), source)
+        }
+        XCTAssertNil(RecognitionContext.revisedText(original: good, candidate: candidate,
+            corroboration: acoustic.replacingOccurrences(of: "2ГИС", with: "3ГИС"), retry: retry, vocabulary: vocabulary))
+        XCTAssertNil(RecognitionContext.revisedText(original: good, candidate: candidate,
+            corroboration: acoustic, retry: retry, vocabulary: "2ГИС, 2ГИСС"))
+        XCTAssertNil(RecognitionContext.revisedText(original: good, candidate: candidate.replacingOccurrences(of: "2ГИС'е", with: "2ГИС'а"),
+            corroboration: acoustic, retry: retry, vocabulary: vocabulary))
+        XCTAssertNil(RecognitionContext.revisedText(original: good, candidate: candidate,
+            corroboration: acoustic.replacingOccurrences(of: "2ГИС", with: "2ГИС'ом"), retry: retry, vocabulary: vocabulary))
+        XCTAssertNil(RecognitionContext.revisedText(original: good + " " + good, candidate: candidate,
+            corroboration: acoustic, retry: retry, vocabulary: vocabulary))
+        let implicit = try XCTUnwrap(RecognitionContext(segments: [target]).plan(for: target,
+            independent: acoustic, vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary("")))
+        XCTAssertNil(RecognitionContext.revisedText(original: good, candidate: candidate,
+            corroboration: acoustic, retry: implicit, vocabulary: vocabulary))
+    }
+
+    func testNumericNameEndingAtStartPreservesOtherNumbersAndNames() throws {
+        let original = "В два Гиссе обсуждали проект с бюджетом 48 рублей, затем со Сбером согласовали 12 заявок."
+        let acoustic = original.replacingOccurrences(of: "два Гиссе", with: "2GIS")
+        let expected = original.replacingOccurrences(of: "два Гиссе", with: "2ГИС'е")
+        let candidate = expected.replacingOccurrences(of: "Сбером", with: "сбором").replacingOccurrences(of: "12", with: "13")
+        let target = segment(100, 108, original)
+        let vocabulary = "2ГИС, Сбер"
+        let retry = try XCTUnwrap(RecognitionContext(segments: [target]).plan(for: target,
+            independent: acoustic, vocabulary: vocabulary, spokenVocabulary: SpokenVocabulary(vocabulary)))
+        XCTAssertEqual(RecognitionContext.revisedText(original: original, candidate: candidate,
+            corroboration: acoustic, retry: retry, vocabulary: vocabulary), expected)
     }
 
 }

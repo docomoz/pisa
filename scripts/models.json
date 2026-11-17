@@ -12,6 +12,42 @@
     "bytes": 101405493
   },
   {
+    "path": "Parakeet-TDT-v3/config.json",
+    "url": "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15/config.json",
+    "sha256": "f320f1292511f34ec47f513755fe20fd01dbfc09a925d42730e66059a6e1ef4c",
+    "bytes": 244093
+  },
+  {
+    "path": "Parakeet-TDT-v3/model.safetensors",
+    "url": "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15/model.safetensors",
+    "sha256": "05e01c7f396c298cf7d23f61da7b504adeab698f0aaeafd9c82d198625464592",
+    "bytes": 2508288736
+  },
+  {
+    "path": "Parakeet-TDT-v3/tokenizer.model",
+    "url": "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15/tokenizer.model",
+    "sha256": "eacec2b0a77f336d4a2ca4a25a7047575d3c2b74de47e997f4c205126ed3135e",
+    "bytes": 360916
+  },
+  {
+    "path": "Parakeet-TDT-v3/tokenizer.vocab",
+    "url": "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15/tokenizer.vocab",
+    "sha256": "41130ff456706304a1adec782ccc9e003c4d417e8e324353d281be958cac4e17",
+    "bytes": 101024
+  },
+  {
+    "path": "Parakeet-TDT-v3/vocab.txt",
+    "url": "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15/vocab.txt",
+    "sha256": "3cde1409fd78783a79b29ed4d32da57c746993856f7c8263bcb905d2e5839db7",
+    "bytes": 46772
+  },
+  {
+    "path": "Parakeet-TDT-v3/README.md",
+    "url": "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15/README.md",
+    "sha256": "724e3ba46903986ff6caeb8fddb7495c06b5a7a8d908f11e43cc0a7e136b5e23",
+    "bytes": 1081
+  },
+  {
     "path": "Qwen3-ASR/model.safetensors",
     "url": "https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-8bit/resolve/a8379a2e2f9e313c9292cdf1af4055ab56d50d55/model.safetensors",
     "sha256": "bf304b009cc7eca79283056f787b44c952d24ac22cec787b39732bba3c23c13c",

@@ -12,11 +12,8 @@ enum AudioPipelineTests {
         let libraryRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisa")
         let library = try MeetingLibrary(root: libraryRoot)
         let preferences = try library.preferences()
-        let model: URL
-        if let data = preferences.modelBookmark {
-            var stale = false
-            model = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-        } else { model = libraryRoot.appendingPathComponent("Models/Qwen3-ASR") }
+        let locations = try RecognitionModelLocations(preferences: preferences, models: libraryRoot.appendingPathComponent("Models"))
+        let model = locations.primary, verifier = locations.verifier
         let access = model.startAccessingSecurityScopedResource()
         defer { if access { model.stopAccessingSecurityScopedResource() } }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("pisa-vocabulary-" + UUID().uuidString)
@@ -36,7 +33,7 @@ enum AudioPipelineTests {
         }
         func recognize(_ samples: [Float], track: String, context: String) async throws -> [TranscriptSegment] {
             let url = try write(samples, track: track)
-            return try await transcriber.transcribe(files: [(url, 0)], modelDirectory: model, context: context, speakerDirectory: root.appendingPathComponent("no-speakers"), profiles: [], quiet: false, live: true) { _, _ in }
+            return try await transcriber.transcribe(files: [(url, 0)], modelDirectory: model, context: context, speakerDirectory: root.appendingPathComponent("no-speakers"), verifierDirectory: verifier, profiles: [], quiet: false, live: true) { _, _ in }
         }
         do {
             let baseline = try await recognize(speech, track: "mic", context: "")
@@ -67,7 +64,7 @@ enum AudioPipelineTests {
                 if i >= 860 { echo[i] += speech[i - 860] * 0.12 }
             }
             let remote = try write(speech, track: "remote"), mic = try write(echo, track: "mic")
-            let echoResult = try await transcriber.transcribe(files: [(remote, 0), (mic, 0)], modelDirectory: model, context: vocabulary, speakerDirectory: root.appendingPathComponent("no-speakers"), profiles: [], quiet: false, live: true) { _, _ in }
+            let echoResult = try await transcriber.transcribe(files: [(remote, 0), (mic, 0)], modelDirectory: model, context: vocabulary, speakerDirectory: root.appendingPathComponent("no-speakers"), verifierDirectory: verifier, profiles: [], quiet: false, live: true) { _, _ in }
             guard !echoResult.isEmpty, !echoResult.contains(where: { $0.speaker == "Я" }) else { throw PisaError.message("Vocabulary turned playback echo into microphone speech") }
             await transcriber.finishLive()
         } catch {
@@ -83,16 +80,13 @@ enum AudioPipelineTests {
         let libraryRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisa")
         let library = try MeetingLibrary(root: libraryRoot)
         let preferences = try library.preferences()
-        let model: URL
-        if let data = preferences.modelBookmark {
-            var stale = false
-            model = try URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &stale)
-        } else { model = libraryRoot.appendingPathComponent("Models/Qwen3-ASR") }
+        let locations = try RecognitionModelLocations(preferences: preferences, models: libraryRoot.appendingPathComponent("Models"))
+        let model = locations.primary, verifier = locations.verifier
         let access = model.startAccessingSecurityScopedResource()
         defer { if access { model.stopAccessingSecurityScopedResource() } }
         let speakers = libraryRoot.appendingPathComponent("Models/Speakers")
         if CommandLine.arguments.contains("--quiet-diagnostic") {
-            try await quietDiagnostic(payload: payload, model: model)
+            try await quietDiagnostic(payload: payload, model: verifier)
             return
         }
         let engine = try SpeakerEngine(directory: speakers)
@@ -145,7 +139,7 @@ enum AudioPipelineTests {
             let file = try AVAudioFile(forWriting: url, settings: format.settings); try file.write(from: buffer); file.close()
         }
         let began = Date()
-        let result = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, profiles: [], quiet: true) { _, _ in }
+        let result = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
         let micSegments = result.filter { $0.speaker == "Я" }
         print("SPEECH_FIXTURE segments=\(result.count) microphone_segments=\(micSegments.count) seconds=\(Date().timeIntervalSince(began))")
         for s in micSegments { print("SYNTHETIC_MIC_TEXT", s.start, s.text) }
@@ -170,7 +164,7 @@ enum AudioPipelineTests {
             let file = try AVAudioFile(forWriting: mic, settings: format.settings); try file.write(from: buffer); file.close()
         }
         try writeMicrophone(near)
-        let nearOnly = try await Transcriber().transcribe(files: [(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, profiles: [], quiet: true) { _, _ in }
+        let nearOnly = try await Transcriber().transcribe(files: [(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
         let nearText = nearOnly.map(\.text).joined(separator: " ").lowercased()
         print("NEAR_SPEECH_FIXTURE", nearText)
         guard nearText.contains("четверг"), nearOnly.contains(where: { $0.embedding != nil && $0.speaker == "Я" }) else { throw PisaError.message("Near speech or remembered voice evidence lost") }
@@ -179,13 +173,13 @@ enum AudioPipelineTests {
         if mixed.count < nearStart + near.count { mixed += Array(repeating: 0, count: nearStart + near.count - mixed.count) }
         for i in near.indices { mixed[nearStart+i] += near[i] }
         try writeMicrophone(mixed)
-        let doubleTalk = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, profiles: [], quiet: true) { _, _ in }
+        let doubleTalk = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
         let mixedText = doubleTalk.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ").lowercased()
         print("DOUBLE_TALK_SPEECH_FIXTURE", mixedText)
         guard mixedText.contains("четверг") else { throw PisaError.message("Near words lost in double-talk") }
         guard let short = payload["short"] else { throw PisaError.message("Missing short utterance") }
         try writeMicrophone(short.map { $0 * 0.1 })
-        let shortOnly = try await Transcriber().transcribe(files: [(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, profiles: [], quiet: true) { _, _ in }
+        let shortOnly = try await Transcriber().transcribe(files: [(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
         let shortText = shortOnly.map(\.text).joined(separator: " ").lowercased().filter { $0.isLetter }
         print("QUIET_SHORT_NEAR_ASR", shortText)
         guard !shortText.isEmpty else { throw PisaError.message("Quiet short near speech was rejected as nonspeech") }
@@ -196,7 +190,7 @@ enum AudioPipelineTests {
             silence.frameLength = 16000; silence.floatChannelData![0].initialize(repeating: 0, count: 16000)
             try writer.write(from: silence); writer.close()
         }
-        let pairedShort = try await Transcriber().transcribe(files: [(mic,0),(remote,0)], modelDirectory: model, context: "", speakerDirectory: speakers, profiles: [], quiet: true) { _, _ in }
+        let pairedShort = try await Transcriber().transcribe(files: [(mic,0),(remote,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
         let pairedText = pairedShort.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ").lowercased().filter { $0.isLetter }
         print("QUIET_SHORT_SILENT_REFERENCE_ASR", pairedText)
         guard pairedText.contains(shortText) else { throw PisaError.message("Quiet short near speech was lost with a silent reference") }
@@ -232,11 +226,11 @@ enum AudioPipelineTests {
                 print("QUIET_ACTUAL_PCM_RETAINED", dot / max(1e-12, power))
                 print("QUIET_ACTUAL_VAD", try SpeechDetector().regions(in: diagnostic).filter { $0.end > 24 && $0.start < 26 }.map { "\($0.start)-\($0.end)" }.joined(separator: ","))
                 let knownCrop = try AcousticEcho.frame(file, at: Int64(24.6 * 16000), count: Int(1.2 * 16000))
-                let qwen = try await Qwen3ASRModel.fromModelDirectory(model)
+                let qwen = try await Qwen3ASRModel.fromModelDirectory(verifier)
                 let answer = qwen.generate(audio: MLXArray(knownCrop), maxTokens: 64, context: "", language: nil, chunkDuration: 24, repetitionPenalty: 1.1)
                 print("QUIET_KNOWN_CROP_ASR", answer.text)
             }
-            let result = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, profiles: [], quiet: true) { _, _ in }
+            let result = try await Transcriber().transcribe(files: [(remote,0),(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
             let text = result.filter { $0.speaker == "Я" }.map(\.text).joined(separator: " ").lowercased()
             print("QUIET_CLOCK_JUMP_ASR", "short", testShort, text)
             if testShort {

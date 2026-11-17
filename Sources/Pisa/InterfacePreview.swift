@@ -586,7 +586,7 @@ final class InterfacePreview: NSObject {
 
     private static func prepareModelPath(for state: AppState) throws {
         // The test covers task selection before inference. A live task waits for capture boundaries.
-        let model = state.library.root.appendingPathComponent("Models/Qwen3-ASR")
+        let model = state.library.root.appendingPathComponent("Models/" + SpeechModelFiles.primaryDirectoryName)
         try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
         try Data("{}".utf8).write(to: model.appendingPathComponent("config.json"))
         state.modelSetup.phase = .ready

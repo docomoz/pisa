@@ -137,6 +137,9 @@ public struct Preferences: Codable, Sendable {
     public var exportDisplayPath: String?
     public var modelBookmark: Data?
     public var modelDisplayPath: String?
+    // Legacy model fields continue to select the Qwen contextual verifier.
+    public var parakeetModelBookmark: Data?
+    public var parakeetModelDisplayPath: String?
     public var vocabulary = "2ГИС, Яндекс, YClients"
     // Retain manually entered variants when saving preferences from older builds.
     private var storedVocabularyVariants: [String: [String]]?
