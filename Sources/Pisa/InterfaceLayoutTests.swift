@@ -28,6 +28,8 @@ private struct InterfaceFrames: PreferenceKey {
 
 extension EnvironmentValues {
     @Entry fileprivate var measuresInterfaceLayout = false
+    // Only the website renderer supplies this; ordinary meetings keep their normal order.
+    @Entry var websiteScreenshotParticipantOrder: [String]? = nil
 }
 
 extension View {
@@ -76,7 +78,12 @@ enum InterfaceLayoutTests {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let state = AppState(rootURL: root)
         state.modelSetup.phase = .ready
-        let host = LayoutHost(MainView().environmentObject(state), size: CGSize(width: 1400, height: 850), scale: 1)
+        let participantOrder = fixture.dialogue.reduce(into: [String]()) { names, line in
+            if !names.contains(line.speaker) { names.append(line.speaker) }
+        }
+        let host = LayoutHost(MainView().environmentObject(state)
+            .environment(\.websiteScreenshotParticipantOrder, participantOrder),
+            size: CGSize(width: 1400, height: 850), scale: 1)
         defer { host.close() }
         guard host.wait(for: { host.frames[.welcomeTitle]?.isEmpty == false }) else {
             throw PisaError.message("Главный экран не отобразился")
@@ -86,11 +93,11 @@ enum InterfaceLayoutTests {
         var meeting = Meeting(title: fixture.title, source: "Zoom")
         meeting.status = .ready
         meeting.duration = 180
-        meeting.date = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 7, hour: 22, minute: 10)) ?? Date()
+        meeting.date = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 17, hour: 10, minute: 30)) ?? Date()
         meeting.segments = fixture.dialogue.enumerated().map { index, line in
             TranscriptSegment(start: Double(index * 8), end: Double(index * 8 + 3), speaker: line.speaker, text: line.text)
         }
-        for (index, title) in fixture.otherTitles.reversed().enumerated() {
+        for (index, title) in fixture.otherTitles.enumerated().reversed() {
             var other = Meeting(title: title, source: "Zoom")
             other.status = .ready
             other.duration = 2400

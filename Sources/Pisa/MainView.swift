@@ -170,6 +170,7 @@ private struct TitleBarZoom: NSViewRepresentable {
 struct MeetingView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTextScale) private var textScale
+    @Environment(\.websiteScreenshotParticipantOrder) private var websiteScreenshotParticipantOrder
     let meeting: Meeting
     let dateReference: Date
     @State private var editing: TranscriptSegment?
@@ -622,7 +623,7 @@ struct MeetingView: View {
     }
     private func meetingDetails(buttonSize: ActionButtonSize) -> some View {
         let folder = state.folders.first { $0.id == meeting.folderID }
-        let participants = meeting.participantNames
+        let participants = websiteScreenshotParticipantOrder ?? meeting.participantNames
         return VStack(alignment: .leading, spacing: buttonSize == .small ? PisaDesign.Spacing.content : PisaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                 if buttonSize == .small {
