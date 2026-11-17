@@ -160,7 +160,7 @@ public enum TranscriptOrthography {
             || (leading == "," && (trailing == "," || trailing == nil))
     }
 
-    private static func glossaryRanges(in text: String, vocabulary: String, range: NSRange, minimumWordCount: Int = 1) -> [NSRange] {
+    static func glossaryRanges(in text: String, vocabulary: String, range: NSRange, minimumWordCount: Int = 1) -> [NSRange] {
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map(RussianRecognition.words).filter { $0.count >= minimumWordCount }
         guard !terms.isEmpty else { return [] }

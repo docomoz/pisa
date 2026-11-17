@@ -148,6 +148,71 @@ enum RussianRecognition {
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     }
 
+    struct CyrillicSpellingRepair {
+        let text: String
+        let confirmedByRepetition: Bool
+
+        func confirmedText(language: String?, reread: String) -> String? {
+            guard language?.lowercased() == "russian", words(reread) == words(text) else { return nil }
+            return text
+        }
+    }
+
+    // Intact Russian adjective and verb endings can distinguish a damaged
+    // Russian word from a real code switch such as “Привіт, привет”.
+    private static let russianInflections = ["его", "ые", "ыми", "ешь", "ишь"]
+
+    /// Use the independent audio decode as spelling evidence. Preserve every
+    /// original separator and require agreement on all surrounding words.
+    static func cyrillicSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
+        guard ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(original) else { return nil }
+        let source = tokens(in: original), independent = tokens(in: heard)
+        guard source.count == independent.count else { return nil }
+        let changed = source.indices.filter { source[$0].key != independent[$0].key }
+        guard changed.contains(where: { ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(source[$0].key) }) else { return nil }
+        let protected = TranscriptOrthography.literalRanges(in: original)
+            + TranscriptOrthography.glossaryRanges(in: original, vocabulary: vocabulary, range: NSRange(original.startIndex..., in: original))
+        let attached = CharacterSet(charactersIn: "_/@\\-‐‑'’")
+        let result = NSMutableString(string: original)
+        var allRepeated = true
+        for index in changed.reversed() {
+            let token = source[index], target = independent[index]
+            let range = NSRange(token.range, in: original)
+            guard target.key.count >= 5, token.key.count == target.key.count,
+                  TranscriptTerms.isCommonRussianWord(target.key),
+                  !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }),
+                  original[..<token.range.lowerBound].unicodeScalars.last.map(attached.contains) != true,
+                  original[token.range.upperBound...].unicodeScalars.first.map(attached.contains) != true else { return nil }
+            let differences = zip(token.key, target.key).enumerated().filter { $0.element.0 != $0.element.1 }
+            guard differences.count == 1, let change = differences.first else { return nil }
+
+            // A Russian-only decoder can transcribe other Slavic languages
+            // phonetically. Bypass a multilingual reread only if the primary
+            // heard a Russian-alphabet copy and a characteristic Russian ending.
+            let repeated = [index - 1, index + 1].contains { neighbor in
+                guard source.indices.contains(neighbor), independent[neighbor].key == target.key else { return false }
+                let other = source[neighbor]
+                let (damaged, russianCopy) = isCyrillic(token.key) ? (other, token) : (token, other)
+                guard ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(damaged.key),
+                      isCyrillic(russianCopy.key), withinOneEdit(russianCopy.key, target.key),
+                      russianInflections.contains(where: { damaged.key.hasSuffix($0) && target.key.hasSuffix($0) }) else { return false }
+                let between = source[min(index, neighbor)].range.upperBound..<source[max(index, neighbor)].range.lowerBound
+                return original[between].allSatisfy { $0 == "," || $0.isWhitespace && !$0.isNewline }
+            }
+            if !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(String(change.element.0)) {
+                // A second, nearly identical copy can itself have one ordinary
+                // typo. Never replace a different, correctly spelled word.
+                guard repeated, isCyrillic(token.key), !TranscriptTerms.isCommonRussianWord(token.key) else { return nil }
+            }
+            allRepeated = allRepeated && repeated
+            let start = original.index(token.range.lowerBound, offsetBy: change.offset)
+            let letter = target.text[target.text.index(target.text.startIndex, offsetBy: change.offset)]
+            result.replaceCharacters(in: NSRange(start...start, in: original),
+                                     with: original[start].isUppercase ? letter.uppercased() : letter.lowercased())
+        }
+        return CyrillicSpellingRepair(text: result as String, confirmedByRepetition: allRepeated)
+    }
+
     static func shouldRecheck(language: String?, duration: Double, original: String, alternative: String) -> Bool {
         guard language?.lowercased() == "russian", duration >= 2,
               MeetingSpeechText.accepts(alternative) else { return false }

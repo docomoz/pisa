@@ -1159,18 +1159,35 @@ actor Transcriber {
                 if MeetingSpeechText.accepts(checked.text) { result = checked }
             } catch is ParakeetRecognitionSession.VerifierUnavailable { }
         }
+        var primaryText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var spellingEvidence: RecognitionAcousticResult?
+        if ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(primaryText) {
+            try Task.checkCancellation()
+            spellingEvidence = acousticRecognition(samples, using: russian)
+            if let heard = spellingEvidence?.text,
+               let repair = RussianRecognition.cyrillicSpelling(original: primaryText, heard: heard, vocabulary: vocabulary) {
+                if repair.confirmedByRepetition {
+                    primaryText = repair.text
+                } else if model.canVerify {
+                    do {
+                        let reread = try await generate(language: nil, context: "")
+                        primaryText = repair.confirmedText(language: reread.language, reread: reread.text) ?? primaryText
+                    } catch is ParakeetRecognitionSession.VerifierUnavailable { }
+                }
+            }
+        }
         // Parakeet does not detect language. Its echoed/default language field
         // must never force a Russian retry or suppress Russian quality checks.
-        let isRussian = ParakeetRecognitionPolicy.hasRussianTextEvidence(result.text)
-        var text = spokenVocabulary.apply(to: result.text.trimmingCharacters(in: .whitespacesAndNewlines))
-        var acoustic: RecognitionAcousticResult?
+        let isRussian = ParakeetRecognitionPolicy.hasRussianTextEvidence(primaryText)
+        var acoustic = isRussian ? spellingEvidence : nil
+        var text = spokenVocabulary.apply(to: primaryText)
         var uncertainLanguage = false
         guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
               !MeetingSpeechText.containsForeignLetters(text) else { return nil }
         try Task.checkCancellation()
         guard model.canVerify else {
-            return RecognizedSpeech(text: text, acoustic: isRussian && duration >= 2
-                ? acousticRecognition(samples, using: russian) : nil)
+            return RecognizedSpeech(text: text, acoustic: acoustic ?? (isRussian && duration >= 2
+                ? acousticRecognition(samples, using: russian) : nil))
         }
         do {
         // Parakeet can turn brief Russian speech into complete-looking English.
@@ -1246,7 +1263,7 @@ actor Transcriber {
         // copied into the prompt. Expanded sound is accepted only on agreement.
         if isRussian, (0.35..<2).contains(duration),
            (2...6).contains(RussianRecognition.words(text).count), let russian,
-           let independent = acousticRecognition(samples, using: russian)?.text,
+           let independent = (acoustic ?? acousticRecognition(samples, using: russian))?.text,
            RussianRecognition.words(independent) != RussianRecognition.words(text) {
             let hints = spokenVocabulary.relevantTerms(in: [text, independent])
             if !hints.isEmpty {
@@ -1267,7 +1284,7 @@ actor Transcriber {
             }
         }
         if isRussian, duration >= 2,
-           let rawResult = acousticRecognition(samples, using: russian) {
+           let rawResult = acoustic ?? acousticRecognition(samples, using: russian) {
             let rawHypothesis = rawResult.text
             acoustic = rawResult
             let (hypothesis, usesCyrillicHints) = spokenVocabulary.promptResult(rawHypothesis)

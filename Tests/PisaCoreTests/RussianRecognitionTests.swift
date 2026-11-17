@@ -2,6 +2,55 @@ import XCTest
 @testable import PisaCore
 
 final class RussianRecognitionTests: XCTestCase {
+    func testAcousticallyConfirmedCyrillicRepetitionsKeepCaseAndPunctuation() {
+        for (original, heard, expected) in [
+            ("Добрійшего, добрейшего.", "добрейшего добрейшего", "Добрейшего, добрейшего."),
+            ("Добрійшего, добрейшево", "добрейшего добрейшего", "Добрейшего, добрейшего"),
+            ("Добрійшего, добрейшегё!", "добрейшего добрейшего", "Добрейшего, добрейшего!"),
+            ("Сделаешь, сділаешь!", "сделаешь сделаешь", "Сделаешь, сделаешь!"),
+            ("Готовишь, ГОТІВИШЬ!", "готовишь готовишь", "Готовишь, ГОТОВИШЬ!"),
+        ] {
+            let repair = RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: "")
+            XCTAssertEqual(repair?.text, expected, original)
+            XCTAssertEqual(repair?.confirmedByRepetition, true, original)
+        }
+    }
+
+    func testIsolatedCyrillicSpellingRequiresMultilingualRussianConfirmation() throws {
+        let repair = try XCTUnwrap(RussianRecognition.cyrillicSpelling(original: "Обсудим провірку завтра.",
+            heard: "обсудим проверку завтра", vocabulary: ""))
+        XCTAssertFalse(repair.confirmedByRepetition)
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: "Обсудим проверку завтра!"), "Обсудим проверку завтра.")
+        XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: "Обсудим проверку завтра."))
+        XCTAssertNil(repair.confirmedText(language: nil, reread: "Обсудим проверку завтра."))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: "Обсудим проверку позже."))
+    }
+
+    func testGenuineLanguageSwitchCannotBeConfirmedByRepetitionAlone() {
+        for (original, heard) in [("Привіт, привет.", "привет привет"), ("Обідали, обедали.", "обедали обедали")] {
+            let repair = RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: "")
+            XCTAssertNotEqual(repair?.confirmedByRepetition, true, original)
+            XCTAssertNil(repair?.confirmedText(language: "Ukrainian", reread: heard))
+        }
+    }
+
+    func testCyrillicRepairPreservesProtectedAndUnconfirmedWords() {
+        for (original, heard, vocabulary) in [
+            ("Добрійшего, добрейшего.", "добрейшего", ""),
+            ("Добрійшего, добрейшего.", "дальнейшего добрейшего", ""),
+            ("Добрійшего, добрейшего.", "добрейшего добрейшего", "добрійшего"),
+            ("«Добрійшего», добрейшего.", "добрейшего добрейшего", ""),
+            ("Путь /добрійшего, добрейшего.", "путь добрейшего добрейшего", ""),
+            ("Откройте https://пример.рф/добрійшего", "откройте https пример рф добрейшего", ""),
+            ("Ірина, Ирина.", "ирина ирина", ""),
+            ("Перадаём прывітанне ўсім.", "передаем привет всем", ""),
+            ("Перевіримо зміни завтра.", "проверим изменения завтра", ""),
+            ("Почти, почти.", "почта почта", ""),
+        ] {
+            XCTAssertNil(RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: vocabulary), original)
+        }
+    }
+
     /// Every existing accepted repair is also a regression case for retry
     /// selection: skipping its decode must never hide a valid correction.
     private func revisedText(original: String, candidate: String, corroboration: String,

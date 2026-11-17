@@ -3,16 +3,22 @@ import Foundation
 /// Text evidence routes conservative Russian repairs; it is not an ASR
 /// language label. Foreign sentences are never translated by this policy.
 enum ParakeetRecognitionPolicy {
+    static let distinctCyrillicLetters = CharacterSet(charactersIn: "іїєґўІЇЄҐЎ")
+
+    static func hasDistinctCyrillicLetters(_ text: String) -> Bool {
+        text.rangeOfCharacter(from: distinctCyrillicLetters) != nil
+    }
+
     static func hasRussianTextEvidence(_ text: String) -> Bool {
         let lower = text.lowercased()
         // Distinct Ukrainian/Belarusian letters are positive evidence against
         // treating a supported foreign utterance as Russian.
-        if lower.contains(where: { "іїєґў".contains($0) }) {
+        if hasDistinctCyrillicLetters(lower) {
             // A minority foreign name must not veto clear Russian evidence in
             // the surrounding turn. Without that evidence, abstain.
             let words = lower.split(whereSeparator: { !$0.isLetter })
             guard words.contains(where: { word in
-                !word.contains(where: { "іїєґў".contains($0) })
+                word.rangeOfCharacter(from: distinctCyrillicLetters) == nil
                     && word.contains(where: { "ыэъё".contains($0) })
             }) else { return false }
         }

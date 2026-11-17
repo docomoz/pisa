@@ -336,7 +336,7 @@ public enum TranscriptTerms {
             .replacingOccurrences(of: "’", with: "'")
     }
 
-    private static func isCommonRussianWord(_ word: String) -> Bool {
+    static func isCommonRussianWord(_ word: String) -> Bool {
         guard word.unicodeScalars.allSatisfy({ (0x430...0x44F).contains($0.value) || $0.value == 0x2D }) else {
             return false
         }
