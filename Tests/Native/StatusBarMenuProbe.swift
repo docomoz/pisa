@@ -9,12 +9,12 @@ final class AppState: ObservableObject {
     @Published var recordingStarted: Date?
     @Published var starting = false
     @Published var demo = false
+    @Published var canToggleManualRecording = true
     @Published var preferences = Preferences()
     var processingID: UUID?
     var message: String?
     func setAutomatic(_ enabled: Bool) { preferences.automaticRecording = enabled }
-    func startRecording() async { recording = true }
-    func stopRecording(manual: Bool) async { recording = false }
+    func toggleManualRecording() { recording.toggle() }
 }
 
 enum BrandMark { static var menuIcon: NSImage { NSImage(size: NSSize(width: 16, height: 16)) } }
@@ -211,6 +211,20 @@ enum StatusBarMenuProbe {
             exit(1)
         }
         controller.menuDidClose(menu)
+        for recording in [false, true] {
+            state.recording = recording
+            for enabled in [false, true] {
+                state.canToggleManualRecording = enabled
+                controller.menuWillOpen(menu)
+                let title = recording ? "Остановить запись" : "Начать запись"
+                guard menu.items.first(where: { $0.title == title })?.isEnabled == enabled,
+                      automatic.isEnabled, menu.size == off else {
+                    fputs("FAIL: the manual recording lock must disable only the recording action without changing menu geometry\n", stderr)
+                    exit(1)
+                }
+                controller.menuDidClose(menu)
+            }
+        }
         print("STATUS_MENU_LAYOUT_OK opens_without_selection pointer_transitions repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
     }
 }

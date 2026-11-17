@@ -46,6 +46,8 @@ final class AppState: ObservableObject {
     }
     @Published var recording = false
     @Published var starting = false
+    @Published private var manualRecordingCooldown = false
+    var canToggleManualRecording: Bool { !starting && !demo && !manualRecordingCooldown }
     @Published var recordingStarted: Date?
     @Published var processingID: UUID? {
         didSet {
@@ -487,6 +489,22 @@ final class AppState: ObservableObject {
             else if !starting { Task { await startRecording(automatic: true) } }
         case .stop: if automaticallyStarted && recording { Task { await stopRecording() } }
         case .none: break
+        }
+    }
+    func toggleManualRecording() {
+        guard canToggleManualRecording else { return }
+        let deadline = ContinuousClock.now + .seconds(1)
+        manualRecordingCooldown = true
+        Task { [weak self] in
+            try await Task.sleep(until: deadline, clock: .continuous)
+            self?.manualRecordingCooldown = false
+        }
+        Task {
+            if recording {
+                await stopRecording(manual: true)
+            } else {
+                await startRecording()
+            }
         }
     }
     func startRecording(automatic: Bool = false) async {

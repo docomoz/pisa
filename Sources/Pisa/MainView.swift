@@ -82,11 +82,11 @@ struct MainView: View {
                     screenLabel("Импорт", systemImage: "tray.and.arrow.down")
                 }.actionButton().disabled(state.demo)
                     .screenHelp("Импортировать аудио").accessibilityLabel("Импортировать аудио")
-                Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
+                Button { state.toggleManualRecording() } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 }.actionButton(.recording)
-                    .disabled(state.starting || state.demo)
+                    .disabled(!state.canToggleManualRecording)
             }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, compact ? PisaDesign.Spacing.section : PisaDesign.Spacing.page)
