@@ -84,14 +84,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         recordAction.title = state.starting
             ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…")
             : (state.recording ? "Остановить запись" : "Начать запись")
-        recordAction.isEnabled = !state.starting && !state.demo
+        recordAction.isEnabled = state.canToggleManualRecording
         automaticControl.state = state.preferences.automaticRecording ? .on : .off
         automaticControl.needsDisplay = true
     }
     func showMenu() { item.button?.performClick(nil) }
 
     @objc private func toggleRecording() {
-        Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } }
+        state.toggleManualRecording()
     }
     @objc private func toggleAutomatic() {
         state.setAutomatic(!state.preferences.automaticRecording)

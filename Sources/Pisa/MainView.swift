@@ -82,11 +82,11 @@ struct MainView: View {
                     screenLabel("Импорт", systemImage: "tray.and.arrow.down")
                 }.actionButton().disabled(state.demo)
                     .screenHelp("Импортировать аудио").accessibilityLabel("Импортировать аудио")
-                Button { Task { if state.recording { await state.stopRecording(manual: true) } else { await state.startRecording() } } } label: {
+                Button { state.toggleManualRecording() } label: {
                     screenLabel(state.starting ? (state.recordingStarted == nil ? "Подготовка…" : "Сохраняю…") : state.recording ? "Остановить запись" : "Начать запись", systemImage: state.recording ? "stop.fill" : "record.circle")
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 }.actionButton(.recording)
-                    .disabled(state.starting || state.demo)
+                    .disabled(!state.canToggleManualRecording)
             }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, compact ? PisaDesign.Spacing.section : PisaDesign.Spacing.page)
@@ -541,9 +541,9 @@ struct MeetingView: View {
                         screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
                     }
                     if isRecording && isTranscribing {
-                        screenButton(state.livePaused ? "Продолжить" : "Пауза") { state.toggleLivePause() }
-                            .actionButton()
-                            .accessibilityLabel(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку")
+                        screenButton(state.livePaused ? "Продолжить расшифровку" : "Приостановить расшифровку") {
+                            state.toggleLivePause()
+                        }.actionButton()
                     } else if canStartLiveTranscription {
                         liveTranscriptionButton
                     } else if isQueued || (isTranscribing && !isSaving) {
@@ -599,6 +599,7 @@ struct MeetingView: View {
         if isSaving { return "Сохраняю запись" }
         if isQueued { return "В очереди на расшифровку" }
         if isTranscribing {
+            if isRecording && state.livePaused { return "Расшифровка на паузе. Запись продолжается." }
             if isRecording && !state.liveStatus.isEmpty { return state.liveStatus }
             if state.liveStatus == "Собираю расшифровку" { return state.liveStatus }
             let isLive = !state.liveStatus.isEmpty
