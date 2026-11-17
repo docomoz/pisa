@@ -1,0 +1,86 @@
+diff --git a/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift b/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift
+--- a/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift
++++ b/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift
+@@ -1212,6 +1212,13 @@
+         }
+     }
+
++    /// Materialize the unchanged transformer and its KV state without projecting
++    /// vocabulary scores that prefix processing will immediately discard.
++    func prefillChunk(_ inputEmbeddings: MLXArray, cache: [KVCache]) {
++        let hiddenStates = model(inputsEmbeds: inputEmbeddings, cache: cache)
++        eval(hiddenStates, cache)
++    }
++
+     // MARK: - Single Chunk Generation (internal)
+
+     private func generateSingleChunk(
+@@ -1257,14 +1264,8 @@
+         while totalTokens - processedTokens > 1 {
+             let remaining = (totalTokens - processedTokens) - 1
+             let n = min(prefillStepSize, remaining)
+-            let chunkIds = inputIds[0..., processedTokens..<(processedTokens + n)]
+             let chunkEmbeds = inputsEmbeds[0..., processedTokens..<(processedTokens + n), 0...]
+-            let chunkLogits = callAsFunction(
+-                inputIds: chunkIds,
+-                inputEmbeddings: chunkEmbeds,
+-                cache: cache
+-            )
+-            eval(chunkLogits)
++            prefillChunk(chunkEmbeds, cache: cache)
+             Memory.clearCache()
+             processedTokens += n
+         }
+diff --git a/Tests/Qwen3ASRPrefillTests.swift b/Tests/Qwen3ASRPrefillTests.swift
+new file mode 100644
+--- /dev/null
++++ b/Tests/Qwen3ASRPrefillTests.swift
+@@ -0,0 +1,48 @@
++import Foundation
++import MLX
++import Testing
++
++@testable import MLXAudioSTT
++
++@Suite(.serialized)
++struct Qwen3ASRPrefillTests {
++    @Test(arguments: [true, false], [[7, 13], [257, 19]])
++    func prefixWithoutVocabularyProjectionPreservesCacheAndNextLogits(tied: Bool, chunks: [Int]) throws {
++        let model = Qwen3ASRModel(Qwen3ASRConfig(
++            audioConfig: Qwen3AudioEncoderConfig(numMelBins: 16, encoderLayers: 1,
++                encoderAttentionHeads: 2, encoderFfnDim: 32, dModel: 16, outputDim: 16,
++                downsampleHiddenSize: 4),
++            textConfig: Qwen3TextConfig(vocabSize: 32, hiddenSize: 16, intermediateSize: 32,
++                numHiddenLayers: 2, numAttentionHeads: 2, numKeyValueHeads: 1, headDim: 8,
++                tieWordEmbeddings: tied),
++            audioTokenId: 2, audioStartTokenId: 1, audioEndTokenId: 3))
++        let previousCache = model.makeCache(), optimizedCache = model.makeCache()
++        var offset = 0
++        for count in chunks {
++            let ids = MLXArray((0..<count).map { Int32(($0 + offset) % 32) }, [1, count])
++            // Audio-merged embeddings are supplied by the caller. Non-token
++            // values verify that prefill never re-embeds the placeholder IDs.
++            let embeddings = MLXArray((0..<(count * 16)).map { sin(Float($0 + offset) * 0.017) }, [1, count, 16])
++            let discarded = model(inputIds: ids, inputEmbeddings: embeddings, cache: previousCache)
++            eval(discarded)
++            model.prefillChunk(embeddings, cache: optimizedCache)
++            offset += count
++            for (previous, optimized) in zip(previousCache, optimizedCache) {
++                #expect(previous.offset == offset)
++                #expect(optimized.offset == offset)
++                try #require(previous.state.count == optimized.state.count)
++                for (a, b) in zip(previous.state, optimized.state) {
++                    #expect(a.shape == b.shape)
++                    #expect(a.asArray(Float.self) == b.asArray(Float.self))
++                }
++            }
++        }
++        let finalID = MLXArray([Int32(5)], [1, 1])
++        let finalEmbedding = MLXArray((0..<16).map { cos(Float($0) * 0.031) }, [1, 1, 16])
++        let previous = model(inputIds: finalID, inputEmbeddings: finalEmbedding, cache: previousCache)
++        let optimized = model(inputIds: finalID, inputEmbeddings: finalEmbedding, cache: optimizedCache)
++        eval(previous, optimized)
++        #expect(previous.asArray(Float.self) == optimized.asArray(Float.self))
++        #expect(previous.argMax(axis: -1).asArray(Int32.self) == optimized.argMax(axis: -1).asArray(Int32.self))
++    }
++}
