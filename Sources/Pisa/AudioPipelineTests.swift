@@ -164,10 +164,20 @@ enum AudioPipelineTests {
             let file = try AVAudioFile(forWriting: mic, settings: format.settings); try file.write(from: buffer); file.close()
         }
         try writeMicrophone(near)
+        let microphoneEmbeddingCalls = SpeakerEmbeddingExtractor.inferenceMetrics.attemptedCalls
         let nearOnly = try await Transcriber().transcribe(files: [(mic,0)], modelDirectory: model, context: "", speakerDirectory: speakers, verifierDirectory: verifier, profiles: [], quiet: true) { _, _ in }
         let nearText = nearOnly.map(\.text).joined(separator: " ").lowercased()
         print("NEAR_SPEECH_FIXTURE", nearText)
-        guard nearText.contains("четверг"), nearOnly.contains(where: { $0.embedding != nil && $0.speaker == "Я" }) else { throw PisaError.message("Near speech or remembered voice evidence lost") }
+        guard nearText.contains("четверг"), !nearOnly.isEmpty,
+              nearOnly.allSatisfy({ $0.speaker == "Я" && $0.audioFile == mic.lastPathComponent }) else {
+            throw PisaError.message("Near speech, microphone identity, or source track lost")
+        }
+        // Microphone identity comes from its track. Remote voice extraction and
+        // clustering were tested above; unused microphone vectors stay absent.
+        guard nearOnly.allSatisfy({ $0.embedding == nil }),
+              SpeakerEmbeddingExtractor.inferenceMetrics.attemptedCalls == microphoneEmbeddingCalls else {
+            throw PisaError.message("Microphone transcription computed unused voice embeddings")
+        }
         var mixed = echo
         let nearStart = 16000 * 5
         if mixed.count < nearStart + near.count { mixed += Array(repeating: 0, count: nearStart + near.count - mixed.count) }
