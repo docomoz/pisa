@@ -19,6 +19,43 @@ final class RussianRecognitionTests: XCTestCase {
         return result
     }
 
+    func testSplitAtTurnEndRemainsEligibleForRetryAndLocalConsensus() {
+        let original = "После обеда обычно встречи. Вообще да в Алазию."
+        let independent = "После обеда обычно встречи. Вообще да вылазию."
+        XCTAssertTrue(RussianRecognition.canRevise(original: original, corroboration: independent,
+            hypothesis: independent, vocabulary: ""))
+        XCTAssertEqual(revisedText(original: original, candidate: independent, corroboration: independent,
+            hypothesis: independent, vocabulary: "", usesCyrillicHints: false),
+            "После обеда обычно встречи. Вообще да вылазию.")
+    }
+
+    func testSplitConsensusUsesRawFreshDecodeRatherThanGlossaryNormalization() {
+        let original = "После обеда обычно встречи. Вообще да в Алазию."
+        let normalized = "После обеда обычно встречи. Вообще да вылазию."
+        XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: normalized,
+            corroboration: normalized, hypothesis: normalized, vocabulary: "", usesCyrillicHints: false,
+            rawCandidate: original))
+    }
+
+    func testRawSplitDisagreementCannotFallThroughToInteriorConsensus() {
+        let original = "Мы проверили всё поочереди перед встречей."
+        let normalized = "Мы проверили всё по очереди перед встречей."
+        XCTAssertNil(RussianRecognition.revisedText(original: original, candidate: normalized,
+            corroboration: normalized, hypothesis: normalized, vocabulary: "", usesCyrillicHints: false,
+            rawCandidate: original))
+    }
+
+    func testSplitConsensusRepairsBothObservedBoundariesBeforeOtherRepairPathsReturn() {
+        let original = "Да слушай, да у меня обычно после часа начинается со звоны то с обученными, то с айшниками, то с HR'ами. Вообще да в Алазию."
+        let independent = "Да слушай, а-а, да у меня обычно после часа начинаются созвоны, то с обучениями, то с айшниками, то с эчами. Вообще, да, вылазию."
+        let candidate = "Да слушай, да у меня обычно после часа начинаются созвоны, то с обучениями, то с айшниками, то с HR'ами. Вообще, да, вылазию."
+        let rawCandidate = "Да слушай, да у меня обычно после часа начинаются созвоны, то с обучениями, то с айшниками, то с эчами. Вообще, да, вылазию."
+        XCTAssertEqual(RussianRecognition.revisedText(original: original, candidate: candidate,
+            corroboration: independent, hypothesis: independent, vocabulary: "HR", usesCyrillicHints: false,
+            rawCandidate: rawCandidate),
+            "Да слушай, да у меня обычно после часа начинаются созвоны то с обученными, то с айшниками, то с HR'ами. Вообще да вылазию.")
+    }
+
     func testNumericEndingRepairChangesOnlyIndependentlyDecodedEnding() {
         let original = "Проверим поиск внутри 7АБВ и обсудим результаты."
         let candidate = "Проверим поиск внутри 7АБВ'а и обсудим другое."

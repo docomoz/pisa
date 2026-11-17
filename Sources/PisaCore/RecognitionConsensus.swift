@@ -8,6 +8,153 @@ enum RecognitionConsensus {
     ]
     private static let affirmations: Set<String> = ["да", "ага", "угу", "окей"]
 
+    /// Only identifies an audio disagreement worth checking; never supplies text.
+    static func hasSplitDisagreement(original: String, corroboration: String, vocabulary: String) -> Bool {
+        !splitChanges(original: original, corroboration: corroboration, vocabulary: vocabulary).isEmpty
+    }
+
+    /// A real acoustic hypothesis may guide the fresh audio decode. Both raw
+    /// outputs must agree locally; glossary-normalized output is not evidence.
+    static func revisedSplitText(original: String, candidate: String, corroboration: String, vocabulary: String) -> String? {
+        guard MeetingSpeechText.accepts(candidate) else { return nil }
+        let source = tokens(original), evidence = tokens(corroboration), retry = tokens(candidate)
+        let checked = retry.map(\.key)
+        var edits: [Range<Int>: Set<String>] = [:]
+        for change in splitChanges(original: original, corroboration: corroboration, vocabulary: vocabulary) {
+            let matches = splitMatches(in: checked, left: change.left, right: change.right)
+            guard matches.count == 1, let matched = matches.first,
+                  checked[matched].elementsEqual(evidence[change.new].map(\.key)),
+                  retry[matched].map({ candidate[$0.range].lowercased() })
+                    == evidence[change.new].map({ corroboration[$0.range].lowercased() }),
+                  safeSplitContext(matched, left: change.left, right: change.right, tokens: retry, text: candidate) else { continue }
+            let trimmed = trimmedSplit(old: change.old, new: matched, source: source.map(\.key), evidence: checked)
+            let replacement = String(candidate[wordRange(trimmed.new, tokens: retry)])
+            let originalLetters = source[trimmed.old].map { original[$0.range].lowercased() }.joined()
+            let replacementLetters = retry[trimmed.new].map { candidate[$0.range].lowercased() }.joined()
+            guard !replacementLetters.difference(from: originalLetters).contains(where: { edit in
+                if case .remove(_, let letter, _) = edit { return letter == "ё" }
+                return false
+            }) else { continue }
+            edits[trimmed.old, default: []].insert(replacement)
+        }
+        // Overlapping or conflicting proposals do not identify a unique edit.
+        let accepted = edits.filter { span, replacements in
+            replacements.count == 1 && !edits.keys.contains { $0 != span && $0.overlaps(span) }
+        }.sorted { $0.key.lowerBound > $1.key.lowerBound }
+        guard !accepted.isEmpty else { return nil }
+        var revised = original
+        for (span, replacements) in accepted {
+            revised.replaceSubrange(wordRange(span, tokens: source), with: replacements.first!)
+        }
+        return revised
+    }
+
+    private struct SplitChange {
+        var old: Range<Int>
+        var new: Range<Int>
+        var left: [String]
+        var right: [String]
+    }
+
+    private static func splitChanges(original: String, corroboration: String, vocabulary: String) -> [SplitChange] {
+        guard MeetingSpeechText.accepts(original), MeetingSpeechText.accepts(corroboration) else { return [] }
+        let source = tokens(original), evidence = tokens(corroboration)
+        let first = source.map(\.key), heard = evidence.map(\.key)
+        guard first != heard, [first, heard].allSatisfy({ $0.filter(isRussian).count * 2 > $0.count }) else { return [] }
+        let protected = protectedWords(in: first, vocabulary: vocabulary)
+        var changes: [SplitChange] = []
+        for start in first.indices {
+            for width in 1...min(3, first.count - start) {
+                let old = start..<(start + width)
+                let leftCount = old.upperBound == first.count ? 2 : 1
+                let rightCount = old.lowerBound == 0 ? 2 : 1
+                guard (old.lowerBound == 0 || old.lowerBound >= leftCount),
+                      (old.upperBound == first.count || first.count - old.upperBound >= rightCount),
+                      !(old.lowerBound == 0 && old.upperBound == first.count) else { continue }
+                let left = old.lowerBound == 0 ? [] : Array(first[(old.lowerBound - leftCount)..<old.lowerBound])
+                let right = old.upperBound == first.count ? [] : Array(first[old.upperBound..<(old.upperBound + rightCount)])
+                guard splitMatches(in: first, left: left, right: right) == [old] else { continue }
+                let alternatives = splitMatches(in: heard, left: left, right: right)
+                guard alternatives.count == 1, let new = alternatives.first, old.count != new.count,
+                      safeSplitContext(old, left: left, right: right, tokens: source, text: original),
+                      safeSplitContext(new, left: left, right: right, tokens: evidence, text: corroboration) else { continue }
+                let trimmed = trimmedSplit(old: old, new: new, source: first, evidence: heard)
+                let before = Array(first[trimmed.old]), after = Array(heard[trimmed.new])
+                guard !before.isEmpty, !after.isEmpty, before.count != after.count,
+                      canChange(first, range: trimmed.old, protected: protected),
+                      after.allSatisfy({ isReplaceable($0) && !affirmations.contains($0) }),
+                      !before.contains(where: isNumberWord), !after.contains(where: isNumberWord),
+                      splitSoundsCompatible(before, after) else { continue }
+                // Trimming unchanged words must not hide a repeated immediate
+                // anchor behind a wider, superficially unique context.
+                let leftWidth = trimmed.old.upperBound == first.count ? 2 : 1
+                let rightWidth = trimmed.old.lowerBound == 0 ? 2 : 1
+                guard (trimmed.old.lowerBound == 0 || trimmed.old.lowerBound >= leftWidth),
+                      (trimmed.old.upperBound == first.count || first.count - trimmed.old.upperBound >= rightWidth) else { continue }
+                let immediateLeft = trimmed.old.lowerBound == 0 ? [] : Array(first[(trimmed.old.lowerBound - leftWidth)..<trimmed.old.lowerBound])
+                let immediateRight = trimmed.old.upperBound == first.count ? [] : Array(first[trimmed.old.upperBound..<(trimmed.old.upperBound + rightWidth)])
+                guard splitMatches(in: first, left: immediateLeft, right: immediateRight) == [trimmed.old],
+                      splitMatches(in: heard, left: immediateLeft, right: immediateRight) == [trimmed.new] else { continue }
+                changes.append(SplitChange(old: trimmed.old, new: trimmed.new, left: immediateLeft, right: immediateRight))
+            }
+        }
+        return changes
+    }
+
+    private static func splitMatches(in words: [String], left: [String], right: [String]) -> [Range<Int>] {
+        let edgeAnchor = left.isEmpty ? right : (right.isEmpty ? left : [])
+        if !edgeAnchor.isEmpty {
+            let occurrences = words.indices.filter { start in
+                words[start...].starts(with: edgeAnchor)
+            }
+            guard occurrences.count == 1 else { return [] }
+        }
+        var matches: [Range<Int>] = []
+        for start in words.indices {
+            guard left.isEmpty ? start == 0 : start >= left.count && words[(start - left.count)..<start].elementsEqual(left) else { continue }
+            for width in 1...min(3, words.count - start) {
+                let end = start + width
+                guard right.isEmpty ? end == words.count : end + right.count <= words.count && words[end..<(end + right.count)].elementsEqual(right) else { continue }
+                matches.append(start..<end)
+            }
+        }
+        return matches
+    }
+
+    private static func trimmedSplit(old: Range<Int>, new: Range<Int>, source: [String], evidence: [String]) -> (old: Range<Int>, new: Range<Int>) {
+        let (a, b) = differingWords(Array(source[old]), Array(evidence[new]))
+        return ((old.lowerBound + a.lowerBound)..<(old.lowerBound + a.upperBound),
+                (new.lowerBound + b.lowerBound)..<(new.lowerBound + b.upperBound))
+    }
+
+    private static func wordRange(_ span: Range<Int>, tokens: [Token]) -> Range<String.Index> {
+        tokens[span.lowerBound].range.lowerBound..<tokens[span.upperBound - 1].range.upperBound
+    }
+
+    private static func safeSplitContext(_ span: Range<Int>, left: [String], right: [String], tokens: [Token], text: String) -> Bool {
+        let context = wordRange((span.lowerBound - left.count)..<(span.upperBound + right.count), tokens: tokens)
+        let literalMarks = "/\\@_`#~"
+        let adjacent = text[..<context.lowerBound].last.map(String.init) ?? ""
+        let following = text[context.upperBound...].first.map(String.init) ?? ""
+        guard !(adjacent + String(text[context]) + following).contains(where: literalMarks.contains),
+              !intersectsLiteral(context, in: text), boundaryMarks(text[context]).isEmpty else { return false }
+        let changed = text[wordRange(span, tokens: tokens)]
+        return changed.allSatisfy { $0.isLetter || $0.isNumber || $0 == " " || $0 == "\t" || "-‐‑".contains($0) }
+    }
+
+    private static func splitSoundsCompatible(_ before: [String], _ after: [String]) -> Bool {
+        let first = Array(before.joined()), second = Array(after.joined())
+        guard min(first.count, second.count) >= 5, abs(first.count - second.count) <= 1 else { return false }
+        for prefix in ["не", "ни", "без"] where String(first).hasPrefix(prefix) != String(second).hasPrefix(prefix) { return false }
+        // Word boundaries may move, with at most one spelling letter changed.
+        // This does not license synonyms, grammatical cleanup or phrase deletion.
+        if first.count == second.count { return zip(first, second).filter { $0 != $1 }.count <= 1 }
+        let longer = first.count > second.count ? first : second
+        let shorter = first.count > second.count ? second : first
+        let prefix = zip(longer, shorter).prefix { $0 == $1 }.count
+        return longer.dropFirst(prefix + 1).elementsEqual(shorter.dropFirst(prefix))
+    }
+
     /// A short disagreement at an utterance edge can have no second anchor.
     /// The unchanged remainder must be at least three words, and the changed
     /// words must remain acoustically close and contain no protected meaning.
@@ -218,7 +365,15 @@ enum RecognitionConsensus {
     private static func protectedWords(in words: [String], vocabulary: String) -> [Range<Int>] {
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }
+            .flatMap { term -> [String] in
+                var forms = [term] + RecognitionVocabulary.cyrillicInflections(of: term)
+                // Protect regular case forms of explicit я-ending names too.
+                if term.count >= 3, term.first?.isUppercase == true, term.dropFirst().allSatisfy(\.isLowercase),
+                   term.hasSuffix("я"), isRussian(term.lowercased().replacingOccurrences(of: "ё", with: "е")) {
+                    forms += ["и", "е", "ю", "ей", "ею", "ям", "ями", "ях"].map { String(term.dropLast()) + $0 }
+                }
+                return forms
+            }
             .map(RussianRecognition.words).filter { !$0.isEmpty }
         return terms.flatMap { term in
             words.indices.compactMap { start in

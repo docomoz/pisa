@@ -160,6 +160,7 @@ enum RussianRecognition {
     /// the verifier differs elsewhere; the fresh decode still has to corroborate it.
     static func canRevise(original: String, corroboration: String, hypothesis: String,
                           vocabulary: String, dictionaryCorroboration: String? = nil) -> Bool {
+        if RecognitionConsensus.hasSplitDisagreement(original: original, corroboration: corroboration, vocabulary: vocabulary) { return true }
         let evidence = Set([corroboration, hypothesis,
             dictionaryCorroboration ?? SpokenVocabulary(vocabulary).apply(to: corroboration)])
         for heard in evidence {
@@ -213,10 +214,13 @@ enum RussianRecognition {
     }
 
     static func revisedText(original: String, candidate: String, corroboration: String, hypothesis: String,
-                            vocabulary: String, usesCyrillicHints: Bool, dictionaryCorroboration: String? = nil) -> String? {
+                            vocabulary: String, usesCyrillicHints: Bool, dictionaryCorroboration: String? = nil,
+                            rawCandidate: String? = nil) -> String? {
         guard MeetingSpeechText.accepts(candidate) else { return nil }
-        let acoustic = localizedRepair(original: original, candidate: candidate,
-                                       corroboration: corroboration, vocabulary: vocabulary) ?? original
+        let split = RecognitionConsensus.revisedSplitText(original: original, candidate: rawCandidate ?? candidate,
+            corroboration: corroboration, vocabulary: vocabulary) ?? original
+        let acoustic = localizedRepair(original: split, candidate: candidate,
+                                       corroboration: corroboration, vocabulary: vocabulary) ?? split
         if let revised = generalDictionaryRepair(original: acoustic, candidate: candidate,
                                                   hypothesis: dictionaryCorroboration ?? SpokenVocabulary(vocabulary).apply(to: corroboration), vocabulary: vocabulary) {
             return revised
@@ -231,7 +235,7 @@ enum RussianRecognition {
         if acoustic != original { return acoustic }
         guard accepts(candidate: candidate, original: original, vocabulary: vocabulary),
               preservesCorroboratedPhrases(candidate: candidate, original: original, corroboration: corroboration) else { return nil }
-        return RecognitionConsensus.revisedText(original: original, candidate: candidate,
+        return RecognitionConsensus.revisedText(original: original, candidate: rawCandidate ?? candidate,
             corroboration: corroboration, vocabulary: vocabulary)
     }
 

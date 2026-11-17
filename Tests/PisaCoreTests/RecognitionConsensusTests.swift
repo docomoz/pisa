@@ -3,6 +3,94 @@ import XCTest
 @testable import PisaCore
 
 final class RecognitionConsensusTests: XCTestCase {
+    func testLocalSplitRepairsTolerateUnrelatedDisagreementsAndPreserveTheRest() {
+        let original = "Да слушай, после часа начинается со звоны с HR'ами. Вообще да в Алазию."
+        let independent = "Да слушай, после часа начинаются созвоны с эчами. Вообще, да, вылазию."
+        let candidate = "Да слушай, после часа начинаются созвоны с HR'ами. Вообще да, вылазию."
+        XCTAssertEqual(RecognitionConsensus.revisedSplitText(original: original, candidate: candidate,
+            corroboration: independent, vocabulary: "HR"),
+            "Да слушай, после часа начинаются созвоны с HR'ами. Вообще да вылазию.")
+    }
+
+    func testLocalSplitRepairsJoinAndSeparateWithoutRewritingOtherSpeech() {
+        for (original, independent, candidate, expected) in [
+            ("Вчера мы запланировали со звоны после обеда.",
+             "Сегодня мы запланировали созвоны после обеда.",
+             "Вчера мы запланировали созвоны после ужина.",
+             "Вчера мы запланировали созвоны после обеда."),
+            ("Мы обсуждали это всерь ёз.", "Они обсуждали это всерьёз.",
+             "Мы обсуждали это всерьёз!", "Мы обсуждали это всерьёз."),
+            ("Мы проверили это поочереди.", "Они проверили это по очереди.",
+             "Мы проверили это по очереди!", "Мы проверили это по очереди."),
+        ] {
+            XCTAssertEqual(RecognitionConsensus.revisedSplitText(original: original, candidate: candidate,
+                corroboration: independent, vocabulary: ""), expected, original)
+        }
+    }
+
+    func testLocalSplitRepairsNeedIndependentAgreementAndUniqueAnchors() {
+        let source = "Мы обсуждали это всерь ёз."
+        for (candidate, independent) in [
+            (source, "Мы обсуждали это всерьёз."),
+            ("Мы обсуждали это всерьёз.", source),
+            ("Мы обсуждали это всерьёз потом.", "Мы обсуждали это всерьёз."),
+            ("Мы обсуждали это всерьёз.", "Мы обсуждали это серьёзно."),
+        ] {
+            XCTAssertNil(RecognitionConsensus.revisedSplitText(original: source, candidate: candidate,
+                corroboration: independent, vocabulary: ""))
+        }
+        let repeated = "Мы запланировали со звоны после обеда, запланировали со звоны после обеда."
+        XCTAssertNil(RecognitionConsensus.revisedSplitText(original: repeated,
+            candidate: "Мы запланировали созвоны после обеда.",
+            corroboration: "Мы запланировали созвоны после обеда.", vocabulary: ""))
+    }
+
+    func testLocalSplitRepairsProtectMeaningNamesNumbersForeignSpeechAndLiterals() {
+        for (before, after, glossary) in [
+            ("Мы обсуждали это не долго.", "Мы обсуждали это недолго.", ""),
+            ("Мы обсуждали это без причины.", "Мы обсуждали это беспричинно.", ""),
+            ("Мы обсуждали это да ладно.", "Мы обсуждали это доладно.", ""),
+            ("Мы обсуждали это три ста.", "Мы обсуждали это триста.", ""),
+            ("Мы обсуждали это 20 раз.", "Мы обсуждали это 20раз.", ""),
+            ("Мы обсуждали это с HR.", "Мы обсуждали это схр.", ""),
+            ("Мы обсуждали это с Аней.", "Мы обсуждали это Саней.", "Аня"),
+            ("Мы обсуждали это «всерь ёз».", "Мы обсуждали это всерьёз.", ""),
+            ("Мы обсуждали это всерь ёз.", "Мы обсуждали это `всерьёз`.", ""),
+            ("Мы обсуждали это всерь ёз.", "Мы обсуждали это серьёзно.", ""),
+            ("Мы обсуждали это в. Серьёз.", "Мы обсуждали это всерьёз.", ""),
+        ] {
+            XCTAssertNil(RecognitionConsensus.revisedSplitText(original: before, candidate: after,
+                corroboration: after, vocabulary: glossary), before)
+            let interiorBefore = String(before.dropLast()) + " после встречи."
+            let interiorAfter = String(after.dropLast()) + " после встречи."
+            XCTAssertNil(RecognitionConsensus.revisedSplitText(original: interiorBefore, candidate: interiorAfter,
+                corroboration: interiorAfter, vocabulary: glossary), interiorBefore)
+        }
+    }
+
+    func testSplitConsensusRejectsBarePathsAndRepeatedEdgeAnchors() {
+        for (before, after) in [
+            ("Мы проверили это по/очереди потом.", "Мы проверили это по очереди потом."),
+            ("Мы проверили это /дом/ик.", "Мы проверили это /домик."),
+            ("Мы проверили это по_очереди потом.", "Мы проверили это по очереди потом."),
+            ("Мы проверили это по@очереди потом.", "Мы проверили это по очереди потом."),
+            ("Мы проверили это по\\очереди потом.", "Мы проверили это по очереди потом."),
+            ("Мы обсуждали нерабочий.", "Мы обсуждали на рабочий."),
+            ("Мы прежде это обсуждали. Вообще да вылазию. Вообще да в Алазию.",
+             "Мы прежде это уже много раз обсуждали. Вообще да вылазию."),
+        ] {
+            XCTAssertNil(RecognitionConsensus.revisedSplitText(original: before, candidate: after,
+                corroboration: after, vocabulary: ""), before)
+        }
+    }
+
+    func testSplitConsensusDoesNotFoldYoInReplacementAgreement() {
+        XCTAssertNil(RecognitionConsensus.revisedSplitText(original: "Он сказал всётаки это правда.",
+            candidate: "Он сказал все-таки это правда.", corroboration: "Он сказал всё-таки это правда.", vocabulary: ""))
+        XCTAssertNil(RecognitionConsensus.revisedSplitText(original: "Он сказал всётаки это правда.",
+            candidate: "Он сказал все-таки это правда.", corroboration: "Он сказал все-таки это правда.", vocabulary: ""))
+    }
+
     func testBoundaryConsensusRepairsOnlyWordsBothDecodersHear() {
         let original = "Вот и вот с этого всё началось Сумный город Новосипок."
         let independent = "Вот. И вот с этого всё началось. Умный город Новосиб."

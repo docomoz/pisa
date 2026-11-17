@@ -1104,7 +1104,8 @@ actor Transcriber {
                     if checked.language?.lowercased() == "russian",
                        let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
                             corroboration: rawHypothesis, hypothesis: hypothesis, vocabulary: vocabulary,
-                            usesCyrillicHints: usesCyrillicHints, dictionaryCorroboration: canonical) {
+                            usesCyrillicHints: usesCyrillicHints, dictionaryCorroboration: canonical,
+                            rawCandidate: checked.text) {
                         text = revised
                     }
                 } else {
@@ -1120,7 +1121,7 @@ actor Transcriber {
                     if focused.language?.lowercased() == "russian",
                        let revised = RussianRecognition.revisedText(original: text, candidate: candidate,
                             corroboration: rawHypothesis, hypothesis: focusedName, vocabulary: vocabulary, usesCyrillicHints: false,
-                            dictionaryCorroboration: spokenVocabulary.apply(to: rawHypothesis)),
+                            dictionaryCorroboration: spokenVocabulary.apply(to: rawHypothesis), rawCandidate: focused.text),
                        spokenVocabulary.focusedNameHypothesis(original: revised, corroboration: rawHypothesis) == nil {
                         text = revised
                     }
