@@ -341,4 +341,21 @@ final class SpokenVocabularyTests: XCTestCase {
         XCTAssertTrue(vocabulary.hasCyrillicHints(in: source))
     }
 
+    func testRepeatedSourceStemsKeepEndingsAndDictionaryAmbiguity() {
+        let source = "В айклаинсе и айклаинса. ЛЛМки, ЛММки и ЛЛМами. AIM, aim и аи."
+        let vocabulary = SpokenVocabulary("YClients, LLM, LMM, AI", pronunciations: pronunciations)
+        let expected = "В YClients и YClients. LLM'ки, LMM'ки и LLM'ами. AIM, aim и аи."
+        XCTAssertEqual(vocabulary.apply(to: source), expected)
+        XCTAssertEqual(SpokenVocabulary("IClients, YClients", pronunciations: pronunciations)
+            .apply(to: "айклаинс и айклаинс"), "айклаинс и айклаинс")
+        XCTAssertEqual(vocabulary.apply(to: source), expected)
+        XCTAssertEqual(SpokenVocabulary("").apply(to: "айклаинсе и айклаинса"), "айклаинсе и айклаинса")
+    }
+
+    func testSourceSoundCacheDistinguishesCanonicalUnicodeSpellings() {
+        let vocabulary = SpokenVocabulary("Castor")
+        XCTAssertEqual(vocabulary.apply(to: "Kastor и Kastor"), "Castor и Kastor")
+        XCTAssertEqual(vocabulary.apply(to: "Kastor и Kastor"), "Kastor и Castor")
+    }
+
 }

@@ -37,6 +37,9 @@ actor Transcriber {
             ["parakeet", "qwen", "giga", "parakeetLoad", "qwenLoad", "speakerLoad", "gigaLoad", "diarization"].flatMap { [$0 + "Calls", $0 + "Seconds"] }
                 .map { ($0, 0.0) })
         performanceDiagnostics?["qwenLoadFailures"] = 0
+        for phase in ["firstPassTotal", "recognizeTotal", "contextTotal", "finalizationTotal"] {
+            for metric in ["Calls", "Seconds", "UnaccountedSeconds"] { performanceDiagnostics?[phase + metric] = 0 }
+        }
     }
     func recognitionPerformanceDiagnostics() -> [String: Double] { performanceDiagnostics ?? [:] }
 
@@ -48,6 +51,34 @@ actor Transcriber {
             performanceDiagnostics?[kind + "Seconds", default: 0] += ProcessInfo.processInfo.systemUptime - began
         }
         return try body()
+    }
+
+    private struct PerformanceInterval {
+        let began: TimeInterval
+        let accounted: TimeInterval
+    }
+
+    private func accountedRecognitionSeconds() -> TimeInterval {
+        ["parakeet", "qwen", "giga", "parakeetLoad", "qwenLoad", "speakerLoad", "gigaLoad", "diarization"]
+            .reduce(SpeakerEmbeddingExtractor.inferenceMetrics.inferenceSeconds) {
+                $0 + (performanceDiagnostics?[$1 + "Seconds"] ?? 0)
+            }
+    }
+
+    private func beginPerformanceInterval() -> PerformanceInterval? {
+        guard performanceDiagnostics != nil else { return nil }
+        return PerformanceInterval(began: ProcessInfo.processInfo.systemUptime, accounted: accountedRecognitionSeconds())
+    }
+
+    private func endPerformanceInterval(_ interval: PerformanceInterval?, kind: String) {
+        guard let interval else { return }
+        let elapsed = ProcessInfo.processInfo.systemUptime - interval.began
+        let accounted = accountedRecognitionSeconds() - interval.accounted
+        performanceDiagnostics?[kind + "Calls", default: 0] += 1
+        performanceDiagnostics?[kind + "Seconds", default: 0] += elapsed
+        // Enclosing buckets overlap intentionally. Subtract only leaf inference,
+        // load and embedding timers, never another enclosing phase's duration.
+        performanceDiagnostics?[kind + "UnaccountedSeconds", default: 0] += max(0, elapsed - accounted)
     }
 
     private func acousticRecognition(_ samples: [Float], using russian: RussianSpeechRecognizer?) -> RecognitionAcousticResult? {
@@ -248,6 +279,9 @@ actor Transcriber {
             }
             if live { liveRussian = russian }
         }
+        let firstPassTiming = beginPerformanceInterval()
+        var firstPassTimingFinished = false
+        defer { if !firstPassTimingFinished { endPerformanceInterval(firstPassTiming, kind: "firstPassTotal") } }
         var startedRecognition = false
         for (fileIndex, item) in preparedFiles.sorted(by: { !$0.0.lastPathComponent.contains("-mic.") && $1.0.lastPathComponent.contains("-mic.") }).enumerated() {
             try Task.checkCancellation()
@@ -489,6 +523,8 @@ actor Transcriber {
             // Restore the full path before this trial can update live language history.
             return WindowPass(retry: .withLookahead)
         }
+        endPerformanceInterval(firstPassTiming, kind: "firstPassTotal")
+        firstPassTimingFinished = true
         var sorted = firstPass.segments.sorted { $0.start < $1.start }
         if contextualVerification {
             sorted = try await contextualRevision(sorted, preceding: preceding,
@@ -497,6 +533,8 @@ actor Transcriber {
                 performance: performance, collectDiagnostics: collectDiagnostics,
                 checkpoint: checkpoint, checkpointURL: checkpointURL, progress: report)
         }
+        let finalizationTiming = beginPerformanceInterval()
+        defer { endPerformanceInterval(finalizationTiming, kind: "finalizationTotal") }
         if let first = sorted.first, let previous = recentLanguageSegments.first, first.start <= previous.start { recentLanguageSegments = [] }
         var localized = BackchannelLanguage.resolve(sorted, alternatives: firstPass.backchannels,
             preceding: live ? recentLanguageSegments : [], vocabulary: context).map { segment in
@@ -663,6 +701,8 @@ actor Transcriber {
         russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance, collectDiagnostics: Bool,
         selected: Set<UUID>? = nil, checkpoint: BatchTranscriptionCheckpoint? = nil, checkpointURL: URL? = nil,
         progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
+        let contextTiming = beginPerformanceInterval()
+        defer { endPerformanceInterval(contextTiming, kind: "contextTotal") }
         guard let russian, model.canVerify else {
             try Task.checkCancellation()
             if collectDiagnostics {
@@ -1064,6 +1104,8 @@ actor Transcriber {
 
     private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: ParakeetRecognitionSession, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool,
                            diagnostic: (start: Double, track: String)? = nil) async throws -> RecognizedSpeech? {
+        let recognitionTiming = beginPerformanceInterval()
+        defer { endPerformanceInterval(recognitionTiming, kind: "recognizeTotal") }
         let audio = MLXArray(samples)
         let maxTokens = min(768, max(64, Int(duration * 16)))
         let decodeCache = RecognitionDecodeCache<STTOutput>()

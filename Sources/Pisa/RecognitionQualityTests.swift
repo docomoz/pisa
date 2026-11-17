@@ -101,7 +101,7 @@ enum RecognitionQualityTests {
             throw PisaError.message("Verifier directory must be an absolute path")
         }
         let verifierDirectory = request.verifierDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? locations.verifier
-        let modes = Set(["pipeline", "parakeet", "parakeet-float32-audio", "parakeet-bfloat16-audio", "acoustic", "auto", "russian", "unpenalized", "russian-unpenalized"])
+        let modes = Set(["pipeline", "parakeet", "parakeet-compiled", "parakeet-float32-audio", "parakeet-bfloat16-audio", "acoustic", "auto", "russian", "unpenalized", "russian-unpenalized"])
         guard !request.fixtures.isEmpty, request.modes.allSatisfy(modes.contains),
               request.fixtures.allSatisfy({ !$0.samples.isEmpty && $0.samples.count <= 16000 * 120 && $0.samples.allSatisfy(\.isFinite) }),
               request.fixtures.allSatisfy({ ($0.timelineStart ?? 0).isFinite && ($0.timelineStart ?? 0) >= 0 }),
@@ -110,7 +110,8 @@ enum RecognitionQualityTests {
                   return fixture.track != "remote" && !reference.isEmpty && reference.count <= 16000 * 120
                       && reference.allSatisfy(\.isFinite)
               }),
-              !request.modes.contains("acoustic") || request.fixtures.allSatisfy({ $0.samples.count <= 16000 * 30 }) else {
+              !request.modes.contains("acoustic") || request.fixtures.allSatisfy({ $0.samples.count <= 16000 * 30 }),
+              !request.modes.contains("parakeet-compiled") || request.fixtures.allSatisfy({ $0.samples.count <= 16000 * 30 }) else {
             throw PisaError.message("Invalid recognition fixtures or modes")
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("pisa-recognition-" + UUID().uuidString)
@@ -196,18 +197,31 @@ enum RecognitionQualityTests {
                          extra: extra)
             }
         }
-        let primaryModes = request.modes.filter { ["parakeet", "parakeet-float32-audio", "parakeet-bfloat16-audio"].contains($0) }
+        let primaryModes = request.modes.filter { ["parakeet", "parakeet-compiled", "parakeet-float32-audio", "parakeet-bfloat16-audio"].contains($0) }
         if !primaryModes.isEmpty {
             let session = try ParakeetRecognitionSession(primaryDirectory: directory, verifierDirectory: verifierDirectory)
             for fixture in request.fixtures {
                 for mode in primaryModes {
                     let began = Date()
-                    let result = mode == "parakeet-bfloat16-audio"
-                        ? session.primary.generate(audio: MLXArray(fixture.samples).asType(.bfloat16), generationParameters: ParakeetRecognitionSession.primaryParameters)
-                        : session.generate(fixture.samples)
+                    let result: STTOutput
+                    if mode == "parakeet-compiled" {
+                        // Diagnostic only: one input retains the serial decoder
+                        // and FP32 audio while comparing the compiled encoder.
+                        result = try session.primary.generateBatch(audios: [MLXArray(fixture.samples)],
+                            generationParameters: ParakeetRecognitionSession.primaryParameters)[0]
+                    } else if mode == "parakeet-bfloat16-audio" {
+                        result = session.primary.generate(audio: MLXArray(fixture.samples).asType(.bfloat16),
+                            generationParameters: ParakeetRecognitionSession.primaryParameters)
+                    } else {
+                        result = session.generate(fixture.samples)
+                    }
+                    var extra: [String: Any] = [
+                        "model": mode == "parakeet-bfloat16-audio" ? "parakeet-native-float32-bfloat16-audio" : "parakeet-native-float32-audio",
+                        "primaryLoadSeconds": session.primaryLoadSeconds,
+                        "encoder": mode == "parakeet-compiled" ? "compiled" : "default"]
+                    if request.diagnostics == true { extra["segments"] = result.segments ?? [] }
                     try emit(name: fixture.name, mode: mode, text: result.text,
-                             seconds: Date().timeIntervalSince(began),
-                             extra: ["model": mode == "parakeet-bfloat16-audio" ? "parakeet-native-float32-bfloat16-audio" : "parakeet-native-float32-audio", "primaryLoadSeconds": session.primaryLoadSeconds])
+                             seconds: Date().timeIntervalSince(began), extra: extra)
                 }
             }
         }

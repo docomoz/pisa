@@ -99,6 +99,19 @@ struct SpokenVocabulary {
         let words = Self.words(original)
         let protected = TranscriptOrthography.literalRanges(in: original)
         var replacements: [(NSRange, String)] = []
+        // Every dictionary entry compares the same source stems against its
+        // own keys. Compute each exact stem once for this invocation; preserve
+        // casing because an acronym and an ordinary word can sound different.
+        // Byte keys also keep canonically equivalent Unicode spellings distinct:
+        // the sound tokenizer can treat Latin K and the Kelvin sign differently.
+        var soundKeys: [Data: String] = [:]
+        func soundKey(_ stem: String) -> String {
+            let cacheKey = Data(stem.utf8)
+            if let cached = soundKeys[cacheKey] { return cached }
+            let value = Self.key(Self.sound(stem, phones: phones))
+            soundKeys[cacheKey] = value
+            return value
+        }
         var index = 0
         while index < words.count {
             var found: (NSRange, String, Int)?
@@ -110,7 +123,7 @@ struct SpokenVocabulary {
                 guard Self.joinable(source) else { continue }
                 if count > 1, Self.standaloneWords.contains(words[index].text.lowercased()) || Self.standaloneWords.contains(words[index + count - 1].text.lowercased()) { continue }
                 let matches = entries.compactMap { entry -> String? in
-                    matched(source, entry: entry).map { $0.prefix + entry.term + $0.suffix }
+                    matched(source, entry: entry, soundKey: soundKey).map { $0.prefix + entry.term + $0.suffix }
                 }
                 if Set(matches).count == 1, let replacement = matches.first {
                     found = (range, replacement, count); break
@@ -350,7 +363,7 @@ struct SpokenVocabulary {
         return Set(winners.map(\.term)).count == 1 ? winners.first?.replacement : nil
     }
 
-    private func matched(_ source: String, entry: Entry) -> (prefix: String, suffix: String)? {
+    private func matched(_ source: String, entry: Entry, soundKey: (String) -> String) -> (prefix: String, suffix: String)? {
         var variants = [(source, "")]
         // A preposition sometimes sticks to a following foreign name. Only
         // split с when a complete dictionary pronunciation follows it.
@@ -384,7 +397,7 @@ struct SpokenVocabulary {
                 if entry.initialism, literal == entry.term.lowercased() || literal == entry.cyrillicSpelling {
                     return (prefix, literalSuffix)
                 }
-                let key = Self.key(Self.sound(stem, phones: phones))
+                let key = soundKey(stem)
                 if entry.keys.contains(key) { return (prefix, phoneticSuffix) }
             }
         }
