@@ -269,6 +269,18 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(TranscriptTerms.matches("Москвы", in: segments).map(\.text), ["Москвы"])
     }
 
+    func testCandidatesSkipColloquialRussianNamesInEveryCase() {
+        let segments = [
+            segment("Слово взял Илюха. Для Илюхи подготовили бриф, к Илюхе вопросов нет."),
+            segment("Позвали илюху, а потом и Илюху. С Илюхой обсудили API и поговорили об Илюхе."),
+            segment("С Илюхою договорились. Слушай, Илюх, пришли ссылку на Depsy."),
+            segment("Работали с Антохой и Ксюхой, передали Антохе и Ксюхе. Созвонились с Вованом и Максиком.")
+        ]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["API", "Depsy"])
+        XCTAssertEqual(TranscriptTerms.matches("Илюху", in: segments).map(\.text), ["илюху", "Илюху"])
+    }
+
     func testCandidatesSkipTheNamedSpeakersEvenWithoutNameContext() {
         let segments = [
             TranscriptSegment(start: 0, end: 2, speaker: "Спикер 1", text: "Отдельно обсудили Куделька, куделька и ДФА."),

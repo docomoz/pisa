@@ -26,6 +26,22 @@ EXCLUDED_TAGS = {"Name", "Surn", "Patr", "Geox", "Orgn", "Trad", "Abbr", "Erro",
 # can abbreviate «медицинский», so the bare token alone cannot select «мёд».
 HELD_OUT = {"берем", "мед"}
 
+# Fill gaps in OpenCorpora's coverage of colloquial given names and spelling
+# variants. Each group starts with the nominative ending, followed by the other
+# endings. For names in -ха the bare stem also occurs as a familiar address.
+COLLOQUIAL_NAME_PARADIGMS = (
+    (("а", "и", "е", "у", "ой", "ою", ""),
+     "андёха андрюха антоха валюха ванюха васюха витюха димаха димоха димуха "
+     "илёха илюха ильёха ильюха ироха катюха кирюха колюха костюха ксюха "
+     "максюха машуха мишуха настюха натаха петруха петюха сашуха танюха толяха тоха юлюха"),
+    (("а", "и", "е", "у", "ой", "ою"),
+     "егорка ирка ксюшка лёшка ромка ромочка стёпка"),
+    (("а", "и", "е", "у", "ей", "ею"), "илюша ильюша максюша"),
+    (("я", "и", "е", "ю", "ей", "ею"), "мишаня сашуля"),
+    (("", "а", "у", "ом", "е"),
+     "вован вовчик владик димон жорик колян костик костян максик толик толян"),
+)
+
 
 def download(url, expected_sha256):
     with urlopen(url, timeout=30) as response:
@@ -84,6 +100,10 @@ def select_entity_forms(words, paradigms, tags):
             forms.add(word.replace("ё", "е"))
         if brand[tag]:
             competing.add(word.replace("ё", "е"))
+    for endings, names in COLLOQUIAL_NAME_PARADIGMS:
+        for name in names.split():
+            stem = name.removesuffix(endings[0]).replace("ё", "е")
+            forms.update(stem + ending for ending in endings)
     return sorted(forms - competing)
 
 
