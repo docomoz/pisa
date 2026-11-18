@@ -152,8 +152,23 @@ enum InterfaceLayoutTests {
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
             try suite.checkScreens(state: state)
-            print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
-            return suite.failures == 0 && suite.checks > 0 ? 0 : 1
+            var result: Int32 = 1
+            // Keep the focus probes outside a MainActor task. The model actions
+            // suspend separately so the run loop can deliver their results.
+            Task { @MainActor in
+                defer { CFRunLoopStop(CFRunLoopGetMain()) }
+                do {
+                    for scale: CGFloat in [1, 1.2] {
+                        try await suite.checkModelSettings(state: state, scale: scale)
+                    }
+                    print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
+                    result = suite.failures == 0 && suite.checks > 0 ? 0 : 1
+                } catch {
+                    fputs("MODEL_SETTINGS_LAYOUT_TEST_FAILED: \(error)\n", stderr)
+                }
+            }
+            CFRunLoopRun()
+            return result
         } catch {
             fputs("INTERFACE_LAYOUT_TEST_FAILED: \(error)\n", stderr)
             return 1
@@ -286,7 +301,6 @@ private final class LayoutSuite {
         for scale in [1.0, 1.1, 1.2] {
             if scale != 1.1 {
                 checkSetup(state.modelSetup, scale: scale)
-                try checkModelSettings(state: state, scale: scale)
                 checkRecordingLevels(state.recordingMonitor, scale: scale)
             }
             checkForms(state: state, meeting: ready, scale: scale)
@@ -467,7 +481,7 @@ private final class LayoutSuite {
         }
     }
 
-    private func checkModelSettings(state: AppState, scale: CGFloat) throws {
+    func checkModelSettings(state: AppState, scale: CGFloat) async throws {
         scenario = "model settings, \(Int(scale * 100))%"
         let previousPath = state.preferences.parakeetModelDisplayPath
         state.preferences.parakeetModelDisplayPath = "/Volumes/External Drive/" +
@@ -508,8 +522,8 @@ private final class LayoutSuite {
               "the folder disclosure can hide the path and picker again")
 
         host.click(action.center)
-        check(host.wait { state.modelSetup.phase == .available },
-              "checking models detects missing files from settings")
+        let checked = try await waitForModelSettings { state.modelSetup.phase == .available }
+        check(checked, "checking models detects missing files from settings")
         check(!state.modelSetup.presented, "checking models keeps the result in settings")
         if let missing = frames([.settingsModelAction, .settingsModelDownloadSize, .settingsModelFolder], in: host) {
             equal(missing[1].minY - missing[0].maxY, PisaDesign.Spacing.inline, "size sits below the download action")
@@ -525,10 +539,18 @@ private final class LayoutSuite {
         }
         if let download = host.frames[.settingsModelAction] {
             host.click(download.center)
-            check(host.wait { state.modelSetup.presented && !state.modelSetup.busy },
-                  "the download action opens the model setup flow")
+            let opened = try await waitForModelSettings { state.modelSetup.presented && !state.modelSetup.busy }
+            check(opened, "the download action opens the model setup flow")
             state.modelSetup.dismiss()
         }
+    }
+
+    private func waitForModelSettings(_ condition: () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        return condition()
     }
 
     private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,
