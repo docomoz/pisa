@@ -151,21 +151,74 @@ enum RussianRecognition {
     struct CyrillicSpellingRepair {
         let text: String
         let confirmedByRepetition: Bool
+        fileprivate let isMixedTurn: Bool
 
         func confirmedText(language: String?, reread: String) -> String? {
-            guard language?.lowercased() == "russian", words(reread) == words(text) else { return nil }
-            return text
+            guard language?.lowercased() == "russian" else { return nil }
+            let candidate = words(text), checked = words(reread)
+            if candidate == checked { return text }
+            return isMixedTurn && agreesApartFromHesitation(candidate, checked) ? text : nil
         }
+    }
+
+    // A short hesitation can be heard differently. Require agreement around
+    // it and on every substantive word before choosing the acoustic reading.
+    private static let hesitationWords: Set<String> = ["же", "тоже", "также", "ну", "вот"]
+
+    private static func agreesApartFromHesitation(_ candidate: [String], _ checked: [String]) -> Bool {
+        let prefix = zip(candidate, checked).prefix(while: { $0 == $1 }).count
+        let suffix = zip(candidate.dropFirst(prefix).reversed(), checked.dropFirst(prefix).reversed())
+            .prefix(while: { $0 == $1 }).count
+        guard prefix >= 2, suffix >= 2, prefix + suffix >= 8 else { return false }
+        let candidateGap = candidate[prefix..<(candidate.count - suffix)]
+        let checkedGap = checked[prefix..<(checked.count - suffix)]
+        return isHesitation(candidateGap) && isHesitation(checkedGap)
+    }
+
+    private static func isHesitation(_ words: ArraySlice<String>) -> Bool {
+        guard words.count <= 2 else { return false }
+        return words.elementsEqual(["то", "есть"]) || words.elementsEqual(["что", "то"])
+            || words.allSatisfy(hesitationWords.contains)
     }
 
     // Intact Russian adjective and verb endings can distinguish a damaged
     // Russian word from a real code switch such as “Привіт, привет”.
     private static let russianInflections = ["его", "ые", "ыми", "ешь", "ишь"]
 
-    /// Use the independent audio decode as spelling evidence. Preserve every
-    /// original separator and require agreement on all surrounding words.
     static func cyrillicSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
         guard ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(original) else { return nil }
+        return letterSpelling(original: original, heard: heard, vocabulary: vocabulary)
+            ?? mixedCyrillicSpelling(original: original, heard: heard, vocabulary: vocabulary)
+    }
+
+    // Whole turns can mix alphabets and substitute words, so the single-letter
+    // repair cannot align them. Reuse the unprompted acoustic reading only when
+    // it retains the surrounding Russian speech and Qwen confirms it in Russian.
+    private static func mixedCyrillicSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
+        let source = words(original), candidate = words(heard)
+        let distinct = source.filter(ParakeetRecognitionPolicy.hasDistinctCyrillicLetters)
+        guard Set(distinct).count >= 2, similarLength(source, candidate),
+              !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(heard),
+              MeetingSpeechText.accepts(heard), TranscriptOrthography.literalRanges(in: original).isEmpty,
+              preservesVocabulary(candidate: heard, original: original, vocabulary: vocabulary) else { return nil }
+
+        let russianSource = source.filter(isCyrillic)
+        let shared = russianSource.count - candidate.difference(from: russianSource).removals.count
+        let otherSourceWords = source.filter { !isCyrillic($0) && !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters($0) }
+        guard shared >= 5, shared * 5 >= russianSource.count * 2,
+              otherSourceWords == candidate.filter({ !isCyrillic($0) }) else { return nil }
+
+        var text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.last == ",", let ending = original.last, ".!?…".contains(ending) {
+            text.removeLast()
+            text.append(ending)
+        }
+        return CyrillicSpellingRepair(text: text, confirmedByRepetition: false, isMixedTurn: true)
+    }
+
+    /// Use the independent audio decode as spelling evidence. Preserve every
+    /// original separator and require agreement on all surrounding words.
+    private static func letterSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
         let source = tokens(in: original), independent = tokens(in: heard)
         guard source.count == independent.count else { return nil }
         let changed = source.indices.filter { source[$0].key != independent[$0].key }
@@ -210,7 +263,7 @@ enum RussianRecognition {
             result.replaceCharacters(in: NSRange(start...start, in: original),
                                      with: original[start].isUppercase ? letter.uppercased() : letter.lowercased())
         }
-        return CyrillicSpellingRepair(text: result as String, confirmedByRepetition: allRepeated)
+        return CyrillicSpellingRepair(text: result as String, confirmedByRepetition: allRepeated, isMixedTurn: false)
     }
 
     static func shouldRecheck(language: String?, duration: Double, original: String, alternative: String) -> Bool {
