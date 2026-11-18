@@ -15,19 +15,19 @@ enum TermReviewTests {
         var meeting = Meeting(title: "Обсуждение терминов", source: "Проверка интерфейса")
         meeting.status = .ready
         meeting.duration = Double(segmentCount * 20)
-        let forms = ["2ГИС'а", "2ГИС'е", "2ГИС'ом"]
-        let misspellings = ["ЛПДов", "ЛПДом", "ЛПД"]
+        let mapForms = ["а", "е", "ом"].map { AbbreviationFamilies.Form(base: "2ГИС", ending: $0).text }
+        let lpdForms = ["ов", "ом", ""].map { AbbreviationFamilies.Form(base: "ЛПД", ending: $0).text }
         meeting.segments = (0..<segmentCount).map { index in
             let name = index.isMultiple(of: 2) ? "Куделька" : "куделька"
             let nameContext = index < 4 ? " Обсудили проект \(name)." : ""
-            let text = "Обсудили обновление \(forms[index % forms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. "
-                + "В расшифровке встретилось (\(misspellings[index % misspellings.count])). "
+            let text = "Обсудили обновление \(mapForms[index % mapForms.count]) и проверили MapKit, Qwen3-ASR и LLM'ки. "
+                + "В расшифровке встретилось (\(lpdForms[index % lpdForms.count])). "
                 + "Длинный контекст помогает проверить переносы текста и прокрутку списка вхождений до последней реплики.\(nameContext)"
             return TranscriptSegment(start: Double(index * 20), end: Double(index * 20 + 18),
                                      speaker: index.isMultiple(of: 2) ? "Анна" : "Борис",
                                      text: text)
         }
-        meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России. Для ЛПР, ЛПР'ов, ЛПРов и ЛПРы обсудили запрос Сбера и встречу со Сбером."
+        meeting.segments[0].text += " Обсудили с Димой планы для Москвы и России. ЛПР уточнил запрос Сбера. Выбрали ЛПР'ов и написали ЛПР'ам. ЛПР'ы договорились о встрече со Сбером."
         meeting.segments[1].text += " Так, Давайте обсудим Семь задач и Новогодний график. Ну, Во-первых, что-то и как-то. Потом снова что-то и как-то."
         state.update(meeting)
         return try state.library.read(meeting.id)
@@ -60,6 +60,16 @@ enum TermReviewTests {
         let occurrences = TranscriptTerms.matches("2ГИС", in: original.segments, vocabulary: state.preferences.vocabulary)
         try check(occurrences.count == 18, "Family search did not include all endings")
         let candidates = TranscriptTerms.candidates(in: original.segments, vocabulary: state.preferences.vocabulary)
+        let expectedForms: [String: Set<String>] = [
+            "2ГИС": ["2ГИС'а", "2ГИС'е", "2ГИС'ом"],
+            "ЛПД": ["ЛПД", "ЛПД'ов", "ЛПД'ом"],
+            "ЛПР": ["ЛПР", "ЛПР'ов", "ЛПР'ам", "ЛПР'ы"],
+            "LLM": ["LLM'ки"]
+        ]
+        for (base, forms) in expectedForms {
+            let candidate = try unwrap(candidates.first { $0.text == base }, "Missing preview candidate \(base)")
+            try check(Set(candidate.occurrences.map(\.text)) == forms, "Incorrect preview spellings for \(base)")
+        }
         try check(candidates.contains { $0.text == "2ГИС" && $0.occurrences.count == 18 }, "Family candidate was not grouped")
         try check(candidates.contains { $0.text == "ЛПР" && $0.occurrences.count == 4 }, "Cyrillic family candidate was not grouped")
         let candidateTexts = Set(candidates.map(\.text))
@@ -97,12 +107,17 @@ enum TermReviewTests {
         try check(state.meetings.first { $0.id == original.id }?.segments == original.segments, "Undo did not restore the in-memory transcript")
         try check(!state.canUndoTermReplacement(meetingID: original.id), "Undo history was not consumed")
 
-        let cyrillic = TranscriptTerms.matches("ЛПР", in: original.segments, vocabulary: state.preferences.vocabulary)
-        try state.replaceTerms(cyrillic, with: "ЛПР", meetingID: original.id)
-        let corrected = try state.library.read(original.id)
-        try check(corrected.segments[0].text.contains("Для ЛПР, ЛПР'ов, ЛПР'ов и ЛПР'ы"), "Cyrillic endings were not corrected")
-        try check(corrected.segments[0].text.contains("запрос Сбера и встречу со Сбером"), "Dictionary forms changed in the transcript")
-        try state.undoTermReplacement(meetingID: original.id)
+        var legacy = Meeting(title: "Исправление старой расшифровки", source: "Проверка исправления")
+        legacy.status = .ready
+        legacy.segments = [TranscriptSegment(start: 0, end: 8, speaker: "Анна",
+            text: "Позвали ЛПРов на встречу со Сбером. ЛПРы обсудили запрос Сбера.")]
+        state.update(legacy)
+        let cyrillic = TranscriptTerms.matches("ЛПР", in: legacy.segments, vocabulary: state.preferences.vocabulary)
+        try state.replaceTerms(cyrillic, with: "ЛПР", meetingID: legacy.id)
+        try check(try state.library.read(legacy.id).segments.first?.text ==
+            "Позвали ЛПР'ов на встречу со Сбером. ЛПР'ы обсудили запрос Сбера.", "Incorrect saved Cyrillic correction")
+        try state.undoTermReplacement(meetingID: legacy.id)
+        try check(try state.library.read(legacy.id).segments == legacy.segments, "Undo lost the original Cyrillic spellings")
 
         let misspellings = TranscriptTerms.matches("ЛПД", in: original.segments, vocabulary: state.preferences.vocabulary)
         try check(misspellings.count == 18, "Cyrillic family search did not include all endings")
