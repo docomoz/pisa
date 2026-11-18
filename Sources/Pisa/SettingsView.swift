@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject private var updates = AppUpdates.shared
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
+    @State private var showModelFolder = false
     init(initialSection: String = "Запись") {
         _section = State(initialValue: initialSection)
     }
@@ -118,28 +119,38 @@ struct SettingsView: View {
             .background(ClickToUnfocus())
     }
     private var modelSettings: some View {
-        columns {
-            FormSection("Parakeet v3", subtitle: "Локальное распознавание с перепроверкой терминов") {
-                screenLabel(
-                    state.modelReady ? "Модель готова" : "Модели ещё не установлены",
-                    systemImage: state.modelReady ? "checkmark.circle.fill" : "externaldrive"
-                ).foregroundStyle(Color.moss)
-                if let url = state.modelURL() {
-                    screenText(verbatim: url.path).textStyle(PisaDesign.Typography.code)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .foregroundStyle(Color.mutedInk).textSelection(.enabled)
-                }
-                VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-                    screenButton(state.modelReady ? "Проверить и установить модели" : "Загрузить модели") {
-                        dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                            state.modelSetup.check()
-                            state.modelSetup.presented = true
+        let setup = state.modelSetup
+        let checksModels = setup.ready || setup.phase == .checking
+        return columns {
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
+                VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
+                    SectionHeading("Parakeet v3 · \(modelStatus)", subtitle: "Локальное распознавание с перепроверкой терминов")
+                        .measuredForInterfaceTest(.settingsModelHeading)
+                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                        screenButton(checksModels ? "Проверить модели" : "Скачать модели") {
+                            if checksModels {
+                                setup.check(presentWhenNeeded: false)
+                            } else {
+                                dismiss()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    setup.check(presentWhenNeeded: false)
+                                    setup.presented = true
+                                }
+                            }
                         }
-                    }.actionButton()
-                    screenButton("Выбрать папку модели…") { state.chooseModel() }.actionButton()
+                        .actionButton()
+                        .disabled(setup.busy)
+                        .measuredForInterfaceTest(.settingsModelAction)
+                        if setup.phase == .failed, let error = setup.error {
+                            SupportingText(error)
+                        }
+                        if !checksModels, !setup.busy, let bytes = setup.missingDownloadBytes, bytes > 0 {
+                            SupportingText("Размер загрузки — около \(modelDownloadSize(bytes))")
+                                .measuredForInterfaceTest(.settingsModelDownloadSize)
+                        }
+                    }
                 }
-                SupportingText("Pisa загрузит проверенные модели речи и участников с Hugging Face — около 5,5 ГБ. Можно также выбрать свою папку с моделью Parakeet v3 в формате MLX.")
+                modelFolder
             }
         } right: {
             FormSection("Производительность") {
@@ -148,6 +159,52 @@ struct SettingsView: View {
                     set: { state.preferences.quietProcessing = $0; state.savePreferences() }
                 ))
                 SupportingText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
+            }
+        }.onAppear {
+            if !setup.busy, !setup.ready, setup.missingDownloadBytes == nil {
+                setup.check(presentWhenNeeded: false)
+            }
+        }
+    }
+    private var modelStatus: String {
+        switch state.modelSetup.phase {
+        case .checking: return "Проверяем…"
+        case .available: return "Нужны модели"
+        case .downloading: return "Скачиваем…"
+        case .ready: return "Готова"
+        case .failed: return "Ошибка"
+        }
+    }
+    private var modelFolder: some View {
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+            Button {
+                showModelFolder.toggle()
+            } label: {
+                HStack(spacing: PisaDesign.Spacing.inline) {
+                    Image(systemName: showModelFolder ? "chevron.down" : "chevron.right")
+                        .font(PisaDesign.Typography.Icon.disclosure)
+                        .frame(width: 12)
+                        .accessibilityHidden(true)
+                    screenText("Папка модели").textStyle(PisaDesign.Typography.bodyStrong)
+                }
+                .padding(.vertical, PisaDesign.Spacing.compact)
+                .contentShape(Rectangle())
+            }
+            .shapeAwarePlainButton()
+            .foregroundStyle(Color.moss)
+            .accessibilityValue(showModelFolder ? "Развёрнуто" : "Свёрнуто")
+            .measuredForInterfaceTest(.settingsModelFolder)
+            if showModelFolder {
+                if let path = state.modelURL()?.path ?? state.preferences.parakeetModelDisplayPath {
+                    screenText(verbatim: path).textStyle(PisaDesign.Typography.code)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(Color.mutedInk).textSelection(.enabled)
+                        .measuredForInterfaceTest(.settingsModelPath)
+                }
+                screenButton("Выбрать папку модели…") { state.chooseModel() }
+                    .actionButton()
+                    .disabled(state.modelSetup.busy)
+                    .measuredForInterfaceTest(.settingsModelChooseFolder)
             }
         }
     }

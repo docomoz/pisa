@@ -12,6 +12,8 @@ enum InterfaceLayoutElement: Hashable {
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
+    case settingsModelHeading, settingsModelAction, settingsModelDownloadSize
+    case settingsModelFolder, settingsModelPath, settingsModelChooseFolder
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
     case termCandidate(String)
@@ -156,8 +158,23 @@ enum InterfaceLayoutTests {
                 return 1
             }
             try suite.checkScreens(state: state)
-            print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
-            return suite.failures == 0 && suite.checks > 0 ? 0 : 1
+            var result: Int32 = 1
+            // Keep the focus probes outside a MainActor task. The model actions
+            // suspend separately so the run loop can deliver their results.
+            Task { @MainActor in
+                defer { CFRunLoopStop(CFRunLoopGetMain()) }
+                do {
+                    for scale: CGFloat in [1, 1.2] {
+                        try await suite.checkModelSettings(state: state, scale: scale)
+                    }
+                    print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
+                    result = suite.failures == 0 && suite.checks > 0 ? 0 : 1
+                } catch {
+                    fputs("MODEL_SETTINGS_LAYOUT_TEST_FAILED: \(error)\n", stderr)
+                }
+            }
+            CFRunLoopRun()
+            return result
         } catch {
             fputs("INTERFACE_LAYOUT_TEST_FAILED: \(error)\n", stderr)
             return 1
@@ -559,6 +576,78 @@ private final class LayoutSuite {
                 checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
             }
         }
+    }
+
+    func checkModelSettings(state: AppState, scale: CGFloat) async throws {
+        scenario = "model settings, \(Int(scale * 100))%"
+        let previousPath = state.preferences.parakeetModelDisplayPath
+        state.preferences.parakeetModelDisplayPath = "/Volumes/External Drive/" +
+            String(repeating: "Long folder name/", count: 5) + "Parakeet-TDT-v3"
+        state.modelSetup.phase = .ready
+        let host = LayoutHost(SettingsView(initialSection: "Модель").environmentObject(state),
+                              size: CGSize(width: 900, height: 700), scale: scale)
+        defer {
+            host.close()
+            state.preferences.parakeetModelDisplayPath = previousPath
+            state.modelSetup.phase = .ready
+        }
+        func capture(_ name: String) throws {
+            guard let path = ProcessInfo.processInfo.environment["PISA_MODEL_SETTINGS_SCREENSHOTS"] else { return }
+            let file = "model-\(name)-\(Int(scale * 100)).png"
+            try host.savePNG(to: URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent(file))
+        }
+        guard let measured = frames([.settingsContent("Модель"), .settingsModelHeading,
+                                     .settingsModelAction, .settingsModelFolder], in: host) else { return }
+        let (content, heading, action, folder) = (measured[0], measured[1], measured[2], measured[3])
+        equal(heading.minY, content.minY, "model name and status start at the top")
+        equal(action.minY - heading.maxY, PisaDesign.Spacing.content, "model action follows the status")
+        check(host.frames[.settingsModelDownloadSize] == nil, "installed models have no download size")
+        check(host.frames[.settingsModelPath] == nil && host.frames[.settingsModelChooseFolder] == nil,
+              "the path and picker start collapsed")
+        try capture("ready")
+
+        host.click(folder.center)
+        if let expanded = frames([.settingsModelPath, .settingsModelChooseFolder], in: host) {
+            equal(expanded[0].minY - folder.maxY, PisaDesign.Spacing.related, "path sits below the folder disclosure")
+            equal(expanded[1].minY - expanded[0].maxY, PisaDesign.Spacing.related, "picker sits below the complete path")
+            check(expanded.allSatisfy { host.bounds.contains($0) && $0.maxX <= content.midX },
+                  "the long path and picker fit the left column")
+        }
+        try capture("folder")
+        host.click(folder.center)
+        check(host.wait { host.frames[.settingsModelPath] == nil && host.frames[.settingsModelChooseFolder] == nil },
+              "the folder disclosure can hide the path and picker again")
+
+        host.click(action.center)
+        let checked = try await waitForModelSettings { state.modelSetup.phase == .available }
+        check(checked, "checking models detects missing files from settings")
+        check(!state.modelSetup.presented, "checking models keeps the result in settings")
+        if let missing = frames([.settingsModelAction, .settingsModelDownloadSize, .settingsModelFolder], in: host) {
+            equal(missing[1].minY - missing[0].maxY, PisaDesign.Spacing.inline, "size sits below the download action")
+            equal(missing[2].minY - missing[1].maxY, PisaDesign.Spacing.section, "size stays grouped with the download action")
+        }
+        state.preferences.parakeetModelDisplayPath = nil
+        try capture("missing")
+        if let disclosure = host.frames[.settingsModelFolder] {
+            host.click(disclosure.center)
+            _ = frames([.settingsModelChooseFolder], in: host)
+            check(host.frames[.settingsModelPath] == nil, "the picker is available without a selected model folder")
+            try capture("missing-folder")
+        }
+        if let download = host.frames[.settingsModelAction] {
+            host.click(download.center)
+            let opened = try await waitForModelSettings { state.modelSetup.presented && !state.modelSetup.busy }
+            check(opened, "the download action opens the model setup flow")
+            state.modelSetup.dismiss()
+        }
+    }
+
+    private func waitForModelSettings(_ condition: () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        return condition()
     }
 
     private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,
