@@ -16,7 +16,7 @@ enum InterfaceLayoutElement: Hashable {
     case settingsModelHeading, settingsModelAction, settingsModelDownloadSize
     case settingsModelFolder, settingsModelPath, settingsModelChooseFolder
     case settingsStorageUsage, settingsStorageCleanup, settingsStorageAge, settingsStorageAction
-    case exportStatus(String), exportPath, exportChooseFolder, exportDisable, exportCloudNotice
+    case exportToggle, exportPath, exportChooseFolder, exportUnavailableNotice, exportCloudNotice
     case mcpAccessToggle, mcpAccessNotice, mcpCopyConfiguration
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
@@ -468,36 +468,58 @@ private final class LayoutSuite {
         let host = LayoutHost(SettingsView(initialSection: "Экспорт").environmentObject(state), size: size, scale: scale)
         defer { host.close() }
 
-        func checkExport(_ status: String, hasFolder: Bool, screenshot: String) throws {
-            scenario = "\(status), \(Int(scale * 100))%"
-            let elements: [InterfaceLayoutElement] = [.exportStatus(status), .exportChooseFolder, .exportCloudNotice]
-            guard let measured = frames(elements, in: host) else { return }
-            let (heading, choose, notice) = (measured[0], measured[1], measured[2])
-            check(measured.allSatisfy { host.bounds.contains($0) }, "export status, action and notice fit in the window")
-            equal(choose.minX, notice.minX, "cloud sync notice is aligned below the folder action")
-            equal(notice.minY - choose.maxY, PisaDesign.Spacing.inline, "cloud sync notice is directly below the folder action")
-            if hasFolder, let path = frames([.exportPath], in: host)?.first {
-                check(heading.maxY <= path.minY && path.maxY <= choose.minY, "saved path is shown between the current status and folder action")
-                check(host.bounds.contains(path), "export path fits in the window")
-            } else if !hasFolder {
-                check(host.frames[.exportPath] == nil && host.frames[.exportDisable] == nil,
-                      "a disabled export has no folder path or disconnect action")
+        func checkExport(_ name: String, hasFolder: Bool, unavailable: Bool = false) throws {
+            scenario = "export \(name), \(Int(scale * 100))%"
+            guard let toggle = frames([.exportToggle], in: host)?.first else { return }
+            check(host.bounds.contains(toggle), "export checkbox fits in the window")
+            if hasFolder {
+                guard let measured = frames([.exportPath, .exportChooseFolder, .exportCloudNotice], in: host) else { return }
+                let (path, choose, notice) = (measured[0], measured[1], measured[2])
+                check(measured.allSatisfy { host.bounds.contains($0) }, "folder controls and cloud notice fit in the window")
+                equal(toggle.minX, path.minX, "checkbox and path share a left edge")
+                check(toggle.maxY <= path.minY && path.maxY <= choose.minY, "saved path is shown between the checkbox and folder action")
+                equal(choose.minX, notice.minX, "cloud sync notice is aligned below the folder action")
+                equal(notice.minY - choose.maxY, PisaDesign.Spacing.inline, "cloud sync notice is directly below the folder action")
+            } else {
+                check(host.frames[.exportPath] == nil && host.frames[.exportChooseFolder] == nil && host.frames[.exportCloudNotice] == nil,
+                      "folder controls are hidden when auto-export is off")
             }
-            try saveScreenshot("export-\(screenshot)-\(Int(scale * 100))", in: host)
+            check((host.frames[.exportUnavailableNotice] != nil) == unavailable, "an unavailable folder has a recovery notice")
+            try saveScreenshot("export-\(name)-\(Int(scale * 100))", in: host)
         }
 
-        try checkExport("Автоэкспорт выключен", hasFolder: false, screenshot: "off")
+        try checkExport("off", hasFolder: false)
+        if scale == 1, let toggle = frames([.exportToggle], in: host)?.first {
+            let cancelPicker = Timer(timeInterval: 0.5, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    let picker = NSApp.modalWindow as? NSOpenPanel
+                    self.check(picker != nil, "checking auto-export opens the folder picker")
+                    if let picker {
+                        picker.cancel(nil)
+                    } else {
+                        NSApp.stopModal(withCode: .cancel)
+                    }
+                }
+            }
+            RunLoop.main.add(cancelPicker, forMode: .modalPanel)
+            host.click(toggle.center)
+            check(!cancelPicker.isValid, "the folder picker entered its modal loop")
+            cancelPicker.invalidate()
+            check(state.preferences.exportBookmark == nil && host.frames[.exportPath] == nil,
+                  "canceling the folder picker leaves auto-export off")
+        }
         state.preferences.exportDisplayPath = exportFolder.path
         state.preferences.exportBookmark = Data("unavailable fixture bookmark".utf8)
         state.refreshExportFolderAccess()
-        try checkExport("Автоэкспорт приостановлен", hasFolder: true, screenshot: "paused")
+        try checkExport("paused", hasFolder: true, unavailable: true)
 
         try state.setExportFolder(exportFolder)
-        try checkExport("Автоэкспорт включён", hasFolder: true, screenshot: "on")
-        if let disable = frames([.exportDisable], in: host)?.first {
-            host.click(disable.center)
-            check(state.preferences.exportBookmark == nil, "disconnecting clears the configured folder")
-            try checkExport("Автоэкспорт выключен", hasFolder: false, screenshot: "off")
+        try checkExport("on", hasFolder: true)
+        if let toggle = frames([.exportToggle], in: host)?.first {
+            host.click(toggle.center)
+            let saved = try state.library.preferences()
+            check(saved.exportBookmark == nil && saved.exportDisplayPath == nil, "unchecking auto-export clears the saved folder")
+            try checkExport("off", hasFolder: false)
         }
         try state.setExportFolder(nil)
 

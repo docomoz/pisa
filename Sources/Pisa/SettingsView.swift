@@ -71,40 +71,40 @@ struct SettingsView: View {
 
     private var exportSettings: some View {
         let hasFolder = state.preferences.exportBookmark != nil
-        let status = if !hasFolder {
-            "Автоэкспорт выключен"
-        } else if state.exportFolderUnavailable {
-            "Автоэкспорт приостановлен"
-        } else {
-            "Автоэкспорт включён"
-        }
         return VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-            SectionHeading(status)
-                .measuredForInterfaceTest(.exportStatus(status))
-            if hasFolder, let path = state.preferences.exportDisplayPath {
-                screenText(verbatim: path)
-                    .textStyle(PisaDesign.Typography.code)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .measuredForInterfaceTest(.exportPath)
-            }
-            if state.exportFolderUnavailable {
-                SupportingText("Папка недоступна. Выберите её заново, чтобы возобновить экспорт.")
-            }
-            VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                HStack(spacing: PisaDesign.Spacing.related) {
-                    screenButton(hasFolder && !state.exportFolderUnavailable ? "Выбрать другую папку…" : "Выбрать папку…") {
+            screenToggle("Автоэкспорт расшифровок", isOn: Binding(
+                get: { state.preferences.exportBookmark != nil },
+                set: { enabled in
+                    if enabled {
                         state.chooseExportFolder()
-                    }.actionButton()
-                        .measuredForInterfaceTest(.exportChooseFolder)
-                    if hasFolder {
-                        screenButton("Отключить автоэкспорт") { state.disableExportFolder() }
-                            .actionButton()
-                            .measuredForInterfaceTest(.exportDisable)
+                    } else {
+                        state.disableExportFolder()
                     }
                 }
-                SupportingText("Если папка синхронизируется с облаком, расшифровки могут попасть туда")
-                    .measuredForInterfaceTest(.exportCloudNotice)
+            ))
+            .measuredForInterfaceTest(.exportToggle)
+
+            if hasFolder {
+                if let path = state.preferences.exportDisplayPath {
+                    screenText(verbatim: path)
+                        .textStyle(PisaDesign.Typography.code)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .measuredForInterfaceTest(.exportPath)
+                }
+                if state.exportFolderUnavailable {
+                    SupportingText("Папка недоступна. Выберите её заново, чтобы возобновить экспорт.")
+                        .measuredForInterfaceTest(.exportUnavailableNotice)
+                }
+                VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                    screenButton(state.exportFolderUnavailable ? "Выбрать папку…" : "Выбрать другую папку…") {
+                        state.chooseExportFolder()
+                    }
+                    .actionButton()
+                    .measuredForInterfaceTest(.exportChooseFolder)
+                    SupportingText("Если папка синхронизируется с облаком, расшифровки могут попасть туда")
+                        .measuredForInterfaceTest(.exportCloudNotice)
+                }
             }
             SupportingText("Когда расшифровка готова, Pisa сохраняет текст, имена участников и временные метки в Markdown. После правок файл обновляется автоматически. Аудио остаётся в библиотеке.")
         }
