@@ -427,6 +427,9 @@ private final class LayoutSuite {
                     equal(rowFrames[0].height, expectedHeight, "a short dictionary row uses compact vertical padding")
                     equal(rowFrames[1].minY - rowFrames[0].maxY, PisaDesign.Spacing.compact,
                           "dictionary rows have compact spacing")
+                    equal(rowFrames[0].maxX - measured[3].maxX,
+                          PisaDesign.Metrics.smallHeight + 2 * PisaDesign.Spacing.related,
+                          "dictionary text leaves room for one compact action control")
                 }
                 checkField(.dictionarySearch, placeholder: true, value: "ПППППП", in: host)
                 checkField(.dictionaryEntry, placeholder: true, value: "ПППППП", in: host)

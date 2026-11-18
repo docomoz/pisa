@@ -23,6 +23,7 @@ struct VocabularyDictionaryView: View {
     @State private var confirmingSpelling = false
     @State private var removal: VocabularyDictionary.Removal?
     @State private var inputFocused = false
+    @FocusState private var focusedEntryID: Int?
 
     private var entries: [VocabularyDictionary.Entry] { VocabularyDictionary.entries(in: state.preferences.vocabulary) }
     private var filtered: [VocabularyDictionary.Entry] {
@@ -73,14 +74,16 @@ struct VocabularyDictionaryView: View {
                         }
                         ForEach(filtered) { entry in
                             HStack(spacing: PisaDesign.Spacing.related) {
-                                screenText(verbatim: entry.text, highlighting: search).fixedSize(horizontal: false, vertical: true)
+                                screenText(entry.text, highlighting: search).fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                                     .measuredForInterfaceTest(.dictionaryResult)
-                                HStack(spacing: PisaDesign.Spacing.related) {
-                                    screenButton("Изменить…") { editing = entry }.actionButton(size: .small)
-                                    screenButton("Удалить") { delete(entry) }.actionButton(size: .small)
+                                SettingsRowMenu(help: "Действия с записью словаря", accessibilityTitle: "Действия с записью «\(entry.text)»") {
+                                    [
+                                        NativeActionMenuItem("Изменить…") { editing = entry },
+                                        NativeActionMenuItem("Удалить") { delete(entry) },
+                                    ]
                                 }
-                                .fixedSize(horizontal: true, vertical: false)
+                                .focused($focusedEntryID, equals: entry.id)
                             }
                             .padding(.horizontal, PisaDesign.Spacing.related)
                             .padding(.vertical, PisaDesign.Spacing.compact)
@@ -89,6 +92,9 @@ struct VocabularyDictionaryView: View {
                             .id(entry.id)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .onChange(of: focusedEntryID) { _, id in
+                    if let id { proxy.scrollTo(id) }
                 }
                 .onChange(of: scrollTarget) { _, target in
                     if let target { withAnimation { proxy.scrollTo(target, anchor: .center) } }

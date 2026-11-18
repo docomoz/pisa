@@ -198,25 +198,15 @@ struct SavedVoicesSettings: View {
     }
 
     private func voiceActions(_ profile: VoiceProfile) -> some View {
-        NativeActionMenu {
+        SettingsRowMenu(help: "Действия с голосом", accessibilityTitle: "Действия с голосом «\(profile.name)»") {
             [
                 NativeActionMenuItem("Переименовать…") { dialog = .rename(profile) },
                 NativeActionMenuItem("Объединить с другим голосом…", enabled: state.voiceProfiles.count > 1) { dialog = .merge(profile) },
                 .separator(),
                 NativeActionMenuItem("Забыть голос") { dialog = .forget(profile) },
             ]
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(PisaDesign.Typography.Icon.medium)
-                .foregroundStyle(Color.mutedInk)
-                .frame(width: PisaDesign.Metrics.smallHeight, height: PisaDesign.Metrics.smallHeight)
-                .contentShape(Rectangle())
         }
-        .shapeAwarePlainButton()
-        .fixedSize()
         .focused($focusedControl, equals: .actions(profile.id))
-        .screenHelp("Действия с голосом")
-        .accessibilityLabel(typographicText("Действия с голосом «\(profile.name)»"))
     }
 
     private func sampleRow(_ example: VoiceExample, number: Int, profile: VoiceProfile, canRemove: Bool) -> some View {

@@ -32,6 +32,26 @@ struct NativeActionMenu<Label: View>: View {
     }
 }
 
+struct SettingsRowMenu: View {
+    let help: String
+    let accessibilityTitle: String
+    let items: () -> [NSMenuItem]
+
+    var body: some View {
+        NativeActionMenu(items: items) {
+            Image(systemName: "ellipsis")
+                .font(PisaDesign.Typography.Icon.medium)
+                .foregroundStyle(Color.mutedInk)
+                .frame(width: PisaDesign.Metrics.smallHeight, height: PisaDesign.Metrics.smallHeight)
+                .contentShape(Rectangle())
+        }
+        .shapeAwarePlainButton()
+        .fixedSize()
+        .screenHelp(help)
+        .accessibilityLabel(typographicText(accessibilityTitle))
+    }
+}
+
 private func restorePointingCursor(over view: NSView) {
     guard NSApp.isActive, let window = view.window else { return }
     let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
