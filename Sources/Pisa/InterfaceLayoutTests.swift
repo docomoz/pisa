@@ -420,7 +420,7 @@ private final class LayoutSuite {
             }
             checkForms(state: state, meeting: ready, scale: scale)
             try checkIntegrationSettings(state: state, scale: scale)
-            checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
+            try checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
         }
     }
 
@@ -798,7 +798,7 @@ private final class LayoutSuite {
     }
 
     private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,
-                                   savedVoice: VoiceProfile, scale: CGFloat) {
+                                   savedVoice: VoiceProfile, scale: CGFloat) throws {
         let percent = Int((scale * 100).rounded())
         for size in [CGSize(width: 980, height: 660), CGSize(width: 1200, height: 800)] {
             scenario = "main window focus, \(Int(size.width))×\(Int(size.height)), \(percent)%"
@@ -916,7 +916,27 @@ private final class LayoutSuite {
                 equal(measured[3].minY - measured[2].maxY, PisaDesign.Spacing.related,
                       "saved voice rows have room between groups")
             }
+            let fullHeading = host.frames[.savedVoiceHeading]
+            try saveScreenshot("saved-people-full-\(percent)", in: host)
             checkField(.savedVoiceSearch, placeholder: true, value: "ПППППП", in: host)
+            if let heading = fullHeading, let searchFrame = host.frames[.savedVoiceSearch],
+               let search = host.field(in: searchFrame, placeholder: "Найти голос по имени") {
+                check(host.frames[.savedVoiceHeading] == heading, "the first search preserves the saved people count")
+                check(host.type(secondVoice.name, into: search), "search accepts a saved voice name")
+                check(host.wait { host.frames[.savedVoiceRow(savedVoice.id)] == nil && host.frames[.savedVoiceRow(secondVoice.id)] != nil },
+                      "search leaves only the matching voice visible")
+                check(host.frames[.savedVoiceHeading] == heading, "search preserves the saved people count")
+                try saveScreenshot("saved-people-filtered-\(percent)", in: host)
+                state.voiceProfiles = [secondVoice]
+                check(host.wait { (host.frames[.savedVoiceHeading]?.width ?? heading.width) < heading.width },
+                      "the heading updates from two people to one after a profile is removed")
+                try saveScreenshot("saved-people-one-\(percent)", in: host)
+                state.voiceProfiles = []
+                check(host.wait { host.frames[.savedVoiceSearch] == nil }, "removing the last profile shows the empty state")
+                try saveScreenshot("saved-people-empty-\(percent)", in: host)
+            } else {
+                check(false, "saved voices show the heading and search field")
+            }
         }
 
         scenario = "voice merge search, \(percent)%"
