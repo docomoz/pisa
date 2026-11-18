@@ -286,7 +286,10 @@ struct MeetingView: View {
                 }
             }
             .padding(.top, showsTranscriptStatus ? PisaDesign.Spacing.inline : PisaDesign.Spacing.content)
-            HStack(spacing: PisaDesign.Spacing.inline) { Image(systemName: "lock.shield"); screenText("Локальная расшифровка"); Spacer(); screenText("Только на этом Mac") }.textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk).padding(.vertical, PisaDesign.Spacing.content)
+            screenLabel("Распознавание на этом Mac", systemImage: "lock.shield")
+                .textStyle(PisaDesign.Typography.footnote)
+                .foregroundStyle(Color.mutedInk)
+                .padding(.vertical, PisaDesign.Spacing.content)
         }
         .padding(.top, PisaDesign.Spacing.related)
         .padding(.horizontal, PisaDesign.Spacing.page)

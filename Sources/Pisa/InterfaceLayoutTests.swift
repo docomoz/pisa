@@ -12,6 +12,8 @@ enum InterfaceLayoutElement: Hashable {
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
+    case exportStatus(String), exportPath, exportChooseFolder, exportDisable, exportCloudNotice
+    case mcpAccessToggle, mcpAccessNotice, mcpCopyConfiguration
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
@@ -183,6 +185,12 @@ private final class LayoutSuite {
         return ready ? elements.compactMap { host.frames[$0] } : nil
     }
 
+    private func saveScreenshot(_ name: String, in host: LayoutHost) throws {
+        guard let path = ProcessInfo.processInfo.environment["PISA_LAYOUT_SCREENSHOTS"] else { return }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        try host.savePNG(to: directory.appendingPathComponent(name + ".png"))
+    }
+
     func checkScreens(state: AppState) throws {
         let file = "interface-fixture-mic.caf"
         guard let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1),
@@ -236,6 +244,7 @@ private final class LayoutSuite {
             state.select(ready.id)
             guard let reference = checkMeetingHeader(in: host) else { continue }
             checkTranscript(in: host, wide: size.width > 980)
+            try saveScreenshot("meeting-\(Int(size.width))-\(Int(scale * 100))", in: host)
 
             var processingPositions: (heading: CGRect, action: CGRect, progress: CGRect)?
             for (meeting, firstContent) in [(saved, InterfaceLayoutElement.waveform), (queued, .meetingStatus),
@@ -287,8 +296,70 @@ private final class LayoutSuite {
                 checkRecordingLevels(state.recordingMonitor, scale: scale)
             }
             checkForms(state: state, meeting: ready, scale: scale)
+            try checkIntegrationSettings(state: state, scale: scale)
             checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
         }
+    }
+
+    private func checkIntegrationSettings(state: AppState, scale: CGFloat) throws {
+        let size = CGSize(width: 900, height: 700)
+        let exportFolder = state.library.root.appendingPathComponent("Расшифровки тестовых встреч", isDirectory: true)
+        try FileManager.default.createDirectory(at: exportFolder, withIntermediateDirectories: true)
+        let host = LayoutHost(SettingsView(initialSection: "Экспорт").environmentObject(state), size: size, scale: scale)
+        defer { host.close() }
+
+        func checkExport(_ status: String, hasFolder: Bool, screenshot: String) throws {
+            scenario = "\(status), \(Int(scale * 100))%"
+            let elements: [InterfaceLayoutElement] = [.exportStatus(status), .exportChooseFolder, .exportCloudNotice]
+            guard let measured = frames(elements, in: host) else { return }
+            let (heading, choose, notice) = (measured[0], measured[1], measured[2])
+            check(measured.allSatisfy { host.bounds.contains($0) }, "export status, action and notice fit in the window")
+            equal(choose.minX, notice.minX, "cloud sync notice is aligned below the folder action")
+            equal(notice.minY - choose.maxY, PisaDesign.Spacing.inline, "cloud sync notice is directly below the folder action")
+            if hasFolder, let path = frames([.exportPath], in: host)?.first {
+                check(heading.maxY <= path.minY && path.maxY <= choose.minY, "saved path is shown between the current status and folder action")
+                check(host.bounds.contains(path), "export path fits in the window")
+            } else if !hasFolder {
+                check(host.frames[.exportPath] == nil && host.frames[.exportDisable] == nil,
+                      "a disabled export has no folder path or disconnect action")
+            }
+            try saveScreenshot("export-\(screenshot)-\(Int(scale * 100))", in: host)
+        }
+
+        try checkExport("Автоэкспорт выключен", hasFolder: false, screenshot: "off")
+        state.preferences.exportDisplayPath = exportFolder.path
+        state.preferences.exportBookmark = Data("unavailable fixture bookmark".utf8)
+        state.refreshExportFolderAccess()
+        try checkExport("Автоэкспорт приостановлен", hasFolder: true, screenshot: "paused")
+
+        try state.setExportFolder(exportFolder)
+        try checkExport("Автоэкспорт включён", hasFolder: true, screenshot: "on")
+        if let disable = frames([.exportDisable], in: host)?.first {
+            host.click(disable.center)
+            check(state.preferences.exportBookmark == nil, "disconnecting clears the configured folder")
+            try checkExport("Автоэкспорт выключен", hasFolder: false, screenshot: "off")
+        }
+        try state.setExportFolder(nil)
+
+        scenario = "MCP access, \(Int(scale * 100))%"
+        state.preferences.mcpEnabled = false
+        guard let tab = frames([.settingsTab("MCP")], in: host)?.first else { return }
+        host.click(tab.center)
+        guard let measured = frames([.mcpAccessToggle, .mcpAccessNotice, .mcpCopyConfiguration], in: host) else { return }
+        let (toggle, notice, copy) = (measured[0], measured[1], measured[2])
+        check(measured.allSatisfy { host.bounds.contains($0) }, "MCP access checkbox, notice and configuration action fit in the window")
+        equal(notice.minY - toggle.maxY, PisaDesign.Spacing.inline, "MCP data access notice is directly below the checkbox")
+        equal(notice.minX, toggle.minX, "MCP data access notice and checkbox share a left edge")
+        try saveScreenshot("mcp-off-\(Int(scale * 100))", in: host)
+        host.click(toggle.center)
+        let enabled = try state.library.preferences().mcpEnabled
+        check(enabled, "MCP checkbox enables access in the saved library settings")
+        check(host.frames[.mcpAccessNotice] == notice, "MCP data access notice stays visible when enabling access")
+        try saveScreenshot("mcp-on-\(Int(scale * 100))", in: host)
+        host.click(toggle.center)
+        let disabled = try !state.library.preferences().mcpEnabled
+        check(disabled, "MCP checkbox disables access in the saved library settings")
+        check(host.frames[.mcpAccessNotice] == notice, "MCP data access notice stays visible when disabling access")
     }
 
     private func checkWelcome(in host: LayoutHost) {
