@@ -80,6 +80,14 @@ struct TechnologyVocabulary {
             options: .caseInsensitive)
     }
 
+    func hasPersonalSpokenSpelling(_ spelling: String) -> Bool {
+        personalSpokenKeys.contains(Self.spokenKey(spelling))
+    }
+
+    func personalPhraseRanges(in text: String) -> [NSRange] {
+        personalPhrases?.matches(in: text, range: NSRange(text.startIndex..., in: text)).map(\.range) ?? []
+    }
+
     func apply(to text: String) -> String {
         let replacements = matches(in: text, includeCompanies: false).filter { $0.replacement != nil }
         guard !replacements.isEmpty else { return text }
@@ -90,11 +98,11 @@ struct TechnologyVocabulary {
         return result as String
     }
 
-    func matches(in text: String, includeCompanies: Bool = true) -> [Match] {
+    func matches(in text: String, includeCompanies: Bool = true, literalRanges: [NSRange]? = nil) -> [Match] {
         let fullRange = NSRange(text.startIndex..., in: text)
         let ns = text as NSString
-        let protected = TranscriptOrthography.literalRanges(in: text)
-            + (personalPhrases?.matches(in: text, range: fullRange).map(\.range) ?? [])
+        let protected = (literalRanges ?? TranscriptOrthography.literalRanges(in: text))
+            + personalPhraseRanges(in: text)
         let tokens = Self.token.matches(in: text, range: fullRange).compactMap { match -> (Range<String.Index>, String)? in
             guard let range = Range(match.range, in: text) else { return nil }
             return (range, String(text[range]))
@@ -148,7 +156,7 @@ struct TechnologyVocabulary {
                         text[tokens[position].0.upperBound..<tokens[position + 1].0.lowerBound]
                     }
                     guard gaps.allSatisfy(Self.isSpokenGap),
-                          !personalSpokenKeys.contains(Self.spokenKey(base)) else { continue }
+                          !hasPersonalSpokenSpelling(base) else { continue }
                 } else if !Self.writtenMatch(base, spelling: pattern.spelling) { continue }
 
                 let range = NSRange(first..<last, in: text)

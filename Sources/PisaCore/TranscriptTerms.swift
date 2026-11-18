@@ -5,6 +5,19 @@ public struct TermCandidate: Identifiable, Sendable {
     public let id: String
     public let text: String
     public let occurrences: [TermOccurrence]
+    public let observedLabel: String
+    let alternativeSpellings: String?
+
+    fileprivate init(id: String, text: String, occurrences: [TermOccurrence]) {
+        self.id = id
+        self.text = text
+        self.occurrences = occurrences
+        let forms = Set(occurrences.map(\.text))
+        let observed = forms.contains(text) ? text : occurrences[0].text
+        observedLabel = observed
+        let alternatives = forms.filter { $0.lowercased() != observed.lowercased() }.sorted()
+        alternativeSpellings = alternatives.isEmpty ? nil : alternatives.joined(separator: ", ")
+    }
 }
 
 public struct TermOccurrence: Identifiable, Sendable {
@@ -14,12 +27,21 @@ public struct TermOccurrence: Identifiable, Sendable {
     public let text: String
     fileprivate let family: AbbreviationFamilies.Form?
     fileprivate let source: String
+
+    fileprivate struct Spelling: Hashable {
+        let text: String
+        let ending: String?
+    }
+
+    fileprivate var spelling: Spelling { Spelling(text: text, ending: family?.ending) }
 }
 
 public enum TranscriptTerms {
     private static let separators = CharacterSet(charactersIn: ",;\n\r")
     private static let leadingBoundary = #"(?<![\p{L}\p{M}\p{N}_/\\@\-‐‑])(?<![\p{L}\p{M}\p{N}]['’])"#
     private static let trailingBoundary = #"(?![\p{L}\p{M}\p{N}_/\\@\-‐‑])(?!['’][\p{L}\p{M}\p{N}])"#
+    private static let leadingEdge = try! NSRegularExpression(pattern: leadingBoundary)
+    private static let trailingEdge = try! NSRegularExpression(pattern: trailingBoundary)
     private static let word = try! NSRegularExpression(
         pattern: leadingBoundary + #"[\p{L}\p{N}][\p{L}\p{M}\p{N}\-‐‑]*(?:['’][\p{L}\p{M}\p{N}]+)*"# + trailingBoundary
     )
@@ -58,11 +80,6 @@ public enum TranscriptTerms {
     }
 
     public static func candidates(in segments: [TranscriptSegment], vocabulary: String) -> [TermCandidate] {
-        candidates(in: segments, vocabulary: vocabulary, onFirstCandidates: nil)
-    }
-
-    static func candidates(in segments: [TranscriptSegment], vocabulary: String,
-                           onFirstCandidates: (([TermCandidate]) -> Void)?) -> [TermCandidate] {
         let terms = vocabulary.components(separatedBy: separators)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -96,18 +113,18 @@ public enum TranscriptTerms {
                 .map { TermCandidate(id: $0.key, text: $0.value.text, occurrences: $0.value.occurrences) }
         }
 
-        var sendFirstCandidates = onFirstCandidates
-        for (index, segment) in segments.enumerated() {
+        for segment in segments {
             guard !Task.isCancelled else { return [] }
             let text = segment.text
-            let builtIn = technology.matches(in: text).filter { !speakers.contains(entityKey($0.term)) }
+            let protected = TranscriptOrthography.literalRanges(in: text)
+            let builtIn = technology.matches(in: text, literalRanges: protected).filter { !speakers.contains(entityKey($0.term)) }
             for match in builtIn {
                 let normalized = key(match.term)
                 guard !known.contains(normalized), !TechnologyVocabulary.isHiddenFromCandidates(match.term) else { continue }
                 technologyGroups[normalized, default: Group(text: match.term, score: 4)]
                     .occurrences.append(technologyOccurrence(match, in: segment))
             }
-            let literals = TranscriptOrthography.literalRanges(in: text) + builtIn.map(\.range)
+            let literals = protected + builtIn.map(\.range)
             var taggedNames: [NSRange]?
             for match in word.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
                 guard let range = Range(match.range, in: text),
@@ -155,16 +172,6 @@ public enum TranscriptTerms {
                     groups[normalized, default: Group(text: token)].text = family?.base ?? token
                 }
                 groups[normalized, default: Group(text: family?.base ?? token)].occurrences.append(occurrence(match.range, in: segment, text: token, family: family))
-            }
-
-            // Look for an initial list in the first few turns. Continue
-            // straight to the full list if these turns contain no candidates.
-            if let send = sendFirstCandidates, index < 48, index % 8 == 7, index + 1 < segments.count {
-                let first = rankedCandidates()
-                if !first.isEmpty {
-                    send(first)
-                    sendFirstCandidates = nil
-                }
             }
         }
 
@@ -292,30 +299,65 @@ public enum TranscriptTerms {
         return pending.isEmpty ? result : nil
     }
 
-    // Keep the rows supported by untouched occurrences while the full ranking
-    // runs again. Rebase their ranges so consecutive edits can use this list.
+    // Patch the selected contexts immediately. The corrected spelling can
+    // have other occurrences, which are added by the subsequent search.
+    static func correctedOccurrences(_ occurrences: [TermOccurrence], with replacement: String,
+                                     in segments: [UUID: TranscriptSegment]) -> [TermOccurrence] {
+        var offsets: [UUID: Int] = [:]
+        return occurrences.compactMap { item in
+            guard let segment = segments[item.segmentID], let rendered = self.replacement(for: item, with: replacement)
+            else { return nil }
+            let offset = offsets[item.segmentID, default: 0]
+            let range = NSRange(location: item.range.location + offset, length: rendered.utf16.count)
+            offsets[item.segmentID] = offset + range.length - item.range.length
+            return occurrence(range, in: segment, text: rendered)
+        }
+    }
+
+    // Keep the worklist in place after a correction. A reviewed spelling
+    // that was already correct is resolved alongside the spans that changed.
     static func retainingCandidates(_ candidates: [TermCandidate], afterReplacing occurrences: [TermOccurrence],
                                     with replacement: String, in segmentsByID: [UUID: TranscriptSegment]) -> [TermCandidate] {
-        let edits = Dictionary(grouping: occurrences, by: \.segmentID).mapValues { occurrences in
-            occurrences.compactMap { occurrence -> (range: NSRange, offset: Int)? in
-                guard let rendered = self.replacement(for: occurrence, with: replacement),
-                      rendered != occurrence.text else { return nil }
+        let edits = Dictionary(grouping: occurrences, by: \.segmentID).compactMapValues { occurrences in
+            let offsets = occurrences.compactMap { occurrence -> (range: NSRange, offset: Int)? in
+                guard let rendered = self.replacement(for: occurrence, with: replacement) else { return nil }
                 return (occurrence.range, rendered.utf16.count - occurrence.range.length)
             }
+            return offsets.isEmpty ? nil : offsets
+        }
+        let literals = edits.keys.reduce(into: [UUID: [NSRange]]()) { result, id in
+            if let text = segmentsByID[id]?.text { result[id] = TranscriptOrthography.literalRanges(in: text) }
         }
         return candidates.compactMap { candidate in
             let retained = candidate.occurrences.compactMap { item -> TermOccurrence? in
                 guard let segmentEdits = edits[item.segmentID] else { return item }
                 var offset = 0
+                var touchesEdit = false
                 for edit in segmentEdits {
-                    if NSMaxRange(edit.range) <= item.range.location {
+                    let start = item.range.location
+                    let end = NSMaxRange(item.range)
+                    if NSMaxRange(edit.range) <= start {
                         offset += edit.offset
-                    } else if edit.range.location < NSMaxRange(item.range) {
+                        touchesEdit = touchesEdit || NSMaxRange(edit.range) == start
+                    } else if edit.range.location < end {
                         return nil
+                    } else {
+                        touchesEdit = touchesEdit || edit.range.location == end
                     }
                 }
                 guard let segment = segmentsByID[item.segmentID] else { return nil }
                 let range = NSRange(location: item.range.location + offset, length: item.range.length)
+                guard let protected = literals[item.segmentID],
+                      !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }),
+                      let indices = Range(range, in: segment.text),
+                      segment.text[indices] == item.text else { return nil }
+                if touchesEdit {
+                    let left = NSRange(location: range.location, length: 0)
+                    let right = NSRange(location: NSMaxRange(range), length: 0)
+                    guard leadingEdge.firstMatch(in: segment.text, options: .withTransparentBounds, range: left) != nil,
+                          trailingEdge.firstMatch(in: segment.text, options: .withTransparentBounds, range: right) != nil
+                    else { return nil }
+                }
                 return occurrence(range, in: segment, text: item.text, family: item.family)
             }
             guard !retained.isEmpty else { return nil }
@@ -323,15 +365,67 @@ public enum TranscriptTerms {
         }
     }
 
-    public static func adding(_ term: String, to vocabulary: String) -> String {
-        let trimmed = dictionaryTerm(term)
-        guard trimmed.contains(where: \.isLetter), trimmed.rangeOfCharacter(from: separators) == nil,
-              trimmed.rangeOfCharacter(from: .newlines) == nil else { return vocabulary }
-        let normalized = key(trimmed)
-        if AbbreviationFamilies(vocabulary).known(trimmed) != nil { return vocabulary }
-        guard !vocabulary.components(separatedBy: separators).contains(where: { key($0) == normalized }) else {
-            return vocabulary
+    static func retainingCandidates(_ candidates: [TermCandidate], afterAdding term: String) -> [TermCandidate] {
+        let known = Set(([term] + RecognitionVocabulary.cyrillicInflections(of: term)).map(key))
+        let families = AbbreviationFamilies(term)
+        let technology = TechnologyVocabulary(personalVocabulary: term)
+        let numericFamily = TechnologyVocabulary.canonicalNumericSpelling(term)
+        let isPhrase = term.contains(where: \.isWhitespace)
+        var phraseRangesBySegment: [UUID: [NSRange]] = [:]
+        return candidates.compactMap { candidate in
+            guard !known.contains(candidate.id), families.known(candidate.text) == nil else { return nil }
+            if let numericFamily, TechnologyVocabulary.canonicalNumericSpelling(candidate.text) == numericFamily { return nil }
+            let builtIn = TechnologyVocabulary.isCanonical(candidate.text)
+            var knownSpellings: [TermOccurrence.Spelling: Bool] = [:]
+            let retained = candidate.occurrences.filter { item in
+                if knownSpellings[item.spelling] == nil {
+                    let spokenBase = String(item.text.dropLast(item.family?.ending.count ?? 0))
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "'’"))
+                    knownSpellings[item.spelling] = known.contains(key(item.text)) || families.known(item.text) != nil ||
+                        (builtIn && technology.hasPersonalSpokenSpelling(spokenBase))
+                }
+                guard knownSpellings[item.spelling] == false else { return false }
+                guard isPhrase, builtIn else { return true }
+                if phraseRangesBySegment[item.segmentID] == nil {
+                    phraseRangesBySegment[item.segmentID] = technology.personalPhraseRanges(in: item.source)
+                }
+                return phraseRangesBySegment[item.segmentID]?.contains {
+                    NSIntersectionRange($0, item.range).length > 0
+                } != true
+            }
+            guard !retained.isEmpty else { return nil }
+            if retained.count == candidate.occurrences.count { return candidate }
+            return TermCandidate(id: candidate.id, text: candidate.text, occurrences: retained)
         }
+    }
+
+    // Replacement only depends on the spelling and the presence and value of
+    // its ending. The form need not revalidate every occurrence on each key press.
+    static func distinctSpellings(in occurrences: [TermOccurrence]) -> [TermOccurrence] {
+        var seen: Set<TermOccurrence.Spelling> = []
+        return occurrences.filter { seen.insert($0.spelling).inserted }
+    }
+
+    struct DictionaryAdditions {
+        private let families: AbbreviationFamilies
+        private let terms: Set<String>
+
+        init(_ vocabulary: String) {
+            families = AbbreviationFamilies(vocabulary)
+            terms = Set(vocabulary.components(separatedBy: separators).map(key))
+        }
+
+        func termToAdd(_ term: String) -> String? {
+            let trimmed = dictionaryTerm(term)
+            guard trimmed.contains(where: \.isLetter), trimmed.rangeOfCharacter(from: separators) == nil,
+                  trimmed.rangeOfCharacter(from: .newlines) == nil,
+                  !terms.contains(key(trimmed)), families.known(trimmed) == nil else { return nil }
+            return trimmed
+        }
+    }
+
+    public static func adding(_ term: String, to vocabulary: String) -> String {
+        guard let trimmed = DictionaryAdditions(vocabulary).termToAdd(term) else { return vocabulary }
         if vocabulary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return trimmed }
         return vocabulary + (vocabulary.hasSuffix("\n") ? "" : "\n") + trimmed
     }

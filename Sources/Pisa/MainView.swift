@@ -175,7 +175,6 @@ struct MeetingView: View {
     let dateReference: Date
     @State private var editing: TranscriptSegment?
     @State private var reviewingTerms = false
-    @State private var openingTermReview = false
     @State private var termCandidates = TermReview.CandidateList()
     @State private var showingSummaryOnboarding = false
     @State private var title = ""
@@ -221,8 +220,6 @@ struct MeetingView: View {
         let audioSources = presentation.allowsSavedAudio && !state.demo && (showsAutomaticPlayer || hasAudio)
             ? MeetingAudioExport.playbackSources(for: meeting, in: state.library) : []
         let termReviewInput = self.termReviewInput
-        let canOpenRequestedTermReview = openingTermReview &&
-            termReviewInput.flatMap { termCandidates.snapshot(for: $0) } != nil
         let canToggleAudio = !showsAutomaticPlayer && !audioSources.isEmpty
         let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
@@ -329,29 +326,11 @@ struct MeetingView: View {
         }
         .onChange(of: termReviewInput, initial: true) { _, input in
             if let input { termCandidates.prepare(input) }
-            else { openingTermReview = false }
-        }
-        .onChange(of: canOpenRequestedTermReview) { _, ready in
-            guard ready, termReviewInput != nil else { return }
-            presentTermReview()
-        }
-        .task(id: openingTermReview) {
-            guard openingTermReview else { return }
-            // Keep manual search within reach even if the first turns
-            // do not contain any candidate or analysis is still warming up.
-            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
-            guard termReviewInput != nil else { return }
-            presentTermReview()
         }
         .sheet(isPresented: $reviewingTerms) {
             TermReview(meeting: meeting, candidateList: termCandidates).environmentObject(state)
         }
         .sheet(isPresented: $showingSummaryOnboarding) { MeetingSummaryOnboarding().environmentObject(state) }
-    }
-
-    private func presentTermReview() {
-        openingTermReview = false
-        reviewingTerms = true
     }
 
     @ViewBuilder
@@ -665,13 +644,9 @@ struct MeetingView: View {
                     .measuredForInterfaceTest(.firstMeetingAction)
 
                     Button {
-                        guard let termReviewInput else { return }
+                        guard termReviewInput != nil else { return }
                         showsMeetingDetails = false
-                        if termCandidates.snapshot(for: termReviewInput) != nil {
-                            presentTermReview()
-                        } else {
-                            openingTermReview = true
-                        }
+                        reviewingTerms = true
                     } label: {
                         detailsActionLabel("Разметить термины", systemImage: "text.magnifyingglass")
                     }

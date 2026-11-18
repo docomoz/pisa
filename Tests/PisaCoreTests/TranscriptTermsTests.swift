@@ -2,16 +2,50 @@ import XCTest
 @testable import PisaCore
 
 final class TranscriptTermsTests: XCTestCase {
-    func testInitialCandidatesArriveBeforeLaterOccurrencesAreCounted() {
-        let intro = [segment("Проверили B2B и ЛПР.")] + (0..<7).map { _ in segment("Продолжим разговор.") }
-        let segments = intro + [segment("Ещё раз проверили B2B и сравнили с CI/CD.")]
-        var updates: [[TermCandidate]] = []
-        let complete = TranscriptTerms.candidates(in: segments, vocabulary: "ЛПР") { updates.append($0) }
+    func testCandidateLabelsUseObservedSpellingsIncludingSpokenAliases() throws {
+        let segments = [segment("Проверили би ту би и нашли резюме на хедхантере. Зашли в ЛПРов.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["B2B", "HeadHunter", "ЛПР"])
+        XCTAssertEqual(Set(candidates.map(\.observedLabel)), ["би ту би", "хедхантере", "ЛПРов"])
+        for candidate in candidates {
+            XCTAssertTrue(candidate.occurrences.contains { $0.text == candidate.observedLabel })
+        }
+    }
 
-        XCTAssertEqual(updates.map { $0.map(\.text) }, [["B2B"]])
-        XCTAssertEqual(updates.first?.first?.occurrences.count, 1)
-        XCTAssertEqual(complete.map(\.text), ["B2B", "CI/CD"])
-        XCTAssertEqual(complete.first?.occurrences.count, 2)
+    func testAddingToDictionaryPrunesTheExistingListWithoutReranking() throws {
+        let segments = [segment("Сравнили B2B, би ту би и MapKit. Проверили Куделька и Кудельку.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        let aliases = TranscriptTerms.retainingCandidates(candidates, afterAdding: "Битуби")
+        XCTAssertEqual(aliases.map(\.id), candidates.map(\.id))
+        let business = try XCTUnwrap(aliases.first { $0.text == "B2B" })
+        XCTAssertEqual(business.occurrences.map(\.text), ["B2B"])
+        let retained = TranscriptTerms.retainingCandidates(aliases, afterAdding: "B2B")
+        XCTAssertEqual(retained.map(\.id), candidates.filter { $0.text != "B2B" }.map(\.id))
+        XCTAssertEqual(TranscriptTerms.retainingCandidates(retained, afterAdding: "AbsentName").map(\.id), retained.map(\.id))
+    }
+
+    func testAddingAPhraseProtectsOnlyItsActualOccurrences() throws {
+        let segments = [segment("Проверили внутренний апи, сравнили апи и MapKit.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        let original = try XCTUnwrap(candidates.first { $0.text == "API" })
+        XCTAssertEqual(original.occurrences.count, 2)
+        let retained = TranscriptTerms.retainingCandidates(candidates, afterAdding: "внутренний апи")
+        let kept = try XCTUnwrap(retained.first { $0.text == "API" })
+        XCTAssertEqual(kept.occurrences.map(\.id), original.occurrences.suffix(1).map(\.id))
+        XCTAssertEqual(retained.map(\.id), candidates.map(\.id))
+    }
+
+    func testCandidateInsideANewQuotationIsRemovedAfterAReplacement() throws {
+        let segments = [segment("Обсудили «MapKit и API, затем ушли.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertTrue(candidates.contains { $0.text == "MapKit" })
+        let correction = TranscriptTerms.matches("затем ушли", in: segments)
+        XCTAssertEqual(correction.count, 1)
+        let revised = try XCTUnwrap(TranscriptTerms.replacing(correction, with: "затем ушли»", in: segments))
+        XCTAssertEqual(revised[0].text, "Обсудили «MapKit и API, затем ушли».")
+        let retained = TranscriptTerms.retainingCandidates(candidates, afterReplacing: correction, with: "затем ушли»",
+            in: Dictionary(uniqueKeysWithValues: revised.map { ($0.id, $0) }))
+        XCTAssertTrue(retained.isEmpty)
     }
 
     func testCandidateRefreshDropsEditedSpansAndKeepsOtherOccurrencesThroughConsecutiveEdits() throws {
@@ -29,6 +63,23 @@ final class TranscriptTermsTests: XCTestCase {
         let updated = try XCTUnwrap(TranscriptTerms.replacing(nextEdit, with: "команду", in: edited))
         XCTAssertEqual(TranscriptTerms.retainingCandidates(candidates, afterReplacing: nextEdit, with: "команду",
             in: Dictionary(uniqueKeysWithValues: updated.map { ($0.id, $0) })).map(\.text), ["MapKit"])
+    }
+
+    func testCorrectedFamilyIsResolvedIncludingItsAlreadyCorrectOccurrences() throws {
+        let segments = [segment("🎙 Сравнили B2B, Б2Б'ом, битуби и API.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        let business = try XCTUnwrap(candidates.first { $0.text == "B2B" })
+        let revised = try XCTUnwrap(TranscriptTerms.replacing(business.occurrences, with: "B2B", in: segments))
+        let revisedByID = Dictionary(uniqueKeysWithValues: revised.map { ($0.id, $0) })
+        let retained = TranscriptTerms.retainingCandidates(candidates, afterReplacing: business.occurrences,
+                                                         with: "B2B", in: revisedByID)
+        XCTAssertEqual(retained.map(\.text), ["API"])
+        let contexts = TranscriptTerms.correctedOccurrences(business.occurrences, with: "B2B", in: revisedByID)
+        XCTAssertEqual(contexts.map(\.text), ["B2B", "B2B'ом", "B2B"])
+        for occurrence in contexts {
+            let range = try XCTUnwrap(Range(occurrence.range, in: revised[0].text))
+            XCTAssertEqual(String(revised[0].text[range]), occurrence.text)
+        }
     }
 
     func testCancelledReviewDiscardsCandidatesAndMatches() async {
@@ -343,6 +394,15 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(candidates.map(\.text), ["2GS"])
         XCTAssertEqual(TranscriptTerms.matches("2GIS", in: segments, vocabulary: vocabulary).map(\.text), ["ту гис", "2ГИС'ом", "2GIS'е"])
         XCTAssertEqual(TranscriptTerms.matches("2GS", in: segments, vocabulary: vocabulary + ", 2GS").map(\.text), ["2GS"])
+    }
+
+    func testAddingTheLatinSpellingResolvesTheCachedCatalogFamily() {
+        let segments = [segment("Сравнили ту гис и 2GS после обновления.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["2ГИС", "2GS"])
+        let retained = TranscriptTerms.retainingCandidates(candidates, afterAdding: "2GIS")
+        XCTAssertEqual(retained.map(\.id), candidates.filter { $0.text == "2GS" }.map(\.id))
+        XCTAssertEqual(retained.first?.occurrences.map(\.text), ["2GS"])
     }
 
     func testCandidatesSkipMultiwordNamesInEnglish() {
