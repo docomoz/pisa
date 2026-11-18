@@ -647,9 +647,8 @@ private final class LayoutSuite {
                     equal(measured[0].minY - heading.maxY, PisaDesign.Spacing.content,
                           "dictionary search starts directly below the heading")
                 }
-                let rows = VocabularyDictionary.entries(in: state.preferences.vocabulary).map {
-                    InterfaceLayoutElement.dictionaryRow($0.id)
-                }
+                let entries = VocabularyDictionary.entries(in: state.preferences.vocabulary)
+                let rows = entries.map { InterfaceLayoutElement.dictionaryRow($0.id) }
                 if let rowFrames = frames(rows, in: host) {
                     equal(rowFrames[0].minY - measured[0].maxY, PisaDesign.Spacing.content,
                           "dictionary rows start one content gap below the search")
@@ -660,6 +659,15 @@ private final class LayoutSuite {
                     equal(rowFrames[0].maxX - measured[3].maxX,
                           PisaDesign.Metrics.smallHeight + 2 * PisaDesign.Spacing.related,
                           "dictionary text leaves room for one compact action control")
+
+                    let text = CGPoint(x: measured[3].minX + 8, y: measured[3].midY)
+                    for (point, entry) in [(text, entries[0]), (rowFrames[1].center, entries[1])] {
+                        host.click(point)
+                        check(host.wait { host.sheetContainsField(value: entry.text) },
+                              "clicking dictionary row opens the editor with \(entry.text)")
+                        if host.hasSheet { host.pressKey("\u{1b}", keyCode: 53) }
+                        check(host.wait { !host.hasSheet }, "Escape closes the dictionary editor")
+                    }
                 }
                 checkField(.dictionarySearch, placeholder: true, value: "ПППППП", in: host)
                 checkField(.dictionaryEntry, placeholder: true, value: "ПППППП", in: host)
@@ -989,6 +997,7 @@ private final class LayoutHost {
     private let view: NSHostingView<AnyView>
     private(set) var frames: [InterfaceLayoutElement: CGRect] = [:]
     var bounds: CGRect { view.bounds }
+    var hasSheet: Bool { window.attachedSheet != nil }
 
     init<Content: View>(_ content: Content, size: CGSize, scale: CGFloat) {
         let bounds = CGRect(origin: .zero, size: size)
@@ -1070,15 +1079,25 @@ private final class LayoutHost {
     func pressReturn(settle: Bool = true) { pressKey("\r", keyCode: 36, settle: settle) }
 
     func pressKey(_ character: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = [], settle: Bool = true) {
+        let target = window.attachedSheet ?? window
         for type in [NSEvent.EventType.keyDown, .keyUp] {
             if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers,
                                             timestamp: ProcessInfo.processInfo.systemUptime,
-                                            windowNumber: window.windowNumber, context: nil, characters: character,
+                                            windowNumber: target.windowNumber, context: nil, characters: character,
                                             charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode) {
-                window.sendEvent(event)
+                target.sendEvent(event)
             }
         }
         if settle { self.settle() }
+    }
+
+    func sheetContainsField(value: String) -> Bool {
+        func contains(_ view: NSView) -> Bool {
+            if let field = view as? NSTextField, field.isEditable, field.stringValue == value { return true }
+            return view.subviews.contains(where: contains)
+        }
+        guard let content = window.attachedSheet?.contentView else { return false }
+        return contains(content)
     }
 
     func isEditing(_ field: NSTextField) -> Bool {
