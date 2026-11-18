@@ -508,7 +508,7 @@ private final class LayoutSuite {
         guard let measured = frames([.mcpAccessToggle, .mcpAccessNotice, .mcpCopyConfiguration], in: host) else { return }
         let (toggle, notice, copy) = (measured[0], measured[1], measured[2])
         check(measured.allSatisfy { host.bounds.contains($0) }, "MCP access checkbox, notice and configuration action fit in the window")
-        equal(notice.minY - toggle.maxY, PisaDesign.Spacing.inline, "MCP data access notice is directly below the checkbox")
+        equal(notice.minY - toggle.maxY, 20, "MCP data access notice has a 20-point gap below the checkbox")
         equal(notice.minX, toggle.minX, "MCP data access notice and checkbox share a left edge")
         try saveScreenshot("mcp-off-\(Int(scale * 100))", in: host)
         host.click(toggle.center)

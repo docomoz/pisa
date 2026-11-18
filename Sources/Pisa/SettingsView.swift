@@ -122,6 +122,7 @@ struct SettingsView: View {
                         .measuredForInterfaceTest(.mcpAccessToggle)
                     SupportingText("Подключённый клиент может искать реплики и читать расшифровки. Облачная модель клиента может получить прочитанный текст.")
                         .measuredForInterfaceTest(.mcpAccessNotice)
+                        .padding(.top, PisaDesign.Spacing.related)
                 }
                 SupportingText("Клиент также видит папки и сведения о полноте расшифровки. Ссылки открывают нужные фрагменты в Pisa. Аудиофайлы и изменение библиотеки через MCP недоступны.")
                 SupportingText("Выключатель отзывает доступ и у уже запущенного клиента")
