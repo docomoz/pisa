@@ -721,21 +721,14 @@ private final class LayoutSuite {
         equal(heading.minY, content.minY, "model name and status start at the top")
         equal(action.minY - heading.maxY, PisaDesign.Spacing.content, "model action follows the status")
         check(host.frames[.settingsModelDownloadSize] == nil, "installed models have no download size")
-        check(host.frames[.settingsModelPath] == nil && host.frames[.settingsModelChooseFolder] == nil,
-              "the path and picker start collapsed")
-        try capture("ready")
-
-        host.click(folder.center)
-        if let expanded = frames([.settingsModelPath, .settingsModelChooseFolder], in: host) {
-            equal(expanded[0].minY - folder.maxY, PisaDesign.Spacing.related, "path sits below the folder disclosure")
-            equal(expanded[1].minY - expanded[0].maxY, PisaDesign.Spacing.related, "picker sits below the complete path")
-            check(expanded.allSatisfy { host.bounds.contains($0) && $0.maxX <= content.midX },
+        equal(folder.minY - action.maxY, PisaDesign.Spacing.section, "the folder section follows the model action")
+        if let visibleFolder = frames([.settingsModelPath, .settingsModelChooseFolder], in: host) {
+            equal(visibleFolder[0].minY - folder.maxY, PisaDesign.Spacing.related, "path is visible below the folder heading when settings open")
+            equal(visibleFolder[1].minY - visibleFolder[0].maxY, PisaDesign.Spacing.related, "picker sits below the complete path")
+            check(visibleFolder.allSatisfy { host.bounds.contains($0) && $0.maxX <= content.midX },
                   "the long path and picker fit the left column")
         }
-        try capture("folder")
-        host.click(folder.center)
-        check(host.wait { host.frames[.settingsModelPath] == nil && host.frames[.settingsModelChooseFolder] == nil },
-              "the folder disclosure can hide the path and picker again")
+        try capture("ready")
 
         host.click(action.center)
         let checked = try await waitForModelSettings { state.modelSetup.phase == .available }
@@ -746,13 +739,12 @@ private final class LayoutSuite {
             equal(missing[2].minY - missing[1].maxY, PisaDesign.Spacing.section, "size stays grouped with the download action")
         }
         state.preferences.parakeetModelDisplayPath = nil
-        try capture("missing")
-        if let disclosure = host.frames[.settingsModelFolder] {
-            host.click(disclosure.center)
-            _ = frames([.settingsModelChooseFolder], in: host)
-            check(host.frames[.settingsModelPath] == nil, "the picker is available without a selected model folder")
-            try capture("missing-folder")
+        check(host.wait { host.frames[.settingsModelPath] == nil }, "there is no path when a model folder is unavailable")
+        if let missingFolder = frames([.settingsModelFolder, .settingsModelChooseFolder], in: host) {
+            equal(missingFolder[1].minY - missingFolder[0].maxY, PisaDesign.Spacing.related,
+                  "the picker is visible below the heading without a selected model folder")
         }
+        try capture("missing")
         if let download = host.frames[.settingsModelAction] {
             host.click(download.center)
             let opened = try await waitForModelSettings { state.modelSetup.presented && !state.modelSetup.busy }

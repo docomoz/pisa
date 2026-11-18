@@ -6,7 +6,6 @@ struct SettingsView: View {
     @ObservedObject private var updates = AppUpdates.shared
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
-    @State private var showModelFolder = false
     init(initialSection: String = "Запись") {
         _section = State(initialValue: initialSection)
     }
@@ -207,35 +206,18 @@ struct SettingsView: View {
     }
     private var modelFolder: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-            Button {
-                showModelFolder.toggle()
-            } label: {
-                HStack(spacing: PisaDesign.Spacing.inline) {
-                    Image(systemName: showModelFolder ? "chevron.down" : "chevron.right")
-                        .font(PisaDesign.Typography.Icon.disclosure)
-                        .frame(width: 12)
-                        .accessibilityHidden(true)
-                    screenText("Папка модели").textStyle(PisaDesign.Typography.bodyStrong)
-                }
-                .padding(.vertical, PisaDesign.Spacing.compact)
-                .contentShape(Rectangle())
+            SectionHeading("Папка модели")
+                .measuredForInterfaceTest(.settingsModelFolder)
+            if let path = state.modelURL()?.path ?? state.preferences.parakeetModelDisplayPath {
+                screenText(verbatim: path).textStyle(PisaDesign.Typography.code)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(Color.mutedInk).textSelection(.enabled)
+                    .measuredForInterfaceTest(.settingsModelPath)
             }
-            .shapeAwarePlainButton()
-            .foregroundStyle(Color.moss)
-            .accessibilityValue(showModelFolder ? "Развёрнуто" : "Свёрнуто")
-            .measuredForInterfaceTest(.settingsModelFolder)
-            if showModelFolder {
-                if let path = state.modelURL()?.path ?? state.preferences.parakeetModelDisplayPath {
-                    screenText(verbatim: path).textStyle(PisaDesign.Typography.code)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .foregroundStyle(Color.mutedInk).textSelection(.enabled)
-                        .measuredForInterfaceTest(.settingsModelPath)
-                }
-                screenButton("Выбрать папку модели…") { state.chooseModel() }
-                    .actionButton()
-                    .disabled(state.modelSetup.busy)
-                    .measuredForInterfaceTest(.settingsModelChooseFolder)
-            }
+            screenButton("Выбрать папку модели…") { state.chooseModel() }
+                .actionButton()
+                .disabled(state.modelSetup.busy)
+                .measuredForInterfaceTest(.settingsModelChooseFolder)
         }
     }
     private var recordingSettings: some View {
