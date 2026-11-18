@@ -408,7 +408,7 @@ final class AppState: ObservableObject {
             for index in meetings.indices where meetings[index].status == .processing {
                 meetings[index].interruptedBatchProgress = savedBatchProgress(meetings[index].id)
                 meetings[index].status = .failed
-                meetings[index].error = "Обработка прервалась. Аудио сохранено — можно повторить"
+                meetings[index].error = TranscriptionStatus.interruptedMessage
                 try library.save(meetings[index])
             }
             selection = filtered.first?.id
@@ -770,7 +770,7 @@ final class AppState: ObservableObject {
             }
             if var latest = (try? library.read(id)) ?? meetings.first(where: { $0.id == id }) {
                 latest.status = .failed
-                latest.error = cancelled ? "Обработка остановлена. Аудио сохранено." : error.localizedDescription
+                latest.error = cancelled ? TranscriptionStatus.stoppedMessage : error.localizedDescription
                 try? library.save(latest)
                 upsert(latest)
             }
@@ -947,10 +947,11 @@ final class AppState: ObservableObject {
                     if let url = try? library.audioURL(name) { try? FileManager.default.removeItem(at: url) }
                 }
             } catch {
-                Analytics.transcriptionFailed(mode: "batch", cancelled: error is CancellationError || Task.isCancelled, reprocess: reprocess)
+                let cancelled = error is CancellationError || Task.isCancelled
+                Analytics.transcriptionFailed(mode: "batch", cancelled: cancelled, reprocess: reprocess)
                 var latest = (try? library.read(id)) ?? meetings.first(where: { $0.id == id }) ?? m
                 latest.status = .failed
-                latest.error = error is CancellationError ? "Обработка остановлена. Аудио сохранено." : error.localizedDescription
+                latest.error = cancelled ? TranscriptionStatus.stoppedMessage : error.localizedDescription
                 latest.interruptedBatchProgress = savedBatchProgress(id)
                 try? library.save(latest); upsert(latest)
             }

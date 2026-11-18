@@ -9,6 +9,7 @@ enum InterfaceLayoutElement: Hashable {
     case transcriptionStatusHeading, transcriptionStatusAction, transcriptionProgressCaption, transcriptionProgressRow
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
+    case sidebarRecording(UUID), sidebarTranscriptionStatus(UUID, String)
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
@@ -319,16 +320,20 @@ private final class LayoutSuite {
         saved.audioFiles = ready.audioFiles
         var queued = saved
         queued.id = UUID()
-        queued.title = "Аудио в очереди"
+        queued.title = "Планирование"
         var processing = saved
         processing.id = UUID()
-        processing.title = "Обработка аудио"
+        processing.title = "Обсуждение результатов прошлогодней встречи с командой"
+        processing.date = Calendar.current.date(byAdding: .year, value: -2, to: .now) ?? .now
+        processing.duration = 3_670
+        processing.folderID = state.saveFolder("Документы и рабочие созвоны")
         processing.status = .processing
         var interrupted = ready
         interrupted.id = UUID()
-        interrupted.title = "Незавершённая расшифровка"
+        interrupted.title = "Разбор прототипа"
         interrupted.status = .failed
         interrupted.liveCommittedUntil = 0.4
+        interrupted.error = "Обработка остановлена. Аудио сохранено."
         for meeting in [ready, saved, queued, processing, interrupted] { state.update(meeting) }
         state.processingID = processing.id
         state.phase = "Доля обработанного аудио"
@@ -344,6 +349,8 @@ private final class LayoutSuite {
             let host = LayoutHost(MainView().environmentObject(state), size: size, scale: scale)
             defer { host.close() }
             checkWelcome(in: host)
+            checkSidebarStatuses(in: host, state: state, queued: queued.id, processing: processing.id,
+                                 interrupted: interrupted)
             state.select(ready.id)
             guard let reference = checkMeetingHeader(in: host) else { continue }
             checkTranscript(in: host, wide: size.width > 980)
@@ -385,6 +392,10 @@ private final class LayoutSuite {
                     equal(interruptedPositions.progress.minY, processingPositions.progress.minY, "progress stays at the same height when transcription stops")
                 }
             }
+            if let output = ProcessInfo.processInfo.environment["PISA_SIDEBAR_TEST_SCREENSHOTS"] {
+                let name = "sidebar-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100)).png"
+                try host.savePNG(to: URL(fileURLWithPath: output, isDirectory: true).appendingPathComponent(name))
+            }
         }
         var voiceMeeting = ready
         voiceMeeting.id = UUID()
@@ -400,6 +411,43 @@ private final class LayoutSuite {
             checkForms(state: state, meeting: ready, scale: scale)
             checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
         }
+    }
+
+    private func checkSidebarStatuses(in host: LayoutHost, state: AppState, queued: UUID,
+                                      processing: UUID, interrupted: Meeting) {
+        func checkStatus(_ id: UUID, _ label: String) {
+            let element = InterfaceLayoutElement.sidebarTranscriptionStatus(id, label)
+            guard let measured = frames([.sidebarRecording(id), element], in: host) else { return }
+            check(measured[0].insetBy(dx: -0.5, dy: -0.5).contains(measured[1]), "full status fits inside the recording row")
+        }
+        checkStatus(queued, "В очереди")
+        checkStatus(processing, "Расшифровка · 99%")
+        checkStatus(interrupted.id, "Остановлена")
+
+        state.phase = ""
+        checkStatus(processing, "Расшифровка")
+        state.phase = "Доля обработанного аудио"
+        state.progress = 0.9
+        checkStatus(processing, "Расшифровка · 90%")
+        state.progress = 0.99
+
+        state.enqueue(interrupted.id)
+        checkStatus(interrupted.id, "В очереди")
+        state.cancelQueued(interrupted.id)
+        checkStatus(interrupted.id, "Остановлена")
+
+        var earlyStop = interrupted
+        earlyStop.segments = []
+        earlyStop.liveCommittedUntil = nil
+        earlyStop.error = "Не удалось прочитать аудио"
+        state.update(earlyStop)
+        let stoppedLabel = InterfaceLayoutElement.sidebarTranscriptionStatus(interrupted.id, "Остановлена")
+        check(host.wait { host.frames[.sidebarRecording(interrupted.id)] != nil && host.frames[stoppedLabel] == nil },
+              "a transcription error does not display the stopped status")
+        earlyStop.error = "Обработка прервалась. Аудио сохранено — можно повторить"
+        state.update(earlyStop)
+        checkStatus(interrupted.id, "Остановлена")
+        state.update(interrupted)
     }
 
     private func checkWelcome(in host: LayoutHost) {

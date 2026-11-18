@@ -50,36 +50,12 @@ struct LibrarySidebar: View {
                             screenText(meeting.title).textStyle(PisaDesign.Typography.captionMedium)
                                 .lineLimit(2).truncationMode(.tail).screenHelp(meeting.title)
                         }
-                        HStack(spacing: PisaDesign.Spacing.none) {
-                            HStack(spacing: PisaDesign.Spacing.inline) {
-                                if !isAutomatic {
-                                    recordingDate(meeting.date).layoutPriority(1)
-                                    screenText("·").fixedSize()
-                                }
-                                if state.recordingMeetingID == meeting.id, let started = state.recordingStarted {
-                                    ViewThatFits(in: .horizontal) {
-                                        recordingStatus(started, showsLabel: true)
-                                        recordingStatus(started, showsLabel: false)
-                                    }
-                                } else {
-                                    screenText(sidebarDuration(meeting.duration)).monospacedDigit().fixedSize()
-                                }
-                            }.layoutPriority(1)
-                            if let folder = state.folders.first(where: { $0.id == meeting.folderID }) {
-                                recordingFolder(folder)
-                            }
-                            Spacer(minLength: PisaDesign.Spacing.none)
-                            Group {
-                                if state.isQueued(meeting.id) {
-                                    Image(systemName: "clock").accessibilityLabel("В очереди на расшифровку").screenHelp("В очереди на расшифровку")
-                                } else if meeting.status == .processing {
-                                    ProgressView().controlSize(.mini)
-                                }
-                            }.padding(.leading, PisaDesign.Spacing.inline).fixedSize().layoutPriority(1)
-                        }.textStyle(PisaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
+                        recordingMetadata(meeting, showsDate: !isAutomatic)
+                            .textStyle(PisaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
 
                     }.padding(.vertical, PisaDesign.Spacing.related).padding(.horizontal, PisaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
                         .plainSelection(state.selection == meeting.id)
+                        .measuredForInterfaceTest(.sidebarRecording(meeting.id))
                         .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.pointingHandCursor().id(meeting.id)
                         .accessibilityAddTraits(state.selection == meeting.id ? .isSelected : [])
                         .accessibilityAction { state.select(meeting.id) }
@@ -129,11 +105,88 @@ struct LibrarySidebar: View {
         }
     }
 
-    private func recordingDate(_ date: Date, prefix: String = "") -> some View {
+    @ViewBuilder
+    private func recordingMetadata(_ meeting: Meeting, showsDate: Bool) -> some View {
+        let folder = state.folders.first(where: { $0.id == meeting.folderID })
+        let metadata = HStack(spacing: PisaDesign.Spacing.none) {
+            recordingTiming(meeting, showsDate: showsDate).layoutPriority(1)
+            if let folder {
+                recordingFolder(folder)
+            }
+            Spacer(minLength: PisaDesign.Spacing.none)
+        }
+        if let status = transcriptionLabel(for: meeting) {
+            let label = screenText(status).textStyle(PisaDesign.Typography.microMedium)
+                .monospacedDigit().fixedSize()
+                .measuredForInterfaceTest(.sidebarTranscriptionStatus(meeting.id, status))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: PisaDesign.Spacing.inline) {
+                    metadata
+                    label
+                }
+                HStack(spacing: PisaDesign.Spacing.none) {
+                    recordingTiming(meeting, showsDate: showsDate, compactDate: true).fixedSize()
+                    if let folder {
+                        recordingFolder(folder, iconOnly: true)
+                    }
+                    Spacer(minLength: PisaDesign.Spacing.inline)
+                    label
+                }
+                VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                    metadata
+                    label
+                }
+            }
+        } else {
+            metadata
+        }
+    }
+
+    private func recordingTiming(_ meeting: Meeting, showsDate: Bool, compactDate: Bool = false) -> some View {
+        HStack(spacing: PisaDesign.Spacing.inline) {
+            if showsDate {
+                recordingDate(meeting.date, prefersCompact: compactDate).layoutPriority(1)
+                screenText("·").fixedSize()
+            }
+            if state.recordingMeetingID == meeting.id, let started = state.recordingStarted {
+                ViewThatFits(in: .horizontal) {
+                    recordingStatus(started, showsLabel: true)
+                    recordingStatus(started, showsLabel: false)
+                }
+            } else {
+                screenText(sidebarDuration(meeting.duration)).monospacedDigit().fixedSize()
+            }
+        }
+    }
+
+    private func transcriptionLabel(for meeting: Meeting) -> String? {
+        guard meeting.deletedAt == nil else { return nil }
+        if state.isQueued(meeting.id) { return "В очереди" }
+        // Existing entries persist the interruption message, including stops before the first checkpoint.
+        if meeting.status == .failed,
+           meeting.error == TranscriptionStatus.stoppedMessage || meeting.error == TranscriptionStatus.interruptedMessage {
+            return "Остановлена"
+        }
+        guard meeting.status == .processing, state.processingID == meeting.id else { return nil }
+        if state.recordingMeetingID == meeting.id {
+            return state.livePaused ? "Расшифровка на паузе" : "Расшифровка"
+        }
+        let usesSavedAudioProgress = !state.liveStatus.isEmpty
+        let fraction = usesSavedAudioProgress
+            ? LiveTranscriptionSchedule.audioProgress(committed: meeting.liveCommittedUntil, duration: state.liveAudioDuration ?? meeting.duration)
+            : state.phase.isEmpty ? nil : state.progress
+        guard let fraction, fraction.isFinite else { return "Расшифровка" }
+        let percent = (min(max(fraction, 0), 1) * 100).rounded(usesSavedAudioProgress ? .down : .toNearestOrEven)
+        return "Расшифровка · \(Int(percent))%"
+    }
+
+    private func recordingDate(_ date: Date, prefix: String = "", prefersCompact: Bool = false) -> some View {
         let full = prefix + meetingDateLabel(date, now: dateReference)
         let compact = prefix + meetingDateLabel(date, now: dateReference, compact: true)
         return ViewThatFits(in: .horizontal) {
-            screenText(full).fixedSize(horizontal: true, vertical: false)
+            if !prefersCompact {
+                screenText(full).fixedSize(horizontal: true, vertical: false)
+            }
             screenText(compact).truncationMode(.tail)
         }
         .lineLimit(1)
@@ -152,19 +205,23 @@ struct LibrarySidebar: View {
         .fixedSize()
     }
 
-    private func recordingFolder(_ folder: MeetingFolder) -> some View {
+    private func recordingFolder(_ folder: MeetingFolder, iconOnly: Bool = false) -> some View {
         let icon = Image(systemName: folder.iconName).imageScale(.small)
         return ViewThatFits(in: .horizontal) {
-            HStack(spacing: PisaDesign.Spacing.inline) {
-                screenText("·")
-                icon
-                screenText(folder.name)
-            }.padding(.leading, PisaDesign.Spacing.inline)
+            if !iconOnly {
+                HStack(spacing: PisaDesign.Spacing.inline) {
+                    screenText("·")
+                    icon
+                    screenText(folder.name)
+                }.padding(.leading, PisaDesign.Spacing.inline)
+            }
             HStack(spacing: PisaDesign.Spacing.inline) {
                 screenText("·")
                 icon.accessibilityLabel(screenText(folder.name))
             }.padding(.leading, PisaDesign.Spacing.inline)
-            Color.clear.frame(width: 0, height: 0)
+            if !iconOnly {
+                Color.clear.frame(width: 0, height: 0)
+            }
         }.screenHelp(folder.name)
     }
 
