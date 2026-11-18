@@ -148,16 +148,32 @@ enum RussianRecognition {
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     }
 
+    fileprivate enum CyrillicConfirmation {
+        case letters(changedWords: Set<Int>)
+        case mixedTurn
+    }
+
     struct CyrillicSpellingRepair {
         let text: String
         let confirmedByRepetition: Bool
-        fileprivate let isMixedTurn: Bool
+        fileprivate let confirmation: CyrillicConfirmation
 
         func confirmedText(language: String?, reread: String) -> String? {
             guard language?.lowercased() == "russian" else { return nil }
             let candidate = words(text), checked = words(reread)
             if candidate == checked { return text }
-            return isMixedTurn && agreesApartFromHesitation(candidate, checked) ? text : nil
+            switch confirmation {
+            case .letters(let changedWords):
+                // Keep a preposition or particle heard by both other models
+                // when Qwen heard every corrected word but omitted that token.
+                guard checked.count >= 3, candidate.count == checked.count + 1 else { return nil }
+                let omitted = zip(candidate, checked).prefix(while: { $0 == $1 }).count
+                guard !changedWords.contains(omitted), AbbreviationFamilies.isRussianFunctionWord(candidate[omitted]),
+                      candidate.dropFirst(omitted + 1).elementsEqual(checked.dropFirst(omitted)) else { return nil }
+                return text
+            case .mixedTurn:
+                return agreesApartFromHesitation(candidate, checked) ? text : nil
+            }
         }
     }
 
@@ -213,7 +229,7 @@ enum RussianRecognition {
             text.removeLast()
             text.append(ending)
         }
-        return CyrillicSpellingRepair(text: text, confirmedByRepetition: false, isMixedTurn: true)
+        return CyrillicSpellingRepair(text: text, confirmedByRepetition: false, confirmation: .mixedTurn)
     }
 
     /// Use the independent audio decode as spelling evidence. Preserve every
@@ -231,18 +247,21 @@ enum RussianRecognition {
         for index in changed.reversed() {
             let token = source[index], target = independent[index]
             let range = NSRange(token.range, in: original)
-            guard target.key.count >= 5, token.key.count == target.key.count,
-                  TranscriptTerms.isCommonRussianWord(target.key),
+            let isCommonWord = target.key.count >= 5 && TranscriptTerms.isCommonRussianWord(target.key)
+            guard token.key.count == target.key.count,
+                  isCommonWord || AbbreviationFamilies.isRussianFunctionWord(target.key),
                   !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }),
                   original[..<token.range.lowerBound].unicodeScalars.last.map(attached.contains) != true,
                   original[token.range.upperBound...].unicodeScalars.first.map(attached.contains) != true else { return nil }
             let differences = zip(token.key, target.key).enumerated().filter { $0.element.0 != $0.element.1 }
-            guard differences.count == 1, let change = differences.first else { return nil }
+            let changesOnlyDistinctLetters = differences.allSatisfy {
+                ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(String($0.element.0))
+            }
 
             // A Russian-only decoder can transcribe other Slavic languages
             // phonetically. Bypass a multilingual reread only if the primary
             // heard a Russian-alphabet copy and a characteristic Russian ending.
-            let repeated = [index - 1, index + 1].contains { neighbor in
+            let repeated = isCommonWord && differences.count == 1 && [index - 1, index + 1].contains { neighbor in
                 guard source.indices.contains(neighbor), independent[neighbor].key == target.key else { return false }
                 let other = source[neighbor]
                 let (damaged, russianCopy) = isCyrillic(token.key) ? (other, token) : (token, other)
@@ -252,18 +271,20 @@ enum RussianRecognition {
                 let between = source[min(index, neighbor)].range.upperBound..<source[max(index, neighbor)].range.lowerBound
                 return original[between].allSatisfy { $0 == "," || $0.isWhitespace && !$0.isNewline }
             }
-            if !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(String(change.element.0)) {
+            if !changesOnlyDistinctLetters {
                 // A second, nearly identical copy can itself have one ordinary
                 // typo. Never replace a different, correctly spelled word.
                 guard repeated, isCyrillic(token.key), !TranscriptTerms.isCommonRussianWord(token.key) else { return nil }
             }
             allRepeated = allRepeated && repeated
-            let start = original.index(token.range.lowerBound, offsetBy: change.offset)
-            let letter = target.text[target.text.index(target.text.startIndex, offsetBy: change.offset)]
-            result.replaceCharacters(in: NSRange(start...start, in: original),
-                                     with: original[start].isUppercase ? letter.uppercased() : letter.lowercased())
+            for change in differences.reversed() {
+                let start = original.index(token.range.lowerBound, offsetBy: change.offset)
+                let letter = target.text[target.text.index(target.text.startIndex, offsetBy: change.offset)]
+                result.replaceCharacters(in: NSRange(start...start, in: original),
+                                         with: original[start].isUppercase ? letter.uppercased() : letter.lowercased())
+            }
         }
-        return CyrillicSpellingRepair(text: result as String, confirmedByRepetition: allRepeated, isMixedTurn: false)
+        return CyrillicSpellingRepair(text: result as String, confirmedByRepetition: allRepeated, confirmation: .letters(changedWords: Set(changed)))
     }
 
     static func shouldRecheck(language: String?, duration: Double, original: String, alternative: String) -> Bool {
