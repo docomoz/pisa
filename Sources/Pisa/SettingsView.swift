@@ -114,7 +114,7 @@ struct SettingsView: View {
 
     private var mcpSettings: some View {
         let configuration = MCPClientConfiguration.toml(commandPath: state.mcpPath)
-        return columns {
+        return settingsColumns {
             FormSection("Доступ к встречам через MCP") {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                     screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled)
@@ -150,7 +150,7 @@ struct SettingsView: View {
     private var modelSettings: some View {
         let setup = state.modelSetup
         let checksModels = setup.ready || setup.phase == .checking
-        return columns {
+        return settingsColumns {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
                     SectionHeading("Parakeet v3 · \(modelStatus)", subtitle: "Локальное распознавание с перепроверкой терминов")
@@ -263,16 +263,19 @@ struct SettingsView: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.fixedSize(horizontal: false, vertical: true)
     }
-    private func columns<Left: View, Right: View>(@ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right) -> some View {
-        HStack(alignment: .top, spacing: PisaDesign.Spacing.section) {
-            left().frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
-            right().frame(maxWidth: .infinity, alignment: .leading)
-        }.fixedSize(horizontal: false, vertical: true)
-    }
     private func block<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         FormSection(title, subtitle: subtitle, content: content)
     }
+}
+
+private func settingsColumns<Left: View, Right: View>(
+    @ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right
+) -> some View {
+    HStack(alignment: .top, spacing: PisaDesign.Spacing.section) {
+        left().frame(maxWidth: .infinity, alignment: .leading)
+        Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
+        right().frame(maxWidth: .infinity, alignment: .leading)
+    }.fixedSize(horizontal: false, vertical: true)
 }
 
 private struct StorageSettings: View {
@@ -290,7 +293,7 @@ private struct StorageSettings: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
+        settingsColumns {
             FormSection("Место на Mac") {
                 if let usage {
                     let recordings = state.meetings.count { meeting in
@@ -308,29 +311,14 @@ private struct StorageSettings: View {
                     SupportingText("Считаем размер файлов…")
                 }
             }
+            .measuredForInterfaceTest(.settingsStorageUsage)
+        } right: {
             FormSection("Очистка аудиозаписей", subtitle: "Удаляется звук обработанных встреч. Расшифровки и заметки остаются.") {
                 let plan = cleanupPlan
-                HStack(spacing: PisaDesign.Spacing.related) {
-                    NativeActionMenu {
-                        [1, 2, 4, 8, 12].map { value in
-                            NativeActionMenuItem(ageLabel(value)) {
-                                weeks = value
-                                result = nil
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: PisaDesign.Spacing.inline) {
-                            screenText(ageLabel(weeks))
-                            Image(systemName: "chevron.down").font(PisaDesign.Typography.Icon.disclosure)
-                        }
-                    }
-                    .actionButton()
-                    .accessibilityLabel("Возраст аудиозаписей")
-                    .accessibilityValue(typographicText(ageLabel(weeks)))
-
-                    screenButton("Освободить место") { confirmation = cleanupPlan }
-                        .actionButton(.primary)
-                        .disabled(plan?.filesByMeeting.isEmpty != false)
+                let canCleanUp = plan?.filesByMeeting.isEmpty == false
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: PisaDesign.Spacing.related) { cleanupActions(canCleanUp: canCleanUp) }
+                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) { cleanupActions(canCleanUp: canCleanUp) }
                 }
                 if let result {
                     if result.failedMeetings > 0 {
@@ -348,6 +336,7 @@ private struct StorageSettings: View {
                     }
                 }
             }
+            .measuredForInterfaceTest(.settingsStorageCleanup)
         }
         .sheet(item: $confirmation) { plan in
             ConfirmationSheet(
@@ -362,6 +351,34 @@ private struct StorageSettings: View {
             }
         }
         .task(id: refreshID) { await refreshStorage() }
+    }
+
+    @ViewBuilder
+    private func cleanupActions(canCleanUp: Bool) -> some View {
+        NativeActionMenu {
+            [1, 2, 4, 8, 12].map { value in
+                NativeActionMenuItem(ageLabel(value)) {
+                    weeks = value
+                    result = nil
+                }
+            }
+        } label: {
+            HStack(spacing: PisaDesign.Spacing.inline) {
+                screenText(ageLabel(weeks))
+                Image(systemName: "chevron.down").font(PisaDesign.Typography.Icon.disclosure)
+            }
+        }
+        .actionButton()
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityLabel("Возраст аудиозаписей")
+        .accessibilityValue(typographicText(ageLabel(weeks)))
+        .measuredForInterfaceTest(.settingsStorageAge)
+
+        screenButton("Освободить место") { confirmation = cleanupPlan }
+            .actionButton(.primary)
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(!canCleanUp)
+            .measuredForInterfaceTest(.settingsStorageAction)
     }
 
     private func storageRow(_ label: String, bytes: Int64) -> some View {
