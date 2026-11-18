@@ -15,6 +15,7 @@ enum InterfaceLayoutElement: Hashable {
     case settingsTab(String), settingsTabBar, settingsContent(String)
     case settingsModelHeading, settingsModelAction, settingsModelDownloadSize
     case settingsModelFolder, settingsModelPath, settingsModelChooseFolder
+    case settingsStorageUsage, settingsStorageCleanup, settingsStorageAge, settingsStorageAction
     case exportStatus(String), exportPath, exportChooseFolder, exportDisable, exportCloudNotice
     case mcpAccessToggle, mcpAccessNotice, mcpCopyConfiguration
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
@@ -636,6 +637,21 @@ private final class LayoutSuite {
                     if let content = frames([.settingsContent(tab)], in: host)?.first {
                         equal(content.minY - tabBar.maxY, PisaDesign.Spacing.section,
                               "settings content starts one section gap below the tabs")
+                        if tab == "Хранилище",
+                           let columns = frames([.settingsStorageUsage, .settingsStorageCleanup], in: host) {
+                            let (usage, cleanup) = (columns[0], columns[1])
+                            equal(usage.minY, cleanup.minY, "storage sections start at the same height")
+                            equal(usage.width, cleanup.width, "storage columns have the same width")
+                            equal(cleanup.minX - usage.maxX, 2 * PisaDesign.Spacing.section + 1,
+                                  "storage usage is to the left of cleanup with the standard divider spacing")
+                            check(columns.allSatisfy { host.bounds.contains($0) }, "both storage sections fit in settings")
+                            if let buttons = frames([.settingsStorageAge, .settingsStorageAction], in: host) {
+                                check(buttons.allSatisfy { cleanup.contains($0) }, "cleanup buttons fit the right column")
+                                for button in buttons {
+                                    equal(button.height, PisaDesign.Metrics.regularHeight, "cleanup button labels stay on one line")
+                                }
+                            }
+                        }
                     }
                 }
                 scenario = "dictionary form, \(Int(scale * 100))%"
