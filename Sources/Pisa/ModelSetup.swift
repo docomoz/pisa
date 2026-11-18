@@ -9,6 +9,7 @@ final class ModelSetup: ObservableObject {
     @Published var error: String?
     @Published var presented = false
     @Published var upgradeDownloadBytes: Int64?
+    @Published private(set) var missingDownloadBytes: Int64?
     private var operation: Task<Void, Never>?
     private var generation = UUID()
     private var didCheck = false
@@ -38,6 +39,7 @@ final class ModelSetup: ObservableObject {
     func check(presentWhenNeeded: Bool = true) {
         guard !busy || !didCheck else { return }
         didCheck = true; phase = .checking; error = nil; progress = nil
+        missingDownloadBytes = nil
         let token = UUID(); generation = token
         let custom = customModel()
         let useCustom = usesCustomModel() && custom.map { Self.customIsUsable($0, kind: .parakeet) } == true
@@ -47,17 +49,27 @@ final class ModelSetup: ObservableObject {
         let invalidCustom = usesCustomModel() && !useCustom || usesCustomVerifier() && !useCustomVerifier
         let installer: ModelInstaller
         do { installer = try self.installer(usingCustom: useCustom, usingCustomVerifier: useCustomVerifier) }
-        catch { self.error = error.localizedDescription; phase = .failed; presented = true; return }
+        catch {
+            self.error = error.localizedDescription
+            phase = .failed
+            if presentWhenNeeded { presented = true }
+            return
+        }
         operation = Task { [weak self] in
             // Existing custom MLX folders remain supported, without applying the official
             // download's hashes to a different model version.
             let worker = Task.detached(priority: .utility) {
-                try? installer.missingAssets()
+                Result { try installer.missingAssets() }
             }
-            let missing = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, self.generation == token, !Task.isCancelled else { return }
             self.upgradeDownloadBytes = nil
-            if let missing {
+            switch result {
+            case .success(let missing):
+                let bytes = missing.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
+                if missing.allSatisfy({ $0.bytes != nil }) {
+                    self.missingDownloadBytes = bytes
+                }
                 let primaryPrefix = SpeechModelFiles.primaryDirectoryName + "/"
                 let verifierPrefix = SpeechModelFiles.verifierDirectoryName + "/"
                 let installedQwen = useCustomVerifier || (
@@ -65,10 +77,13 @@ final class ModelSetup: ObservableObject {
                     !missing.contains { $0.path.hasPrefix(verifierPrefix) }
                 )
                 if installedQwen && missing.contains(where: { $0.path.hasPrefix(primaryPrefix) }) {
-                    self.upgradeDownloadBytes = missing.reduce(0) { $0 + ($1.bytes ?? 0) }
+                    self.upgradeDownloadBytes = bytes
                 }
+                self.phase = !invalidCustom && missing.isEmpty ? .ready : .available
+            case .failure(let error):
+                self.error = error.localizedDescription
+                self.phase = .failed
             }
-            self.phase = !invalidCustom && missing?.isEmpty == true ? .ready : .available
             if !self.ready && presentWhenNeeded { self.presented = true }
         }
     }
@@ -83,6 +98,7 @@ final class ModelSetup: ObservableObject {
         do { installer = try self.installer(usingCustom: useCustom, usingCustomVerifier: useCustomVerifier) }
         catch { Analytics.modelInstallFailed(); self.error = error.localizedDescription; phase = .failed; return }
         error = nil; progress = nil; phase = .downloading
+        missingDownloadBytes = nil
         let token = UUID(); generation = token
         operation = Task { [weak self] in
             let coordinator = self
@@ -99,7 +115,7 @@ final class ModelSetup: ObservableObject {
                 guard let self, self.generation == token else { return }
                 if Task.isCancelled { Analytics.modelInstallCancelled(); self.phase = .available; self.progress = nil; return }
                 Analytics.modelInstallCompleted()
-                onReady(); self.phase = .ready; self.progress = nil
+                onReady(); self.phase = .ready; self.progress = nil; self.missingDownloadBytes = 0
             } catch {
                 guard let self, self.generation == token else { return }
                 if error is CancellationError || Task.isCancelled { Analytics.modelInstallCancelled(); self.phase = .available }
@@ -116,6 +132,16 @@ final class ModelSetup: ObservableObject {
     func cancel() { operation?.cancel() }
     func cancelAndWait() async { operation?.cancel(); await operation?.value }
     func dismiss() { guard !busy else { return }; presented = false }
+}
+
+func modelDownloadSize(_ bytes: Int64) -> String {
+    let locale = Locale(identifier: "ru_RU")
+    if bytes >= 1_000_000_000 {
+        let size = (Double(bytes) / 1_000_000_000).formatted(.number.precision(.fractionLength(0...1)).locale(locale))
+        return "\(size) ГБ"
+    }
+    let size = (Double(bytes) / 1_000_000).rounded(.up).formatted(.number.locale(locale))
+    return "\(size) МБ"
 }
 
 struct ModelSetupView: View {
@@ -138,13 +164,7 @@ struct ModelSetupView: View {
     }
     private var downloadSize: String {
         guard let bytes = setup.upgradeDownloadBytes, bytes > 0 else { return "Загрузка моделей" }
-        let locale = Locale(identifier: "ru_RU")
-        if bytes >= 1_000_000_000 {
-            let size = (Double(bytes) / 1_000_000_000).formatted(.number.precision(.fractionLength(0...1)).locale(locale))
-            return "Около \(size) ГБ для обновления"
-        }
-        let size = (Double(bytes) / 1_000_000).rounded(.up).formatted(.number.locale(locale))
-        return "Около \(size) МБ для обновления"
+        return "Около \(modelDownloadSize(bytes)) для обновления"
     }
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {

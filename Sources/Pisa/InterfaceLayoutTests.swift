@@ -12,6 +12,8 @@ enum InterfaceLayoutElement: Hashable {
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
+    case settingsModelHeading, settingsModelAction, settingsModelDownloadSize
+    case settingsModelFolder, settingsModelPath, settingsModelChooseFolder
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
@@ -284,6 +286,7 @@ private final class LayoutSuite {
         for scale in [1.0, 1.1, 1.2] {
             if scale != 1.1 {
                 checkSetup(state.modelSetup, scale: scale)
+                try checkModelSettings(state: state, scale: scale)
                 checkRecordingLevels(state.recordingMonitor, scale: scale)
             }
             checkForms(state: state, meeting: ready, scale: scale)
@@ -461,6 +464,70 @@ private final class LayoutSuite {
                 checkField(.termReplacement, placeholder: false, nativePlaceholder: "Термин", in: host)
                 checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
             }
+        }
+    }
+
+    private func checkModelSettings(state: AppState, scale: CGFloat) throws {
+        scenario = "model settings, \(Int(scale * 100))%"
+        let previousPath = state.preferences.parakeetModelDisplayPath
+        state.preferences.parakeetModelDisplayPath = "/Volumes/External Drive/" +
+            String(repeating: "Long folder name/", count: 5) + "Parakeet-TDT-v3"
+        state.modelSetup.phase = .ready
+        let host = LayoutHost(SettingsView(initialSection: "Модель").environmentObject(state),
+                              size: CGSize(width: 900, height: 700), scale: scale)
+        defer {
+            host.close()
+            state.preferences.parakeetModelDisplayPath = previousPath
+            state.modelSetup.phase = .ready
+        }
+        func capture(_ name: String) throws {
+            guard let path = ProcessInfo.processInfo.environment["PISA_MODEL_SETTINGS_SCREENSHOTS"] else { return }
+            let file = "model-\(name)-\(Int(scale * 100)).png"
+            try host.savePNG(to: URL(fileURLWithPath: path, isDirectory: true).appendingPathComponent(file))
+        }
+        guard let measured = frames([.settingsContent("Модель"), .settingsModelHeading,
+                                     .settingsModelAction, .settingsModelFolder], in: host) else { return }
+        let (content, heading, action, folder) = (measured[0], measured[1], measured[2], measured[3])
+        equal(heading.minY, content.minY, "model name and status start at the top")
+        equal(action.minY - heading.maxY, PisaDesign.Spacing.content, "model action follows the status")
+        check(host.frames[.settingsModelDownloadSize] == nil, "installed models have no download size")
+        check(host.frames[.settingsModelPath] == nil && host.frames[.settingsModelChooseFolder] == nil,
+              "the path and picker start collapsed")
+        try capture("ready")
+
+        host.click(folder.center)
+        if let expanded = frames([.settingsModelPath, .settingsModelChooseFolder], in: host) {
+            equal(expanded[0].minY - folder.maxY, PisaDesign.Spacing.related, "path sits below the folder disclosure")
+            equal(expanded[1].minY - expanded[0].maxY, PisaDesign.Spacing.related, "picker sits below the complete path")
+            check(expanded.allSatisfy { host.bounds.contains($0) && $0.maxX <= content.midX },
+                  "the long path and picker fit the left column")
+        }
+        try capture("folder")
+        host.click(folder.center)
+        check(host.wait { host.frames[.settingsModelPath] == nil && host.frames[.settingsModelChooseFolder] == nil },
+              "the folder disclosure can hide the path and picker again")
+
+        host.click(action.center)
+        check(host.wait { state.modelSetup.phase == .available },
+              "checking models detects missing files from settings")
+        check(!state.modelSetup.presented, "checking models keeps the result in settings")
+        if let missing = frames([.settingsModelAction, .settingsModelDownloadSize, .settingsModelFolder], in: host) {
+            equal(missing[1].minY - missing[0].maxY, PisaDesign.Spacing.inline, "size sits below the download action")
+            equal(missing[2].minY - missing[1].maxY, PisaDesign.Spacing.section, "size stays grouped with the download action")
+        }
+        state.preferences.parakeetModelDisplayPath = nil
+        try capture("missing")
+        if let disclosure = host.frames[.settingsModelFolder] {
+            host.click(disclosure.center)
+            _ = frames([.settingsModelChooseFolder], in: host)
+            check(host.frames[.settingsModelPath] == nil, "the picker is available without a selected model folder")
+            try capture("missing-folder")
+        }
+        if let download = host.frames[.settingsModelAction] {
+            host.click(download.center)
+            check(host.wait { state.modelSetup.presented && !state.modelSetup.busy },
+                  "the download action opens the model setup flow")
+            state.modelSetup.dismiss()
         }
     }
 

@@ -86,6 +86,12 @@ enum ModelSetupTests {
         try await refresh(managed)
         try check(managed.ready && !managed.installedUsingCustom && !managed.installedUsingCustomVerifier,
                   "Verified managed primary and verifier not ready")
+        try check(managed.missingDownloadBytes == 0, "Installed files were included in the download estimate")
+
+        let invalidManifest = ModelSetup(root: root, manifestURL: nil, customModel: { nil }, usesCustomModel: { false })
+        try await refresh(invalidManifest)
+        try check(invalidManifest.phase == .failed && invalidManifest.error != nil && !invalidManifest.presented,
+                  "A settings check failure did not stay in settings")
 
         let unresolvedPrimary = ModelSetup(root: root, manifestURL: manifest, customModel: { nil }, usesCustomModel: { true })
         try await refresh(unresolvedPrimary)
@@ -115,6 +121,8 @@ enum ModelSetupTests {
         try await refresh(upgrade)
         try check(upgrade.upgradeDownloadBytes == Int64(weights.count * 2),
                   "A partial upgrade counted installed files or omitted missing speaker files")
+        try check(upgrade.missingDownloadBytes == Int64(weights.count * 2),
+                  "The settings estimate did not match the files needed for a partial upgrade")
         try write(weights, to: speakerFile)
 
         let fresh = ModelSetup(root: root.appendingPathComponent("Empty"), manifestURL: manifest,
@@ -123,6 +131,8 @@ enum ModelSetupTests {
         try await wait(fresh)
         try check(fresh.presented && fresh.phase == .available && fresh.upgradeDownloadBytes == nil,
                   "A fresh installation was presented as an upgrade")
+        try check(fresh.missingDownloadBytes == assets.reduce(0) { $0 + ($1.bytes ?? 0) },
+                  "The settings estimate did not include all files for a fresh installation")
 
         try writeModel(primaryFiles, to: customPrimary)
         try writeModel(verifierFiles, to: customVerifier)
@@ -168,11 +178,14 @@ enum ModelSetupTests {
         try files.removeItem(at: root.appendingPathComponent(speakerPath))
         try await refresh(selectedBoth)
         try check(selectedBoth.phase == .available, "Custom models became ready without speaker models")
+        try check(selectedBoth.missingDownloadBytes == Int64(weights.count),
+                  "The settings estimate counted valid custom model files")
         var completed = false
         selectedBoth.install(onReady: { completed = true })
         await selectedBoth.cancelAndWait()
         try await wait(selectedBoth)
         try check(selectedBoth.phase == .available && !completed, "Setup cancellation did not join the worker")
+        try check(selectedBoth.missingDownloadBytes == nil, "A cancelled download left a potentially outdated estimate")
         print("MODEL_SETUP_TEST_OK managed legacy_qwen custom_primary custom_verifier invalid_bookmark speaker_readiness russian_readiness cancellation")
     }
 }
