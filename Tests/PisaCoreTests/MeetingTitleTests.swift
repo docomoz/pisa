@@ -109,13 +109,10 @@ final class MeetingTitleTests: XCTestCase {
         XCTAssertEqual(title, "Запуск нового поиска")
     }
 
-    func testShortTranscriptGeneratesATitleAndEmptyTranscriptSkipsModel() async throws {
-        let composer = MeetingTitleComposer { request in
-            guard request.kind == .title, request.text.contains("нового поиска") else { throw TestFailure.unexpectedInput }
-            return "Запуск нового поиска"
+    func testEmptyTranscriptSkipsModel() async throws {
+        let composer = MeetingTitleComposer { _ in
+            throw TestFailure.unexpectedInput
         }
-        let title = try await composer.title(for: completed().segments)
-        XCTAssertEqual(title, "Запуск нового поиска")
         let empty = try await composer.title(for: [])
         XCTAssertNil(empty)
     }

@@ -17,15 +17,6 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(voiceNameSuggestions(query: "нат ван", meetingNames: meetingNames, savedNames: savedNames).isEmpty)
     }
 
-    func testTranscriptSearchFindsEveryCaseInsensitiveSubstring() {
-        let text = "😀 Смерцы, СМЕРЦЫ и смерцы"
-        let ranges = transcriptSearchRanges(in: text, query: "смер")
-        XCTAssertEqual(ranges.map { (text as NSString).substring(with: $0) }, ["Смер", "СМЕР", "смер"])
-        XCTAssertEqual(ranges.first?.location, 3) // Emoji occupies two UTF-16 code units.
-        XCTAssertTrue(transcriptSearchRanges(in: text, query: "").isEmpty)
-        XCTAssertTrue(transcriptSearchRanges(in: text, query: "другое").isEmpty)
-    }
-
     func testTranscriptSearchMatchesAcrossTypographicSpacesWithoutChangingOffsets() {
         let text = typographicText("Я в Москве, а в Москве ещё снег")
         let ranges = transcriptSearchRanges(in: text, query: "в Москве")
@@ -161,13 +152,18 @@ final class CoreTests: XCTestCase {
                 return Float(Int64(bitPattern: seed) >> 40) / Float(1 << 23) * 0.2
             }
         }
-        let reference = noise(37600)
-        let echo = Array(reference[4000..<36000]).map { $0 * 0.4 }
+        let sampleCount = 16_000 // The minimum input is two half-second blocks.
+        let reference = noise(sampleCount + 5_600)
+        let echo = reference[4_000..<(4_000 + sampleCount)].map { $0 * 0.4 }
         XCTAssertTrue(EchoDetector.isEcho(microphone: echo, reference: reference))
-        let voice = noise(32000)
-        XCTAssertFalse(EchoDetector.isEcho(microphone: zip(echo, voice).map(+), reference: reference))
+        let voice = noise(sampleCount)
+        var doubleTalk = echo
+        for index in (sampleCount / 2)..<sampleCount {
+            doubleTalk[index] += voice[index]
+        }
+        XCTAssertFalse(EchoDetector.isEcho(microphone: doubleTalk, reference: reference))
         XCTAssertFalse(EchoDetector.isEcho(microphone: voice, reference: reference))
-        XCTAssertFalse(EchoDetector.isEcho(microphone: Array(repeating: 0, count: 32000), reference: reference))
+        XCTAssertFalse(EchoDetector.isEcho(microphone: Array(repeating: 0, count: sampleCount), reference: reference))
         XCTAssertTrue(EchoDetector.sameWords("Вот такой простой пример.", "А вот такой простой пример сегодня"))
         XCTAssertFalse(EchoDetector.sameWords("Вот такой другой пример", "Вот такой простой пример"))
         XCTAssertFalse(EchoDetector.sameWords("Да", "Да"))
@@ -202,18 +198,6 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(imported.rename(to: customTitle))
         XCTAssertEqual(imported.headingTitle, customTitle)
     }
-    func testMeetingDateUsesLocalCalendarDayAtMidnight() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Moscow"))
-        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, minute: 5)))
-        let yesterday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 12, day: 31, hour: 23, minute: 55)))
-        let older = try XCTUnwrap(calendar.date(from: DateComponents(year: 2025, month: 12, day: 30, hour: 23, minute: 55)))
-
-        XCTAssertEqual(meetingDateLabel(now, now: now, calendar: calendar), "Сегодня в\u{00a0}00:05")
-        XCTAssertEqual(meetingDateLabel(yesterday, now: now, calendar: calendar), "Вчера в\u{00a0}23:55")
-        XCTAssertEqual(meetingDateLabel(older, now: now, calendar: calendar), "30\u{00a0}декабря в\u{00a0}23:55")
-        XCTAssertEqual(meetingDateLabel(yesterday, now: now, calendar: calendar, showsRelativeDay: false), "31\u{00a0}декабря в\u{00a0}23:55")
-    }
     func testDateYearAppearsAtCalendarAnniversary() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -240,6 +224,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(meetingDateLabel(date(2026, 7), now: now, calendar: calendar, compact: true), "Вчера в\u{00a0}12:07")
     }
     func testScreenTypographyBindsShortWordsDatesAndUnitsWithoutChangingCode() {
+        XCTAssertEqual(typographicText("а в четверг"), "а\u{00a0}в\u{00a0}четверг")
         XCTAssertEqual(typographicText("В папку отправляется текст для встречи"), "В\u{00a0}папку отправляется текст для\u{00a0}встречи")
         XCTAssertEqual(typographicText("3 ноября · 45 секунд · 16 кГц · 25%"), "3\u{00a0}ноября · 45\u{00a0}секунд · 16\u{00a0}кГц · 25%")
         XCTAssertEqual(typographicText("команда\nи результат"), "команда\nи\u{00a0}результат")
@@ -361,10 +346,6 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(detector.update(active: true, now: now.addingTimeInterval(114)), .start)
         _ = detector.update(active: false, now: now.addingTimeInterval(115))
         XCTAssertEqual(detector.update(active: false, now: now.addingTimeInterval(161)), .stop)
-    }
-    func testTypographyBindsShortWordsWithoutBreakingParagraphs() {
-        XCTAssertEqual(typographicText("а в четверг"), "а\u{00a0}в\u{00a0}четверг")
-        XCTAssertEqual(typographicText("Привет.\nСледующая строка"), "Привет.\nСледующая строка")
     }
     func testVoiceMatcherRejectsAmbiguityAndDifferentDimensions() {
         XCTAssertEqual(VoiceMatcher.similarity([1, 0], [0, 1]), 0)

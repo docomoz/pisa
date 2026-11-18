@@ -21,10 +21,10 @@ final class InterfaceDateRegressionTests: XCTestCase {
 
     func testSameRecordingChangesFromTodayToYesterdayToAbsoluteDate() throws {
         let calendar = try makeCalendar()
-        let recorded = try date(2026, 11, 12, 23, 50, in: calendar)
-        let beforeMidnight = try date(2026, 11, 12, 23, 55, in: calendar)
-        let afterMidnight = try date(2026, 11, 13, 0, 1, in: calendar)
-        let twoDaysLater = try date(2026, 11, 14, 0, 1, in: calendar)
+        let recorded = try date(2025, 12, 31, 23, 50, in: calendar)
+        let beforeMidnight = try date(2025, 12, 31, 23, 55, in: calendar)
+        let afterMidnight = try date(2026, 1, 1, 0, 1, in: calendar)
+        let twoDaysLater = try date(2026, 1, 2, 0, 1, in: calendar)
 
         for compact in [false, true] {
             XCTAssertEqual(meetingDateLabel(recorded, now: beforeMidnight, calendar: calendar, compact: compact),
@@ -33,9 +33,9 @@ final class InterfaceDateRegressionTests: XCTestCase {
                            "Вчера в\u{00a0}23:50")
         }
         XCTAssertEqual(meetingDateLabel(recorded, now: twoDaysLater, calendar: calendar),
-                       "12\u{00a0}ноября в\u{00a0}23:50")
+                       "31\u{00a0}декабря в\u{00a0}23:50")
         XCTAssertEqual(meetingDateLabel(recorded, now: twoDaysLater, calendar: calendar, compact: true),
-                       "12.11, 23:50")
+                       "31.12, 23:50")
     }
 
     func testYesterdayUsesCalendarDaysAcrossTheAutumnClockChange() throws {

@@ -92,7 +92,9 @@ private final class Probe {
         }
     }
 
-    func pump(_ host: NSView, for seconds: TimeInterval = 0.12) {
+    // Give queued AppKit and SwiftUI updates time to render after input.
+    // Initial window presentation gets a longer settling period.
+    func pump(_ host: NSView, for seconds: TimeInterval = 0.03) {
         let until = Date().addingTimeInterval(seconds)
         repeat {
             host.layoutSubtreeIfNeeded()

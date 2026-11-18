@@ -2,7 +2,7 @@ import XCTest
 @testable import PisaCore
 
 final class NativeModelDownloadTests: XCTestCase {
-    private func server() throws -> (Process, URL) {
+    private func serverURL() throws -> URL {
         // A real loopback server exercises URLSession's delegate callbacks and cancellation.
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
@@ -26,23 +26,24 @@ print(server.server_port, flush=True)
 server.serve_forever()
 """]
         let pipe = Pipe(); process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        let exited = XCTestExpectation(description: "Loopback server exits")
+        process.terminationHandler = { _ in exited.fulfill() }
         try process.run()
+        addTeardownBlock {
+            if process.isRunning { process.terminate() }
+            // Process.waitUntilExit() can block an XCTest async worker's run loop.
+            let result = await XCTWaiter.fulfillment(of: [exited], timeout: 5)
+            XCTAssertEqual(result, .completed, "Loopback server did not exit")
+        }
         var bytes = Data()
         while let byte = try pipe.fileHandleForReading.read(upToCount: 1), !byte.isEmpty {
             if byte == Data([10]) { break }; bytes.append(byte)
         }
-        guard let text = String(data: bytes, encoding: .utf8), let port = Int(text) else { process.terminate(); throw URLError(.cannotConnectToHost) }
-        return (process, URL(string: "http://127.0.0.1:\(port)")!)
+        guard let text = String(data: bytes, encoding: .utf8), let port = Int(text) else { throw URLError(.cannotConnectToHost) }
+        return URL(string: "http://127.0.0.1:\(port)")!
     }
-    func testNativeTransportDownloadsToDisk() async throws {
-        let (server, base) = try server(); defer { server.terminate(); server.waitUntilExit() }
-        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: destination) }
-        try await NativeModelDownload.fetch(base.appendingPathComponent("ok"), to: destination)
-        XCTAssertEqual(try Data(contentsOf: destination), Data("verified model fixture".utf8))
-    }
-    func testNativeTransportRejectsHTTPErrorAndCanRetry() async throws {
-        let (server, base) = try server(); defer { server.terminate(); server.waitUntilExit() }
+    func testNativeTransportRejectsHTTPErrorAndDownloadsOnRetry() async throws {
+        let base = try serverURL()
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: destination) }
         do { try await NativeModelDownload.fetch(base.appendingPathComponent("error"), to: destination); XCTFail("HTTP 503 accepted") }
@@ -52,7 +53,7 @@ server.serve_forever()
         XCTAssertEqual(try Data(contentsOf: destination), Data("verified model fixture".utf8))
     }
     func testTaskCancellationStopsActualNativeTransfer() async throws {
-        let (server, base) = try server(); defer { server.terminate(); server.waitUntilExit() }
+        let base = try serverURL()
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: destination) }
         let task = Task { try await NativeModelDownload.fetch(base.appendingPathComponent("slow"), to: destination) }
