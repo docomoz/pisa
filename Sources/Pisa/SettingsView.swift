@@ -1,5 +1,10 @@
 import SwiftUI
 import AppKit
+
+enum SettingsCheckbox: Hashable {
+    case automaticRecording, backgroundTranscription, quietProcessing, autoExport, mcpAccess, automaticUpdates
+}
+
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) var dismiss
@@ -36,13 +41,16 @@ struct SettingsView: View {
                         mcpSettings
                     default:
                         block("Обновления Pisa", "Новые версии загружаются с GitHub") {
-                            screenToggle("Устанавливать обновления автоматически", isOn: Binding(
-                                get: { updates.installsAutomatically },
-                                set: { updates.setAutomaticInstallation($0) }
-                            )).disabled(!updates.isReady)
-                            SupportingText("Если выключить, Pisa сообщит о новой версии и предложит установить её вручную")
-                            screenButton("Проверить обновления…") { updates.check() }
-                                .actionButton().disabled(!updates.canCheck)
+                            settingsCheckboxGroup(.automaticUpdates) {
+                                screenToggle("Устанавливать обновления автоматически", isOn: Binding(
+                                    get: { updates.installsAutomatically },
+                                    set: { updates.setAutomaticInstallation($0) }
+                                )).disabled(!updates.isReady)
+                            } details: {
+                                SupportingText("Если выключить, Pisa сообщит о новой версии и предложит установить её вручную")
+                                screenButton("Проверить обновления…") { updates.check() }
+                                    .actionButton().disabled(!updates.canCheck)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -71,7 +79,7 @@ struct SettingsView: View {
 
     private var exportSettings: some View {
         let hasFolder = state.preferences.exportBookmark != nil
-        return VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+        return settingsCheckboxGroup(.autoExport) {
             screenToggle("Автоэкспорт расшифровок", isOn: Binding(
                 get: { state.preferences.exportBookmark != nil },
                 set: { enabled in
@@ -82,8 +90,7 @@ struct SettingsView: View {
                     }
                 }
             ))
-            .measuredForInterfaceTest(.exportToggle)
-
+        } details: {
             if hasFolder {
                 if let path = state.preferences.exportDisplayPath {
                     screenText(verbatim: path)
@@ -116,16 +123,15 @@ struct SettingsView: View {
         let configuration = MCPClientConfiguration.toml(commandPath: state.mcpPath)
         return settingsColumns {
             FormSection("Доступ к встречам через MCP") {
-                VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                settingsCheckboxGroup(.mcpAccess) {
                     screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled)
                         .onChange(of: state.preferences.mcpEnabled) { state.saveMCPSetting() }
-                        .measuredForInterfaceTest(.mcpAccessToggle)
+                } details: {
                     SupportingText("Подключённый клиент может искать реплики и читать расшифровки. Облачная модель клиента может получить прочитанный текст.")
                         .measuredForInterfaceTest(.mcpAccessNotice)
-                        .padding(.top, PisaDesign.Spacing.related)
+                    SupportingText("Клиент также видит папки и сведения о полноте расшифровки. Ссылки открывают нужные фрагменты в Pisa. Аудиофайлы и изменение библиотеки через MCP недоступны.")
+                    SupportingText("Выключатель отзывает доступ и у уже запущенного клиента")
                 }
-                SupportingText("Клиент также видит папки и сведения о полноте расшифровки. Ссылки открывают нужные фрагменты в Pisa. Аудиофайлы и изменение библиотеки через MCP недоступны.")
-                SupportingText("Выключатель отзывает доступ и у уже запущенного клиента")
             }
         } right: {
             FormSection("Подключение", subtitle: "Добавьте локальный сервер в настройки клиента") {
@@ -184,11 +190,14 @@ struct SettingsView: View {
             }
         } right: {
             FormSection("Производительность") {
-                screenToggle("Тихая обработка", isOn: Binding(
-                    get: { state.preferences.usesQuietProcessing },
-                    set: { state.preferences.quietProcessing = $0; state.savePreferences() }
-                ))
-                SupportingText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
+                settingsCheckboxGroup(.quietProcessing) {
+                    screenToggle("Тихая обработка", isOn: Binding(
+                        get: { state.preferences.usesQuietProcessing },
+                        set: { state.preferences.quietProcessing = $0; state.savePreferences() }
+                    ))
+                } details: {
+                    SupportingText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
+                }
             }
         }.onAppear {
             if !setup.busy, !setup.ready, setup.missingDownloadBytes == nil {
@@ -222,50 +231,76 @@ struct SettingsView: View {
         }
     }
     private var recordingSettings: some View {
-        HStack(alignment: .top, spacing: PisaDesign.Spacing.section) {
+        settingsColumns {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
                 block("Источники звука", "Микрофон и системный звук") {
                     SupportingText("Начните запись заранее, затем откройте встречу в любом приложении или браузере. Записываются и другие звуки Mac.")
                 }
                 block("Автозапись", "Экспериментальная функция") {
-                    screenToggle("Автоматический старт и стоп", isOn: Binding(get: { state.preferences.automaticRecording }, set: { state.setAutomatic($0) }))
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                        screenLabel("Старт — через 3 секунды", systemImage: "record.circle")
-                        screenLabel("Стоп — через 45 секунд без микрофона", systemImage: "stop.circle").fixedSize(horizontal: false, vertical: true)
-                    }.textStyle(PisaDesign.Typography.body).fixedSize(horizontal: false, vertical: true)
-                    SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука")
-                    // Keep the disclosure and its text together so the block's row spacing
-                    // cannot add a second gap between the heading and its content.
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                        Button { showRecordingDetails.toggle() } label: {
-                            HStack(spacing: PisaDesign.Spacing.inline) {
-                                Image(systemName: showRecordingDetails ? "chevron.down" : "chevron.right").font(PisaDesign.Typography.Icon.disclosure).frame(width: 12)
-                                screenText("Как работает и ограничения")
-                                Spacer(minLength: 0)
-                            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                        }.shapeAwarePlainButton().foregroundStyle(Color.moss)
-                            .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
-                        if showRecordingDetails {
-                            SupportingText("Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если вы начали запись вручную до встречи, автостоп включится только после обнаружения звонка.")
+                    settingsCheckboxGroup(.automaticRecording) {
+                        screenToggle("Автоматический старт и стоп", isOn: Binding(
+                            get: { state.preferences.automaticRecording },
+                            set: { state.setAutomatic($0) }
+                        ))
+                    } details: {
+                        VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                            screenLabel("Старт — через 3 секунды", systemImage: "record.circle")
+                            screenLabel("Стоп — через 45 секунд без микрофона", systemImage: "stop.circle").fixedSize(horizontal: false, vertical: true)
+                        }.textStyle(PisaDesign.Typography.body).fixedSize(horizontal: false, vertical: true)
+                        SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука")
+                        // Keep the disclosure and its text together so the block's row spacing
+                        // cannot add a second gap between the heading and its content.
+                        VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                            Button { showRecordingDetails.toggle() } label: {
+                                HStack(spacing: PisaDesign.Spacing.inline) {
+                                    Image(systemName: showRecordingDetails ? "chevron.down" : "chevron.right").font(PisaDesign.Typography.Icon.disclosure).frame(width: 12)
+                                    screenText("Как работает и ограничения")
+                                    Spacer(minLength: 0)
+                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.shapeAwarePlainButton().foregroundStyle(Color.moss)
+                                .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
+                                .measuredForInterfaceTest(.settingsRecordingDisclosure)
+                            if showRecordingDetails {
+                                SupportingText("Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если вы начали запись вручную до встречи, автостоп включится только после обнаружения звонка.")
+                                    .measuredForInterfaceTest(.settingsRecordingDetails)
+                            }
                         }
                     }
                 }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
+            }
+        } right: {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
                 block("Разрешения macOS", "Нужны для записи вашего голоса и собеседников") {
                     Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон", systemImage: "mic") }.actionButton()
                     Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук", systemImage: "speaker.wave.2") }.actionButton()
                 }.labelStyle(AlignedIconLabelStyle())
                 block("Фоновая расшифровка", "Черновик во время звонка") {
-                    screenToggle("Расшифровывать во время записи", isOn: Binding(get: { state.preferences.usesBackgroundTranscription }, set: { state.setBackgroundTranscription($0) }))
-                    SupportingText("После остановки обрабатывается оставшийся хвост. Пауза распознавания не останавливает запись.")
+                    settingsCheckboxGroup(.backgroundTranscription) {
+                        screenToggle("Расшифровывать во время записи", isOn: Binding(
+                            get: { state.preferences.usesBackgroundTranscription },
+                            set: { state.setBackgroundTranscription($0) }
+                        ))
+                    } details: {
+                        SupportingText("После остановки обрабатывается оставшийся хвост. Пауза распознавания не останавливает запись.")
+                    }
                 }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-        }.fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
     private func block<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         FormSection(title, subtitle: subtitle, content: content)
+    }
+}
+
+private func settingsCheckboxGroup<Checkbox: View, Details: View>(
+    _ id: SettingsCheckbox,
+    @ViewBuilder checkbox: () -> Checkbox,
+    @ViewBuilder details: () -> Details
+) -> some View {
+    VStack(alignment: .leading, spacing: PisaDesign.Spacing.checkboxContent) {
+        checkbox().measuredForInterfaceTest(.settingsCheckbox(id))
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.related, content: details)
+            .measuredForInterfaceTest(.settingsCheckboxDetails(id))
     }
 }
 
@@ -274,8 +309,10 @@ private func settingsColumns<Left: View, Right: View>(
 ) -> some View {
     HStack(alignment: .top, spacing: PisaDesign.Spacing.section) {
         left().frame(maxWidth: .infinity, alignment: .leading)
+            .measuredForInterfaceTest(.settingsLeftColumn)
         Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
         right().frame(maxWidth: .infinity, alignment: .leading)
+            .measuredForInterfaceTest(.settingsRightColumn)
     }.fixedSize(horizontal: false, vertical: true)
 }
 
@@ -312,7 +349,6 @@ private struct StorageSettings: View {
                     SupportingText("Считаем размер файлов…")
                 }
             }
-            .measuredForInterfaceTest(.settingsStorageUsage)
         } right: {
             FormSection("Очистка аудиозаписей", subtitle: "Удаляется звук обработанных встреч. Расшифровки и заметки остаются.") {
                 let plan = cleanupPlan
@@ -337,7 +373,6 @@ private struct StorageSettings: View {
                     }
                 }
             }
-            .measuredForInterfaceTest(.settingsStorageCleanup)
         }
         .sheet(item: $confirmation) { plan in
             ConfirmationSheet(

@@ -15,9 +15,11 @@ enum InterfaceLayoutElement: Hashable {
     case settingsTab(String), settingsTabBar, settingsContent(String)
     case settingsModelHeading, settingsModelAction, settingsModelDownloadSize
     case settingsModelFolder, settingsModelPath, settingsModelChooseFolder
-    case settingsStorageUsage, settingsStorageCleanup, settingsStorageAge, settingsStorageAction
-    case exportToggle, exportPath, exportChooseFolder, exportUnavailableNotice, exportCloudNotice
-    case mcpAccessToggle, mcpAccessNotice, mcpCopyConfiguration
+    case settingsLeftColumn, settingsRightColumn, settingsStorageAge, settingsStorageAction
+    case settingsCheckbox(SettingsCheckbox), settingsCheckboxDetails(SettingsCheckbox)
+    case settingsRecordingDisclosure, settingsRecordingDetails
+    case exportPath, exportChooseFolder, exportUnavailableNotice, exportCloudNotice
+    case mcpAccessNotice, mcpCopyConfiguration
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
     case termCandidate(String)
@@ -418,7 +420,7 @@ private final class LayoutSuite {
                 checkSetup(state.modelSetup, scale: scale)
                 checkRecordingLevels(state.recordingMonitor, scale: scale)
             }
-            checkForms(state: state, meeting: ready, scale: scale)
+            try checkForms(state: state, meeting: ready, scale: scale)
             try checkIntegrationSettings(state: state, scale: scale)
             try checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
         }
@@ -470,14 +472,16 @@ private final class LayoutSuite {
 
         func checkExport(_ name: String, hasFolder: Bool, unavailable: Bool = false) throws {
             scenario = "export \(name), \(Int(scale * 100))%"
-            guard let toggle = frames([.exportToggle], in: host)?.first else { return }
+            guard let toggle = frames([.settingsCheckbox(.autoExport)], in: host)?.first else { return }
+            checkCheckbox(.autoExport, in: host)
             check(host.bounds.contains(toggle), "export checkbox fits in the window")
             if hasFolder {
                 guard let measured = frames([.exportPath, .exportChooseFolder, .exportCloudNotice], in: host) else { return }
                 let (path, choose, notice) = (measured[0], measured[1], measured[2])
                 check(measured.allSatisfy { host.bounds.contains($0) }, "folder controls and cloud notice fit in the window")
                 equal(toggle.minX, path.minX, "checkbox and path share a left edge")
-                check(toggle.maxY <= path.minY && path.maxY <= choose.minY, "saved path is shown between the checkbox and folder action")
+                equal(path.minY - toggle.maxY, 20, "saved path starts after the standard checkbox gap")
+                check(path.maxY <= choose.minY, "saved path is shown before the folder action")
                 equal(choose.minX, notice.minX, "cloud sync notice is aligned below the folder action")
                 equal(notice.minY - choose.maxY, PisaDesign.Spacing.inline, "cloud sync notice is directly below the folder action")
             } else {
@@ -489,7 +493,7 @@ private final class LayoutSuite {
         }
 
         try checkExport("off", hasFolder: false)
-        if scale == 1, let toggle = frames([.exportToggle], in: host)?.first {
+        if scale == 1, let toggle = frames([.settingsCheckbox(.autoExport)], in: host)?.first {
             let cancelPicker = Timer(timeInterval: 0.5, repeats: false) { _ in
                 MainActor.assumeIsolated {
                     let picker = NSApp.modalWindow as? NSOpenPanel
@@ -515,7 +519,7 @@ private final class LayoutSuite {
 
         try state.setExportFolder(exportFolder)
         try checkExport("on", hasFolder: true)
-        if let toggle = frames([.exportToggle], in: host)?.first {
+        if let toggle = frames([.settingsCheckbox(.autoExport)], in: host)?.first {
             host.click(toggle.center)
             let saved = try state.library.preferences()
             check(saved.exportBookmark == nil && saved.exportDisplayPath == nil, "unchecking auto-export clears the saved folder")
@@ -527,7 +531,7 @@ private final class LayoutSuite {
         state.preferences.mcpEnabled = false
         guard let tab = frames([.settingsTab("MCP")], in: host)?.first else { return }
         host.click(tab.center)
-        guard let measured = frames([.mcpAccessToggle, .mcpAccessNotice, .mcpCopyConfiguration], in: host) else { return }
+        guard let measured = frames([.settingsCheckbox(.mcpAccess), .mcpAccessNotice, .mcpCopyConfiguration], in: host) else { return }
         let (toggle, notice, copy) = (measured[0], measured[1], measured[2])
         check(measured.allSatisfy { host.bounds.contains($0) }, "MCP access checkbox, notice and configuration action fit in the window")
         equal(notice.minY - toggle.maxY, 20, "MCP data access notice has a 20-point gap below the checkbox")
@@ -641,7 +645,15 @@ private final class LayoutSuite {
         }
     }
 
-    private func checkForms(state: AppState, meeting: Meeting, scale: CGFloat) {
+    private func checkCheckbox(_ id: SettingsCheckbox, in host: LayoutHost) {
+        guard let measured = frames([.settingsCheckbox(id), .settingsCheckboxDetails(id)], in: host) else { return }
+        let (checkbox, details) = (measured[0], measured[1])
+        equal(details.minY - checkbox.maxY, 20, "checkbox and details have a 20-point gap")
+        equal(details.minX, checkbox.minX, "checkbox and details share a left edge")
+        check(host.bounds.contains(checkbox), "checkbox fits in the window")
+    }
+
+    private func checkForms(state: AppState, meeting: Meeting, scale: CGFloat) throws {
         scenario = "dictionary form, \(Int(scale * 100))%"
         do {
             let host = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state),
@@ -653,26 +665,67 @@ private final class LayoutSuite {
                 check(zip(tabFrames, tabFrames.dropFirst()).allSatisfy { left, right in left.maxX <= right.minX },
                       "settings tabs appear in order without overlapping")
                 check(tabFrames.allSatisfy { host.bounds.contains($0) }, "all settings tabs fit in the window")
-                for (tab, frame) in zip(tabs, tabFrames) {
-                    scenario = "settings \(tab), \(Int(scale * 100))%"
-                    host.click(frame.center)
-                    if let content = frames([.settingsContent(tab)], in: host)?.first {
-                        equal(content.minY - tabBar.maxY, PisaDesign.Spacing.section,
-                              "settings content starts one section gap below the tabs")
+                for (index, tab) in tabs.enumerated() {
+                    let percent = Int((scale * 100).rounded())
+                    scenario = "settings \(tab), \(percent)%"
+                    host.click(tabFrames[index].center)
+                    guard let content = frames([.settingsContent(tab)], in: host)?.first else { continue }
+                    equal(content.minY - tabBar.maxY, PisaDesign.Spacing.section,
+                          "settings content starts one section gap below the tabs")
+                    equal(content.minX, tabBar.minX, "settings content and tabs share a left edge")
+
+                    if ["Запись", "Модель", "Хранилище", "MCP"].contains(tab),
+                       let columns = frames([.settingsLeftColumn, .settingsRightColumn], in: host) {
+                        let (left, right) = (columns[0], columns[1])
+                        equal(left.minX, content.minX, "left column starts at the content edge")
+                        equal(right.maxX, content.maxX, "right column ends at the content edge")
+                        equal(left.minY, content.minY, "left column starts at the content top")
+                        equal(right.minY, content.minY, "right column starts at the content top")
+                        equal(left.width, right.width, "settings columns have equal widths")
+                        equal(right.minX - left.maxX, 2 * PisaDesign.Spacing.section + 1,
+                              "settings columns use the standard divider spacing")
                         if tab == "Хранилище",
-                           let columns = frames([.settingsStorageUsage, .settingsStorageCleanup], in: host) {
-                            let (usage, cleanup) = (columns[0], columns[1])
-                            equal(usage.minY, cleanup.minY, "storage sections start at the same height")
-                            equal(usage.width, cleanup.width, "storage columns have the same width")
-                            equal(cleanup.minX - usage.maxX, 2 * PisaDesign.Spacing.section + 1,
-                                  "storage usage is to the left of cleanup with the standard divider spacing")
-                            check(columns.allSatisfy { host.bounds.contains($0) }, "both storage sections fit in settings")
-                            if let buttons = frames([.settingsStorageAge, .settingsStorageAction], in: host) {
-                                check(buttons.allSatisfy { cleanup.contains($0) }, "cleanup buttons fit the right column")
-                                for button in buttons {
-                                    equal(button.height, PisaDesign.Metrics.regularHeight, "cleanup button labels stay on one line")
-                                }
+                           let buttons = frames([.settingsStorageAge, .settingsStorageAction], in: host) {
+                            check(buttons.allSatisfy { right.contains($0) }, "cleanup buttons fit the right column")
+                            for button in buttons {
+                                equal(button.height, PisaDesign.Metrics.regularHeight, "cleanup button labels stay on one line")
                             }
+                        }
+                    }
+                    switch tab {
+                    case "Запись":
+                        checkCheckbox(.automaticRecording, in: host)
+                        checkCheckbox(.backgroundTranscription, in: host)
+                    case "Модель":
+                        checkCheckbox(.quietProcessing, in: host)
+                    case "Обновления":
+                        checkCheckbox(.automaticUpdates, in: host)
+                    default: break
+                    }
+                    try saveScreenshot("settings-\(index + 1)-\(percent)", in: host)
+
+                    if tab == "Запись" {
+                        check(host.frames[.settingsRecordingDetails] == nil, "auto-recording details start collapsed")
+                        guard let viewport = host.scrollToBottom(),
+                              let disclosure = frames([.settingsRecordingDisclosure], in: host)?.first else {
+                            check(false, "reaching the bottom of recording settings reveals the disclosure")
+                            continue
+                        }
+                        check(viewport.contains(disclosure), "the collapsed disclosure is fully visible after scrolling")
+                        host.click(disclosure.center)
+                        if let expanded = frames([.settingsRecordingDisclosure, .settingsRecordingDetails], in: host) {
+                            equal(expanded[1].minY - expanded[0].maxY, PisaDesign.Spacing.inline,
+                                  "expanded auto-recording details are one inline gap below the disclosure")
+                            if let viewport = host.scrollToBottom(),
+                               let details = frames([.settingsRecordingDetails], in: host)?.first {
+                                check(viewport.contains(details), "expanded auto-recording details fit after scrolling")
+                                try saveScreenshot("settings-recording-expanded-\(percent)", in: host)
+                            }
+                        }
+                        if let disclosure = frames([.settingsRecordingDisclosure], in: host)?.first {
+                            host.click(disclosure.center)
+                            check(host.wait { host.frames[.settingsRecordingDetails] == nil },
+                                  "auto-recording details collapse again")
                         }
                     }
                 }
@@ -1122,6 +1175,24 @@ private final class LayoutHost {
             }
         }
         settle()
+    }
+
+    // Used on settings pages with a single vertical scroll view.
+    func scrollToBottom() -> CGRect? {
+        func findScrollView(in node: NSView) -> NSScrollView? {
+            if let scroll = node as? NSScrollView { return scroll }
+            return node.subviews.lazy.compactMap { findScrollView(in: $0) }.first
+        }
+        guard let scroll = findScrollView(in: view), let document = scroll.documentView else { return nil }
+        let clip = scroll.contentView
+        let bottom = document.isFlipped ? max(document.frame.minY, document.frame.maxY - clip.bounds.height)
+                                        : document.frame.minY
+        clip.scroll(to: CGPoint(x: clip.bounds.minX, y: bottom))
+        scroll.reflectScrolledClipView(clip)
+        settle()
+        let rect = view.convert(clip.bounds, from: clip)
+        let y = view.isFlipped ? rect.minY : view.bounds.height - rect.maxY
+        return CGRect(x: rect.minX, y: y, width: rect.width, height: rect.height)
     }
 
     func center(of field: NSTextField) -> CGPoint {
