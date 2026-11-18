@@ -33,7 +33,10 @@ struct SavedVoicesSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
-            SectionHeading("Сохранённые голоса", subtitle: "Pisa узнаёт людей по этим образцам на новых встречах")
+            SectionHeading(
+                "Сохранённые голоса",
+                subtitle: "Pisa узнаёт людей по этим образцам на новых встречах · Всего \(savedPeopleCount)"
+            )
                 .measuredForInterfaceTest(.savedVoiceHeading)
             if state.voiceProfiles.isEmpty {
                 emptyState
@@ -77,6 +80,12 @@ struct SavedVoicesSettings: View {
             }
         }
         .onDisappear { state.stopPlayback() }
+    }
+
+    private var savedPeopleCount: String {
+        let count = state.voiceProfiles.count
+        let noun = (2...4).contains(count % 10) && !(12...14).contains(count % 100) ? "человека" : "человек"
+        return "\(count)\u{00a0}\(noun)"
     }
 
     private func revealMergedVoice() {
