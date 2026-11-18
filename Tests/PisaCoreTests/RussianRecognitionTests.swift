@@ -26,6 +26,40 @@ final class RussianRecognitionTests: XCTestCase {
         XCTAssertNil(repair.confirmedText(language: "Russian", reread: "Обсудим проверку позже."))
     }
 
+    func testCyrillicConjunctionAndMultipleLettersInOneWordRequireRussianConfirmation() throws {
+        for (original, heard) in [
+            ("І в итоге решили оставить план.", "И в итоге решили оставить план."),
+            ("Это уже есть в стратегії.", "Это уже есть в стратегии."),
+        ] {
+            let repair = try XCTUnwrap(RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: ""))
+            XCTAssertFalse(repair.confirmedByRepetition)
+            XCTAssertEqual(repair.confirmedText(language: "Russian", reread: heard), heard)
+            XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: heard))
+            XCTAssertNil(RussianRecognition.cyrillicSpelling(original: original, heard: heard.replacingOccurrences(of: " в ", with: " по "), vocabulary: ""))
+        }
+
+        let repair = try XCTUnwrap(RussianRecognition.cyrillicSpelling(original: "Это уже есть в стратегії.",
+            heard: "Это уже есть в стратегии.", vocabulary: ""))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: "Это уже есть стратегии."), "Это уже есть в стратегии.")
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: "Это уже есть в."))
+    }
+
+    func testMixedCyrillicTurnRepairsMultipleWordsWithIndependentRussianConfirmation() throws {
+        let original = "Ми, конечно, ж ту ж понимаємо, що десь Румунія, но опять же, і ми можемо посмотреть дальше."
+        let heard = "Мы, конечно же, тоже понимаем, что здесь Румыния, но опять же, и мы можем посмотреть дальше,"
+        let repair = try XCTUnwrap(RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: ""))
+        let reread = "мы, конечно, что-то понимаем, что здесь Румыния, но опять же и мы можем посмотреть дальше"
+        XCTAssertFalse(repair.confirmedByRepetition)
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: reread), String(heard.dropLast()) + ".")
+        XCTAssertNil(repair.confirmedText(language: nil, reread: reread))
+        XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: reread))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: reread.replacingOccurrences(of: "Румыния", with: "Болгария")))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: heard.replacingOccurrences(of: "Румыния", with: "Болгария")))
+        XCTAssertNil(RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: "Румунія"))
+        XCTAssertNil(RussianRecognition.cyrillicSpelling(original: "Ми кажемо: «Десь Румунія». Мы это уже обсуждали сегодня.",
+            heard: "Мы говорим: где-то Румыния. Мы это уже обсуждали сегодня.", vocabulary: ""))
+    }
+
     func testGenuineLanguageSwitchCannotBeConfirmedByRepetitionAlone() {
         for (original, heard) in [("Привіт, привет.", "привет привет"), ("Обідали, обедали.", "обедали обедали")] {
             let repair = RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: "")
