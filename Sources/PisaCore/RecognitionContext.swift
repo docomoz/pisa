@@ -55,25 +55,61 @@ struct RecognitionContext {
         }
     }
 
-    private let byStart: [TranscriptSegment]
-    private let byEnd: [TranscriptSegment]
+    private final class Turn {
+        let segment: TranscriptSegment
+        lazy var plainText = RecognitionContext.withoutLiterals(segment.text)
+        lazy var exactMentions = RecognitionContext.tokens(plainText).map(\.text)
+        lazy var head = RecognitionContext.excerpt(segment.text, plainText: plainText, useTail: false)
+        lazy var tail = RecognitionContext.excerpt(segment.text, plainText: plainText, useTail: true)
+        private var establishedTerms: [Data: Bool] = [:]
+
+        init(_ segment: TranscriptSegment) { self.segment = segment }
+
+        func establishes(_ term: String, key: Data) -> Bool {
+            if let known = establishedTerms[key] { return known }
+            let established = RecognitionContext.establishesTerm(term, in: plainText)
+            establishedTerms[key] = established
+            return established
+        }
+    }
+
+    private let byStart: [Turn]
+    private let byEnd: [Turn]
 
     init(segments: [TranscriptSegment], preceding: [TranscriptSegment] = []) {
         let current = Set(segments.map(\.id))
-        byStart = segments.sorted { $0.start < $1.start }
-        byEnd = (segments + preceding.filter { !current.contains($0.id) }).sorted { $0.end < $1.end }
+        let turns = segments.map(Turn.init)
+        byStart = turns.sorted { $0.segment.start < $1.segment.start }
+        byEnd = (turns + preceding.filter { !current.contains($0.id) }.map(Turn.init))
+            .sorted { $0.segment.end < $1.segment.end }
+    }
+
+    private func partition(_ turns: [Turn], before: (TranscriptSegment) -> Bool) -> Int {
+        var lower = 0
+        var upper = turns.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if before(turns[middle].segment) { lower = middle + 1 } else { upper = middle }
+        }
+        return lower
+    }
+
+    private func endingAtOrBefore(_ time: Double) -> ReversedCollection<ArraySlice<Turn>> {
+        byEnd[..<partition(byEnd) { $0.end <= time }].reversed()
+    }
+
+    private func startingAtOrAfter(_ time: Double) -> ArraySlice<Turn> {
+        byStart[partition(byStart) { $0.start < time }...]
     }
 
     func neighbors(around target: TranscriptSegment) -> Neighbors {
-        let previous = byEnd.reversed().lazy.drop(while: { $0.end > target.start })
-            .prefix(while: { $0.end >= target.start - 60 })
-            .filter { $0.id != target.id }
-            .compactMap { Self.excerpt($0.text, useTail: true) }
+        let previous = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 60 })
+            .filter { $0.segment.id != target.id }
+            .compactMap(\.tail)
             .prefix(5)
-        let next = byStart.lazy.drop(while: { $0.start < target.end })
-            .prefix(while: { $0.start <= target.end + 45 })
-            .filter { $0.id != target.id }
-            .compactMap { Self.excerpt($0.text, useTail: false) }
+        let next = startingAtOrAfter(target.end).lazy.prefix(while: { $0.segment.start <= target.end + 45 })
+            .filter { $0.segment.id != target.id }
+            .compactMap(\.head)
             .prefix(4)
         return Neighbors(preceding: previous.reversed(), following: Array(next))
     }
@@ -81,11 +117,9 @@ struct RecognitionContext {
     /// Recurrence is counted across separate frozen turns, never repetitions
     /// within a single turn or a correction produced during the current pass.
     func establishedPhrases(around target: TranscriptSegment) -> Set<String> {
-        let previous = byEnd.reversed().lazy.drop(while: { $0.end > target.start })
-            .prefix(while: { $0.end >= target.start - 120 }).prefix(40)
-        let next = byStart.lazy.drop(while: { $0.start < target.end })
-            .prefix(while: { $0.start <= target.end + 120 }).prefix(40)
-        let nearby = (Array(previous) + Array(next)).filter { $0.id != target.id }
+        let previous = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 120 }).prefix(40)
+        let next = startingAtOrAfter(target.end).lazy.prefix(while: { $0.segment.start <= target.end + 120 }).prefix(40)
+        let nearby = (Array(previous) + Array(next)).map(\.segment).filter { $0.id != target.id }
         var occurrences: [String: Set<UUID>] = [:]
         for segment in nearby {
             let words = Self.tokens(segment.text)
@@ -121,8 +155,8 @@ struct RecognitionContext {
     /// The appended text is used for alignment and must survive any splice unchanged.
     func continuation(after target: TranscriptSegment) -> Continuation? {
         guard let track = target.audioFile,
-              let next = byStart.lazy.drop(while: { $0.start < target.end })
-                .prefix(while: { $0.start <= target.end + 0.35 })
+              let next = startingAtOrAfter(target.end).lazy.prefix(while: { $0.segment.start <= target.end + 0.35 })
+                .map(\.segment)
                 .first(where: { $0.audioFile == track && $0.id != target.id }) else { return nil }
         let words = Self.tokens(next.text)
         guard words.count >= 3, Self.isMostlyRussian(Array(words.prefix(3))) else { return nil }
@@ -136,7 +170,7 @@ struct RecognitionContext {
     }
 
     func plan(for target: TranscriptSegment, independent: String?, vocabulary: String,
-              spokenVocabulary: SpokenVocabulary) -> Retry? {
+              spokenVocabulary: SpokenVocabulary, neighbors knownNeighbors: Neighbors? = nil) -> Retry? {
         let source = Self.withoutLiterals(target.text)
         let words = Self.tokens(source)
         guard words.count >= 4, Self.isMostlyRussian(words) else { return nil }
@@ -148,26 +182,29 @@ struct RecognitionContext {
             // retry. A mixed-script or Latin acronym can still encode a case.
             !shared.contains(token.key) || Self.isWrittenInitialism(token.text)
         }
-        let neighbors = neighbors(around: target)
-        let earlier = byEnd.reversed().lazy.drop(while: { $0.end > target.start })
-            .prefix(while: { $0.end >= target.start - 300 })
-        let later = byStart.lazy.drop(while: { $0.start < target.end })
-            .prefix(while: { $0.start <= target.end + 300 })
+        let earlier = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 300 })
+        let later = startingAtOrAfter(target.end).lazy.prefix(while: { $0.segment.start <= target.end + 300 })
         func distance(_ segment: TranscriptSegment) -> Double {
             max(target.start - segment.end, segment.start - target.end)
         }
-        let surrounding = (Array(earlier.prefix(40)) + Array(later.prefix(40))).filter { $0.id != target.id }
-        let entityContext = surrounding.filter { distance($0) <= 120 }.map { Self.withoutLiterals($0.text) }
-        let exactMentions = Set(surrounding.flatMap { Self.tokens(Self.withoutLiterals($0.text)) }.map(\.text))
+        let surrounding = (Array(earlier.prefix(40)) + Array(later.prefix(40))).filter { $0.segment.id != target.id }
+        let entityContext = surrounding.filter { distance($0.segment) <= 120 }
+        let exactMentions = Set(surrounding.flatMap(\.exactMentions))
         let lexicon = Self.terms(in: vocabulary)
+        func isEstablished(_ term: String) -> Bool {
+            let key = Data(term.utf8)
+            return entityContext.contains { $0.establishes(term, key: key) }
+        }
         // Agreement can hide a shared name error after a prompt-free primary
         // decode. Only a unique, anchored near-miss of an explicitly listed,
         // locally established name may schedule more audio; it is not evidence
         // that the glossary form was spoken.
         var sharedNames: [String: String] = [:]
-        for term in lexicon where entityContext.contains(where: { Self.establishesTerm(term, in: $0) }) {
-            if let span = Self.sharedEstablishedNameSpan(in: target.text, corroboration: acoustic, term: term) {
-                sharedNames[term] = Self.tokens(target.text)[span.lowerBound].text
+        let targetWords = Self.tokens(target.text)
+        for term in lexicon where Self.canBeSharedName(term) && isEstablished(term) {
+            if let span = Self.sharedEstablishedNameSpan(in: target.text, source: targetWords,
+                    corroboration: acoustic, acoustic: acousticWords, term: term) {
+                sharedNames[term] = targetWords[span.lowerBound].text
             }
         }
         let sharedNameCounts = Dictionary(grouping: sharedNames, by: { $0.value.lowercased() })
@@ -183,13 +220,13 @@ struct RecognitionContext {
                 options: [.regularExpression, .caseInsensitive]) != nil
             let forms = Self.hintForms(for: term)
             guard missing || fused || !forms.isEmpty else { continue }
+            let established = isEstablished(term)
             let possibleMisses = observed.filter { !Self.isTermForm($0.text, of: term) }.map(\.text)
                 + (sharedNames[term].map { [$0] } ?? [])
             let near = forms.compactMap { form -> (String, Int)? in
                 let score = possibleMisses.compactMap { Self.phoneticScore($0, form, term: term) }.min()
                 return score.map { (form, $0) }
             }.sorted { $0.1 < $1.1 }
-            let established = entityContext.contains { Self.establishesTerm(term, in: $0) }
             let endingSite = Self.isLatinInitialism(term) ? words.first {
                 Self.endingStem($0.text) == term && ($0.text == term + "М" || exactMentions.contains(term))
             } : nil
@@ -213,6 +250,7 @@ struct RecognitionContext {
         }
         let focused = selected.sorted { $0.strength > $1.strength }.prefix(4)
         guard !focused.isEmpty else { return nil }
+        let neighbors = knownNeighbors ?? neighbors(around: target)
         var inserted = Set<String>()
         let hints = focused.flatMap { [$0.term] + $0.forms }.filter { inserted.insert($0).inserted }.joined(separator: ", ")
         let context = [hints, neighbors.preceding.joined(separator: "\n"), neighbors.following.joined(separator: "\n")]
@@ -221,7 +259,7 @@ struct RecognitionContext {
         var competingEndings = Set<String>()
         if !endingTerms.isEmpty {
             endingSites = endingSites.filter { endingTerms.contains($0.value) && exactMentions.contains($0.value) }
-            competingEndings = Self.initialismSpellings(surrounding.map(\.text) + lexicon)
+            competingEndings = Self.initialismSpellings(surrounding.map { $0.segment.text } + lexicon)
         }
         return Retry(hints: hints, context: context, terms: focused.map(\.term),
                      established: Set(focused.filter(\.established).map(\.term)),
@@ -232,10 +270,13 @@ struct RecognitionContext {
                         .filter { RecognitionVocabulary.numericForms(for: $0) != nil }).intersection(focused.map(\.term)))
     }
 
-    private static func sharedEstablishedNameSpan(in original: String, corroboration: String,
-                                                  term: String) -> Range<Int>? {
-        guard term.count >= 5, term == term.capitalized, isRussianWord(term) else { return nil }
-        let source = tokens(original), acoustic = tokens(corroboration)
+    private static func canBeSharedName(_ term: String) -> Bool {
+        term.count >= 5 && term == term.capitalized && isRussianWord(term)
+    }
+
+    private static func sharedEstablishedNameSpan(in original: String, source: [Token], corroboration: String,
+                                                  acoustic: [Token], term: String) -> Range<Int>? {
+        guard canBeSharedName(term) else { return nil }
         let forms = hintForms(for: term)
         let candidates = source.indices.filter { index in
             let token = source[index], span = index..<(index + 1)
@@ -267,7 +308,8 @@ struct RecognitionContext {
         for term in retry.terms {
             let forms = hintForms(for: term)
             if retry.sharedNameTerms.contains(term), let corroboration,
-               let span = sharedEstablishedNameSpan(in: original, corroboration: corroboration, term: term) {
+               let span = sharedEstablishedNameSpan(in: original, source: source, corroboration: corroboration,
+                   acoustic: acoustic, term: term) {
                 choices[span] = 1
             }
             if retry.phoneticTerms.contains(term), isLatinInitialism(term), let corroboration {
@@ -1095,9 +1137,9 @@ struct RecognitionContext {
         return replacement
     }
 
-    private static func excerpt(_ text: String, useTail: Bool) -> String? {
+    private static func excerpt(_ text: String, plainText: String, useTail: Bool) -> String? {
         guard !text.contains("<|"), !text.contains("|>") else { return nil }
-        let words = withoutLiterals(text).split(whereSeparator: \.isWhitespace)
+        let words = plainText.split(whereSeparator: \.isWhitespace)
         guard words.count >= 3 else { return nil }
         var selected: [Substring] = []
         var remaining = 160

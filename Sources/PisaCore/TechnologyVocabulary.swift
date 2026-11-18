@@ -15,6 +15,7 @@ struct TechnologyVocabulary {
         let words: [String]
         let spelling: String
         let spoken: Bool
+        let personalOnly: Bool
         let requiresContext: Bool
         let requiresCompanyCue: Bool
         let inflectable: Bool
@@ -25,6 +26,7 @@ struct TechnologyVocabulary {
     private static let endings = endingLookup.sorted { $0.count > $1.count }
     private static let attached = "_/@\\"
     private static let hyphens = "-‐‑"
+    private static let dataAmountNouns: Set<String> = ["данных", "памяти", "трафика", "места", "информации"]
     private static let dockerCue = try! NSRegularExpression(pattern:
         #"(?i)\b(?:кубернетес[а-яё]*|kubernetes|dockerfile|podman|депло[яй][а-яё]*|образ[а-яё]*\p{Zs}+контейнер[а-яё]*)\b"#)
     private static let nearbyCues: [String: NSRegularExpression] = [
@@ -55,6 +57,7 @@ struct TechnologyVocabulary {
     private let personalKeys: Set<String>
     private let personalSpokenKeys: Set<String>
     private let preferredSpellings: [String: String]
+    private let preferredNumericSpellings: [String: Set<String>]
     private let personalFamilies: AbbreviationFamilies
     private let personalPhrases: NSRegularExpression?
 
@@ -62,6 +65,9 @@ struct TechnologyVocabulary {
         personalTerms = VocabularyDictionary.entries(in: personalVocabulary).map(\.text)
         preferredSpellings = Dictionary(personalTerms.map { (Self.key($0), $0) },
                                        uniquingKeysWith: { first, _ in first })
+        preferredNumericSpellings = Dictionary(grouping: personalTerms.compactMap { term in
+            Self.canonicalNumericSpelling(term).map { (canonical: $0, personal: term) }
+        }, by: \.canonical).mapValues { Set($0.map(\.personal)) }
         personalKeys = Set(personalTerms.flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }.map(Self.key))
         personalSpokenKeys = Set(personalKeys.map(Self.spokenKey))
         personalFamilies = AbbreviationFamilies(personalVocabulary)
@@ -113,6 +119,16 @@ struct TechnologyVocabulary {
             for pattern in patterns {
                 let lastIndex = index + pattern.words.count - 1
                 guard lastIndex < tokens.count else { continue }
+                let numericSpellings = preferredNumericSpellings[pattern.term] ?? []
+                guard numericSpellings.count <= 1 else { continue }
+                if pattern.personalOnly {
+                    guard !numericSpellings.isEmpty,
+                          !tokens[index...lastIndex].contains(where: { personalKeys.contains(Self.key($0.1)) }) else { continue }
+                    let next = lastIndex + 1
+                    if start.first?.isNumber == true, next < tokens.count,
+                       Self.dataAmountNouns.contains(tokens[next].1.lowercased()),
+                       Self.isSpokenGap(text[tokens[lastIndex].0.upperBound..<tokens[next].0.lowerBound]) { continue }
+                }
                 guard tokens[index..<lastIndex].map({ $0.1.lowercased() }).elementsEqual(pattern.words.dropLast()) else { continue }
                 let lastToken = tokens[lastIndex].1.lowercased()
                 let ending: String
@@ -131,7 +147,7 @@ struct TechnologyVocabulary {
                     let gaps = (index..<lastIndex).map { position in
                         text[tokens[position].0.upperBound..<tokens[position + 1].0.lowerBound]
                     }
-                    guard gaps.allSatisfy({ !$0.isEmpty && $0.allSatisfy(Self.spokenSeparator) }),
+                    guard gaps.allSatisfy(Self.isSpokenGap),
                           !personalSpokenKeys.contains(Self.spokenKey(base)) else { continue }
                 } else if !Self.writtenMatch(base, spelling: pattern.spelling) { continue }
 
@@ -144,7 +160,7 @@ struct TechnologyVocabulary {
                     || (pattern.inflectable && ending == "е" && Self.hasPlatformPreposition(in: text, before: range, protecting: protected)) else { continue }
                 // A personal entry chooses the spelling; it must not disable
                 // the curated pronunciations and written aliases of that term.
-                let term = preferredSpellings[Self.key(pattern.term)] ?? pattern.term
+                let term = numericSpellings.first ?? preferredSpellings[Self.key(pattern.term)] ?? pattern.term
                 let canonical = ending.isEmpty ? term : term + "'" + ending
                 let replacement = pattern.spoken || !ending.isEmpty || pattern.spelling != pattern.term ? canonical : nil
                 let match = Match(term: term, range: range, ending: ending, replacement: replacement)
@@ -236,6 +252,11 @@ struct TechnologyVocabulary {
             || TechnologyCompanyVocabulary.isCanonical(term)
     }
 
+    static func canonicalNumericSpelling(_ term: String) -> String? {
+        guard term.first?.isNumber == true, AbbreviationFamilies.isBase(term) else { return nil }
+        return index[key(term)]?.first { !$0.spoken && $0.spelling == term }.map(\.term)
+    }
+
     static func supportsEndings(for term: String) -> Bool {
         inflectableKeys.contains(key(term))
     }
@@ -315,7 +336,7 @@ struct TechnologyVocabulary {
         }
     }
 
-    private static func hasPrecedingCompanyCue(in text: String, before range: NSRange, protecting protected: [NSRange]) -> Bool {
+    static func hasPrecedingCompanyCue(in text: String, before range: NSRange, protecting protected: [NSRange]) -> Bool {
         let start = max(0, range.location - 32)
         guard let cue = companyCue?.firstMatch(in: text, range: NSRange(location: start, length: range.location - start)) else { return false }
         return !protected.contains { NSIntersectionRange($0, cue.range).length > 0 }
@@ -329,6 +350,11 @@ struct TechnologyVocabulary {
 
     private static func spokenSeparator(_ character: Character) -> Bool {
         (!character.isNewline && character.isWhitespace) || hyphens.contains(character)
+    }
+
+    private static func isSpokenGap(_ gap: Substring) -> Bool {
+        !gap.isEmpty && (gap.allSatisfy { $0.isWhitespace && !$0.isNewline }
+            || (gap.count == 1 && gap.first.map(hyphens.contains) == true))
     }
 
     private static let letterNames: [Character: String] = [
@@ -378,20 +404,26 @@ struct TechnologyVocabulary {
             let mode = fields.count > 1 ? fields[1] : ""
             let inflectable = AbbreviationFamilies.isBase(term) || mode.contains("i")
             let aliases = fields.count > 2 ? fields[2].split(separator: ";").map(String.init) : []
-            var spoken = aliases.filter { !$0.hasPrefix("=") }.map { $0.split(separator: " ").map(String.init) }
+            var spoken = aliases.filter { !$0.hasPrefix("=") }.map { alias in
+                let personalOnly = alias.hasPrefix("~")
+                let text = personalOnly ? String(alias.dropFirst()) : alias
+                return (syllables: text.split(separator: " ").map(String.init), personalOnly: personalOnly)
+            }
             if mode == "+" {
                 let letters = term.compactMap { letterNames[$0] }
-                if letters.count == term.count { spoken.append(letters.flatMap { $0.split(separator: " ").map(String.init) }) }
+                if letters.count == term.count {
+                    spoken.append((letters.flatMap { $0.split(separator: " ").map(String.init) }, false))
+                }
             }
             var patterns = ([term] + aliases.filter { $0.hasPrefix("=") }.map { String($0.dropFirst()) }).map { spelling in
-                Pattern(term: term, words: words(in: spelling), spelling: spelling, spoken: false,
-                        requiresContext: false, requiresCompanyCue: mode.contains("c") && spelledLikeAlias(spelling, spoken),
+                Pattern(term: term, words: words(in: spelling), spelling: spelling, spoken: false, personalOnly: false,
+                        requiresContext: false, requiresCompanyCue: mode.contains("c") && spelledLikeAlias(spelling, spoken.map(\.syllables)),
                         inflectable: inflectable)
             }
             var seen = Set<[String]>()
-            for syllables in spoken where syllables.count <= 8 {
+            for (syllables, personalOnly) in spoken where syllables.count <= 8 {
                 for spelling in spellings(for: syllables) where seen.insert(spelling).inserted {
-                    patterns.append(Pattern(term: term, words: spelling, spelling: "", spoken: true,
+                    patterns.append(Pattern(term: term, words: spelling, spelling: "", spoken: true, personalOnly: personalOnly,
                                             requiresContext: mode == "?" || (mode == "w" && syllables.joined().allSatisfy(\.isASCII)),
                                             requiresCompanyCue: mode.contains("c"),
                                             inflectable: inflectable))

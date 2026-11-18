@@ -26,6 +26,12 @@ public enum TranscriptTerms {
     private static let russianOrdinalNumeral = try! NSRegularExpression(
         pattern: #"\A\p{Nd}+[-‐‑](?:[йяеюмх]|го|му|ми)\z"#, options: .caseInsensitive
     )
+    private static let russianSurname = try! NSRegularExpression(pattern:
+        #"\A[а-я]{2,}(?:(?:ов|ев|ин|ын)(?:а|у|е|ым|ой|ою|ых|ыми)?|(?:ск|цк)(?:ий|ая|ого|ому|им|ом|ой|ую|ие|их|ими))\z"#)
+    private static let personRole = try! NSRegularExpression(pattern:
+        #"\A(?:администратор|аналитик|архитектор|врач|дизайнер|директор|инженер|клиент|коллег|консультант|менеджер|программист|разработчик|редактор)(?:а|у|е|ом|ы|и|ов|ам|ами|ах)?\z"#)
+    private static let repeatedPersonSubject = try! NSRegularExpression(
+        pattern: #"\A(?:[\p{Zs},]+\p{L}+){0,4}[\p{Zs},]+(?:он|она)(?![\p{L}\p{M}])"#, options: .caseInsensitive)
     private static let sentenceBreaks = Set<Character>(".!?…\n\r")
     private static let commonLatin: Set<String> = [
         "and", "but", "for", "from", "good", "have", "hello", "into", "just", "like",
@@ -128,14 +134,21 @@ public enum TranscriptTerms {
                 let score = signal(for: stem, normalized: key(stem), preceding: text[..<range.lowerBound])
                 if score > 0 {
                     let entity = entityKey(stem)
-                    guard !entityForms.contains(entity), !speakers.contains(entity) else { continue }
                     // An acronym can have the same lowercase spelling as a dictionary word.
-                    if family == nil, isCommonRussianWord(entity) { continue }
+                    if family == nil, isCommonRussianWord(entity) || isCommonHyphenatedPhrase(entity) { continue }
+                    var isEntity = entityForms.contains(entity) || speakers.contains(entity)
                     // Contextual tags can mistake acronyms and model names for entities.
-                    if family == nil, !stem.contains(where: \.isNumber) {
-                        if taggedNames == nil { taggedNames = contextualEntityRanges(in: text, using: tagger) }
-                        if taggedNames?.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) == true { continue }
+                    if !isEntity, family == nil, !stem.contains(where: \.isNumber) {
+                        isEntity = stem.first?.isUppercase == true
+                            && russianSurname.firstMatch(in: entity, range: NSRange(location: 0, length: entity.utf16.count)) != nil
+                        isEntity = isEntity || hasPersonNameShape(stem, key: entity, in: text, at: range)
+                        if !isEntity {
+                            if taggedNames == nil { taggedNames = contextualEntityRanges(in: text, using: tagger) }
+                            isEntity = taggedNames?.contains { NSIntersectionRange($0, match.range).length > 0 } == true
+                        }
                     }
+                    if isEntity, family != nil || !TechnologyVocabulary.hasPrecedingCompanyCue(
+                        in: text, before: match.range, protecting: literals) { continue }
                 }
                 if score > (groups[normalized]?.score ?? 0) {
                     groups[normalized, default: Group(text: token)].score = score
@@ -160,15 +173,18 @@ public enum TranscriptTerms {
 
     public static func matches(_ term: String, in segments: [TranscriptSegment], vocabulary: String = "") -> [TermOccurrence] {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard TechnologyVocabulary.isCanonical(trimmed) else {
+        let numericSpelling = TechnologyVocabulary.canonicalNumericSpelling(trimmed)
+        guard numericSpelling != nil || TechnologyVocabulary.isCanonical(trimmed) else {
             return literalMatches(trimmed, in: segments, vocabulary: vocabulary)
         }
         let technology = TechnologyVocabulary(personalVocabulary: vocabulary)
         let normalized = key(trimmed)
         let validated = collectMatches(in: segments) { segment in
-            technology.matches(in: segment.text).filter { key($0.term) == normalized }.map { technologyOccurrence($0, in: segment) }
+            technology.matches(in: segment.text).filter {
+                key($0.term) == normalized || (numericSpelling != nil && TechnologyVocabulary.canonicalNumericSpelling($0.term) == numericSpelling)
+            }.map { technologyOccurrence($0, in: segment) }
         }
-        guard TechnologyVocabulary.isHiddenFromCandidates(trimmed)
+        guard numericSpelling != nil || TechnologyVocabulary.isHiddenFromCandidates(trimmed)
                 || VocabularyDictionary.entries(in: vocabulary).contains(where: { key($0.text) == normalized }) else {
             return validated
         }
@@ -374,6 +390,39 @@ public enum TranscriptTerms {
         if containsCommonForm(word) { return true }
         guard let particle = russianParticles.first(where: { word.hasSuffix($0) }) else { return false }
         return containsCommonForm(String(word.dropLast(particle.count)))
+    }
+
+    private static func isCommonHyphenatedPhrase(_ word: String) -> Bool {
+        let parts = word.split(separator: "-", omittingEmptySubsequences: false)
+        return parts.count > 1 && parts.allSatisfy { !$0.isEmpty && isCommonRussianWord(String($0)) }
+    }
+
+    private static func hasPersonNameShape(_ word: String, key: String, in text: String, at range: Range<String.Index>) -> Bool {
+        // A speaker name can run into a role separated by a hyphen.
+        let parts = word.split(whereSeparator: { "-‐‑".contains($0) })
+        if parts.count == 2 {
+            for index in parts.indices {
+                let name = parts[index], role = parts[1 - index]
+                if name.first?.isUppercase == true, entityForms.contains(entityKey(String(name))),
+                   role == role.lowercased(), personRole.firstMatch(in: String(role), range: NSRange(location: 0, length: role.utf16.count)) != nil {
+                    return true
+                }
+            }
+        }
+        guard word.first?.isUppercase == true else { return false }
+
+        // A known name written with a different vowel can mark a direct address.
+        if key.contains("э"), entityForms.contains(key.replacingOccurrences(of: "э", with: "е")),
+           text[..<range.lowerBound].last(where: { !$0.isWhitespace }) == ",",
+           text[range.upperBound...].first(where: { !$0.isWhitespace }) == "," { return true }
+
+        // Speech recognition can attach the pronoun to a name and then
+        // transcribe it again nearby. Keep unsupported lookalikes eligible.
+        guard let subject = ["она", "он"].first(where: key.hasSuffix),
+              entityForms.contains(String(key.dropLast(subject.count))) else { return false }
+        let following = text[range.upperBound...].prefix(96)
+        return repeatedPersonSubject.firstMatch(in: String(following),
+            range: NSRange(location: 0, length: following.utf16.count)) != nil
     }
 
     private static func containsCommonForm(_ word: String) -> Bool {

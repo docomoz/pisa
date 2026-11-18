@@ -150,7 +150,9 @@ enum RussianRecognition {
 
     fileprivate enum CyrillicConfirmation {
         case letters(changedWords: Set<Int>)
-        case mixedTurn
+        case mixedTurn(original: String)
+        case anchoredPhrase([String])
+        case exactWords
     }
 
     struct CyrillicSpellingRepair {
@@ -161,6 +163,15 @@ enum RussianRecognition {
         func confirmedText(language: String?, reread: String) -> String? {
             guard language?.lowercased() == "russian" else { return nil }
             let candidate = words(text), checked = words(reread)
+            if case .anchoredPhrase(let phrase) = confirmation {
+                let matches = checked.indices.filter { checked[$0...].starts(with: phrase) }
+                guard matches.count == 1, let start = matches.first else { return nil }
+                let read = tokens(in: reread)
+                let range = read[start].range.lowerBound..<read[start + phrase.count - 1].range.upperBound
+                guard reread[range].allSatisfy({ $0.isLetter || $0 == " " || "-‐‑".contains($0) }),
+                      !TranscriptOrthography.literalRanges(in: reread).contains(where: { NSIntersectionRange($0, NSRange(range, in: reread)).length > 0 }) else { return nil }
+                return text
+            }
             if candidate == checked { return text }
             switch confirmation {
             case .letters(let changedWords):
@@ -171,8 +182,24 @@ enum RussianRecognition {
                 guard !changedWords.contains(omitted), AbbreviationFamilies.isRussianFunctionWord(candidate[omitted]),
                       candidate.dropFirst(omitted + 1).elementsEqual(checked.dropFirst(omitted)) else { return nil }
                 return text
-            case .mixedTurn:
-                return agreesApartFromHesitation(candidate, checked) ? text : nil
+            case .anchoredPhrase, .exactWords:
+                return nil
+            case .mixedTurn(let original):
+                if agreesApartFromHesitation(candidate, checked) { return text }
+                // If the sole disagreement is a spelling already present in the
+                // primary, keep that spelling and the original punctuation.
+                let source = tokens(in: original), heard = tokens(in: text)
+                guard source.count == heard.count, candidate.count == checked.count else { return nil }
+                let mismatch = candidate.indices.filter { candidate[$0] != checked[$0] }
+                guard mismatch.count == 1, let index = mismatch.first,
+                      source[index].key == checked[index], withinOneEdit(candidate[index], checked[index]),
+                      isCyrillic(checked[index]), checked[index].count >= 4 else { return nil }
+                let revised = NSMutableString(string: original)
+                for i in source.indices.reversed() where source[i].key != checked[i] {
+                    guard source[i].text.allSatisfy(\.isLowercase), heard[i].text.allSatisfy(\.isLowercase) else { return nil }
+                    revised.replaceCharacters(in: NSRange(source[i].range, in: original), with: heard[i].text)
+                }
+                return revised as String
             }
         }
     }
@@ -205,6 +232,75 @@ enum RussianRecognition {
         guard ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(original) else { return nil }
         return letterSpelling(original: original, heard: heard, vocabulary: vocabulary)
             ?? mixedCyrillicSpelling(original: original, heard: heard, vocabulary: vocabulary)
+            ?? anchoredCyrillicSpelling(original: original, heard: heard, vocabulary: vocabulary)
+    }
+
+    /// When the recognizers disagree elsewhere in a mixed turn, recover a
+    /// damaged phrase between words occurring just once in each audio reading.
+    private static func anchoredCyrillicSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
+        let source = tokens(in: original), evidence = tokens(in: heard)
+        guard source.filter({ ParakeetRecognitionPolicy.hasDistinctCyrillicLetters($0.key) }).count >= 2,
+              !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(heard) else { return nil }
+        let primaryPositions = Dictionary(grouping: source.indices, by: { source[$0].key })
+        let heardPositions = Dictionary(grouping: evidence.indices, by: { evidence[$0].key })
+        let anchors = source.indices.compactMap { i -> (source: Int, heard: Int)? in
+            let key = source[i].key
+            guard primaryPositions[key]?.count == 1, let positions = heardPositions[key], positions.count == 1,
+                  TranscriptTerms.isCommonRussianWord(key) || AbbreviationFamilies.isRussianFunctionWord(key) else { return nil }
+            return (i, positions[0])
+        }
+        guard anchors.count >= 3, zip(anchors, anchors.dropFirst()).allSatisfy({ $0.heard < $1.heard }) else { return nil }
+        let protected = TranscriptOrthography.literalRanges(in: original)
+            + TranscriptOrthography.glossaryRanges(in: original, vocabulary: vocabulary, range: NSRange(original.startIndex..., in: original))
+        var repairs: [CyrillicSpellingRepair] = []
+        for (left, right) in zip(anchors, anchors.dropFirst()) {
+            let old = (left.source + 1)..<right.source, new = (left.heard + 1)..<right.heard
+            guard (1...4).contains(old.count), (1...5).contains(new.count),
+                  source[old].contains(where: { ParakeetRecognitionPolicy.hasDistinctCyrillicLetters($0.key) }),
+                  source[old].allSatisfy({ $0.text.allSatisfy(\.isLowercase) && $0.key.unicodeScalars.allSatisfy { (0x400...0x52F).contains($0.value) } }),
+                  evidence[new].allSatisfy({ $0.text.allSatisfy(\.isLowercase) && TranscriptTerms.isCommonRussianWord($0.key) }) else { continue }
+            let range = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
+            let originalContext = original[source[left.source].range.upperBound..<source[right.source].range.lowerBound]
+            let acousticContext = heard[evidence[left.heard].range.upperBound..<evidence[right.heard].range.lowerBound]
+            guard [originalContext, acousticContext].allSatisfy({ phrase in
+                phrase.first == " " && phrase.last == " " && phrase.allSatisfy { $0.isLetter || $0 == " " || "-‐‑".contains($0) }
+            }),
+                  !protected.contains(where: { NSIntersectionRange($0, NSRange(range, in: original)).length > 0 }) else { continue }
+            let replacement = heard[evidence[new.lowerBound].range.lowerBound..<evidence[new.upperBound - 1].range.upperBound]
+            var result = original
+            result.replaceSubrange(range, with: replacement)
+            let phrase = evidence[left.heard...right.heard].map(\.key)
+            repairs.append(CyrillicSpellingRepair(text: result, confirmedByRepetition: false, confirmation: .anchoredPhrase(phrase)))
+        }
+        return repairs.count == 1 ? repairs[0] : nil
+    }
+
+    /// A shared-alphabet error such as "гатовы" carries no script signal.
+    /// Nominate one interior spelling only when the independent audio retained
+    /// every surrounding word. A separate unprompted reread must agree in full.
+    static func sharedAlphabetSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
+        let source = tokens(in: original), independent = tokens(in: heard)
+        guard source.count >= 3, source.count == independent.count else { return nil }
+        let changed = source.indices.filter { source[$0].key != independent[$0].key }
+        guard changed.count == 1, let i = changed.first, i > 0, i + 1 < source.count else { return nil }
+        let token = source[i], replacement = independent[i]
+        let closeForm = token.key.count >= 4 && replacement.key.count >= 4 && withinOneEdit(token.key, replacement.key)
+        let shortFunctionWord = (2...3).contains(token.key.count) && AbbreviationFamilies.isRussianFunctionWord(replacement.key)
+            && token.key.last == replacement.key.last && distance(token.key, replacement.key) <= 2
+        guard closeForm || shortFunctionWord,
+              token.text.allSatisfy(\.isLowercase), replacement.text.allSatisfy(\.isLowercase),
+              isCyrillic(token.key), isCyrillic(replacement.key),
+              !TranscriptTerms.isCommonRussianWord(token.key), TranscriptTerms.isCommonRussianWord(replacement.key),
+              [source[i - 1], source[i + 1]].allSatisfy({ TranscriptTerms.isCommonRussianWord($0.key) }),
+              original[source[i - 1].range.upperBound..<token.range.lowerBound].allSatisfy(\.isWhitespace),
+              original[token.range.upperBound..<source[i + 1].range.lowerBound].allSatisfy(\.isWhitespace) else { return nil }
+        let tokenRange = NSRange(token.range, in: original)
+        let protected = TranscriptOrthography.literalRanges(in: original)
+            + TranscriptOrthography.glossaryRanges(in: original, vocabulary: vocabulary, range: NSRange(original.startIndex..., in: original))
+        guard !protected.contains(where: { NSIntersectionRange($0, tokenRange).length > 0 }) else { return nil }
+        var revised = original
+        revised.replaceSubrange(token.range, with: replacement.text)
+        return CyrillicSpellingRepair(text: revised, confirmedByRepetition: false, confirmation: .exactWords)
     }
 
     // Whole turns can mix alphabets and substitute words, so the single-letter
@@ -229,7 +325,7 @@ enum RussianRecognition {
             text.removeLast()
             text.append(ending)
         }
-        return CyrillicSpellingRepair(text: text, confirmedByRepetition: false, confirmation: .mixedTurn)
+        return CyrillicSpellingRepair(text: text, confirmedByRepetition: false, confirmation: .mixedTurn(original: original))
     }
 
     /// Use the independent audio decode as spelling evidence. Preserve every
@@ -418,6 +514,7 @@ enum RussianRecognition {
         let source = tokens(in: original), retry = tokens(in: candidate), evidence = tokens(in: hypothesis)
         guard source.filter({ isCyrillic($0.key) }).count * 2 > source.count else { return nil }
         let normalizer = SpokenVocabulary(vocabulary)
+        let families = AbbreviationFamilies(vocabulary)
         let protected: Set<String> = ["не", "ни", "нет", "нельзя", "никогда", "никто", "ничего", "нигде", "никак", "без", "или", "либо", "да", "ага", "угу"]
         let originalLiterals = TranscriptOrthography.literalRanges(in: original)
         let candidateLiterals = TranscriptOrthography.literalRanges(in: candidate)
@@ -476,10 +573,15 @@ enum RussianRecognition {
         func boundaries(_ text: String, _ tokens: [Token], _ span: Range<Int>) -> String {
             String(text[tokens[span.lowerBound - 1].range.upperBound..<tokens[span.upperBound].range.lowerBound].filter { ".!?…\n\r".contains($0) })
         }
+        func isStandalone(_ range: Range<String.Index>, in text: String) -> Bool {
+            let attached = "_/@\\-‐‑'’"
+            return text[..<range.lowerBound].last.map(attached.contains) != true
+                && text[range.upperBound...].first.map(attached.contains) != true
+        }
         var edits: [(Range<String.Index>, String)] = []
         guard retry.count >= 3 else { return nil }
-        // Independently confirmed inflection may adjust a known acronym without
-        // authorizing a change to the acronym itself or to another glossary term.
+        // The independently corroborated form can restore an ending or a
+        // dropped letter. A separately documented abbreviation stays intact.
         let suffixes: Set<String> = ["а", "у", "е", "ы", "и", "ом", "ем", "ам", "ах", "ами", "ов", "ка", "ки", "ку", "ке", "кой", "кам", "ках", "ками"]
         for term in terms where term.contains(where: \.isNumber) || term == term.uppercased() {
             func validForm(_ text: String) -> Bool {
@@ -502,8 +604,17 @@ enum RussianRecognition {
                     let oldRange = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
                     let heardRange = evidence[heard.lowerBound].range.lowerBound..<evidence[heard.upperBound - 1].range.upperBound
                     let originalForm = String(original[oldRange])
-                    guard originalForm != replacement, validForm(originalForm), hypothesis[heardRange] == replacement,
-                          !allTerms.contains(where: { other in
+                    guard originalForm != replacement, hypothesis[heardRange] == replacement else { continue }
+                    if !validForm(originalForm) {
+                        guard let form = AbbreviationFamilies.parse(replacement, as: term),
+                              AbbreviationFamilies.omitsNumericAcronymLetter(originalForm, from: form),
+                              !families.isExplicit(originalForm), !families.hasKnownBase(originalForm),
+                              !old.contains(where: inProtectedPhrase),
+                              isStandalone(oldRange, in: original),
+                              isStandalone(replacementRange, in: candidate),
+                              isStandalone(heardRange, in: hypothesis) else { continue }
+                    }
+                    guard !allTerms.contains(where: { other in
                               other != term && (RecognitionVocabulary.contains(other, in: originalForm)
                                   || RecognitionVocabulary.contains(other, in: replacement))
                           }),
@@ -577,6 +688,7 @@ enum RussianRecognition {
                 let termText = preposition == nil ? replacement : retry[index + 1].text
                 let matchingTerms = terms.filter { matchesTerm($0, termText) }
                 guard matchingTerms.count == 1, normalizer.apply(to: replacement) == replacement else { continue }
+                let numeric = RecognitionVocabulary.numericForms(for: matchingTerms[0]) != nil
                 if width == 2, candidate[retry[index].range.upperBound..<retry[index + 1].range.lowerBound] == "-",
                    words(matchingTerms[0]).count != 2 { continue }
                 let left = retry[index - 1].key, right = retry[span.upperBound].key
@@ -589,6 +701,7 @@ enum RussianRecognition {
                 guard hypothesis[heardRange] == replacement else { continue }
                 let oldRange = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
                 guard original[oldRange] != replacement,
+                      !numeric || !old.allSatisfy({ TranscriptTerms.isCommonRussianWord(source[$0].key) }),
                       preposition.map({ prefix in
                           guard old.count == 1 else { return false }
                           let normalized = source[old.lowerBound].key.replacingOccurrences(of: "а", with: "о")

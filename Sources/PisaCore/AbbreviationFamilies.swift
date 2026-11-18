@@ -113,6 +113,20 @@ struct AbbreviationFamilies {
         parse(token, as: base, aliases: aliases(for: base))
     }
 
+    /// Shape check for an independently corroborated numeric abbreviation.
+    /// The digit and any heard ending must survive the missing letter.
+    static func omitsNumericAcronymLetter(_ source: String, from form: Form) -> Bool {
+        let digits = form.base.prefix(while: \.isNumber)
+        guard !digits.isEmpty, isBase(form.base), form.base.count >= digits.count + 3 else { return false }
+        return aliases(for: form.base).contains { alias in
+            let letters = Array(alias)
+            return letters.indices.dropFirst(digits.count).contains { index in
+                let shortened = String(letters[..<index] + letters[(index + 1)...])
+                return parse(source, as: shortened, aliases: [shortened])?.ending == form.ending
+            }
+        }
+    }
+
     private static func parse(_ token: String, as base: String, aliases: [String]) -> Form? {
         for alias in aliases {
             guard token.count >= alias.count else { continue }
