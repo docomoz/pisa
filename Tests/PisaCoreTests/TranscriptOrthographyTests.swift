@@ -2,6 +2,18 @@ import XCTest
 @testable import PisaCore
 
 final class TranscriptOrthographyTests: XCTestCase {
+    func testLiteralRangeFastPathKeepsEveryProtectedSyntax() {
+        let protected = [
+            "«API»", "“API”", "‘API’", "\"API\"", "'API'", "`API`", "~~~swift\nAPI\n~~~",
+            "https://example.org/Pisa", "www.example.org", "mailto:pisa@example.org", "pisa@example.org", "example.рф"
+        ]
+        for value in protected {
+            let ranges = TranscriptOrthography.literalRanges(in: value)
+            XCTAssertEqual(ranges, [NSRange(value.startIndex..., in: value)], value)
+        }
+        XCTAssertTrue(TranscriptOrthography.literalRanges(in: "Обсудили 2ГИС'ом. Перешли к API.").isEmpty)
+    }
+
     func testFocusGroupUsesRussianCompoundSpelling() {
         for (input, expected) in [
             ("Поговорили об этом в Focus группах.", "Поговорили об этом в фокус-группах."),

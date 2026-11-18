@@ -21,7 +21,7 @@ enum InterfaceLayoutElement: Hashable {
     case exportPath, exportChooseFolder, exportUnavailableNotice, exportCloudNotice
     case mcpAccessNotice, mcpCopyConfiguration
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
-    case termSearch, termFind, termReplacement
+    case termSearch, termFind, termReplacement, termAdd, termUndo
     case termCandidate(String)
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
     case savedVoiceHeading, savedVoiceRow(UUID)
@@ -211,11 +211,32 @@ enum InterfaceLayoutTests {
         meeting.status = .ready
         meeting.segments = (0..<1_800).map { index in
             TranscriptSegment(start: Double(index), end: Double(index + 1), speaker: "Анна",
-                              text: "Обсудили MapKit, LLM и Qwen3-ASR.")
+                              text: "Обсудили MapKit, LLM и Qwen3-ASR. Нашли резюме на хедхантере.")
         }
         state.update(meeting)
+        let originalVocabulary = state.preferences.vocabulary
         let candidates = TermReview.CandidateList()
         let size = CGSize(width: 940, height: 660)
+        let screenshotDirectory = ProcessInfo.processInfo.environment["PISA_TERM_REVIEW_TEST_SCREENSHOTS"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        func capture(_ name: String, in host: LayoutHost) throws {
+            guard let screenshotDirectory else { return }
+            try FileManager.default.createDirectory(at: screenshotDirectory, withIntermediateDirectories: true)
+            host.settle()
+            try host.savePNG(to: screenshotDirectory.appendingPathComponent(name + ".png"))
+        }
+        func click(_ element: InterfaceLayoutElement, relativeTo anchor: InterfaceLayoutElement,
+                   placeholder: String, in host: LayoutHost) throws {
+            guard let button = host.frames[element], let anchorFrame = host.frames[anchor],
+                  let field = host.field(in: .zero, placeholder: placeholder) else {
+                throw PisaError.message("The term review action did not render: \(element)")
+            }
+            // Each HSplitView pane can report SwiftUI frames in its local
+            // coordinates. Anchor the click with its field's AppKit position.
+            let center = host.center(of: field)
+            host.click(CGPoint(x: center.x + button.midX - anchorFrame.midX,
+                               y: center.y + button.midY - anchorFrame.midY))
+        }
         func wait(in host: LayoutHost, for condition: () -> Bool) async throws -> Bool {
             let deadline = ContinuousClock.now + .seconds(20)
             repeat {
@@ -229,17 +250,18 @@ enum InterfaceLayoutTests {
             let host = LayoutHost(TermReview(meeting: meeting, candidateList: candidates).environmentObject(state),
                                   size: size, scale: 1)
             defer { host.close() }
-            guard try await wait(in: host, for: { candidates.snapshot?.candidates.contains { $0.text == "MapKit" } == true }) else {
-                throw PisaError.message("The candidate scan did not find MapKit")
-            }
-            guard host.frames[.termCandidate("MapKit")] != nil,
+            guard try await wait(in: host, for: { host.frames[.termCandidate("MapKit")] != nil }),
+                  let initial = candidates.snapshot?.candidates.map(\.text),
+                  host.frames[.termCandidate("хедхантере")] != nil,
+                  host.frames[.termCandidate("HeadHunter")] == nil,
                   let search = host.field(in: .zero, placeholder: "Слово или фраза"),
                   host.type("MapKit", into: search) else {
-                throw PisaError.message("Initial term candidates and search did not render")
+                throw PisaError.message("Candidate rows did not show the spellings in the transcript")
             }
             host.pressReturn()
+            try capture("01-selected", in: host)
             guard let replacement = host.field(in: .zero, placeholder: "Термин"),
-                  host.type("платформа", into: replacement) else {
+                  host.type("Kubernetes", into: replacement) else {
                 throw PisaError.message("Replacement field did not accept a term")
             }
             guard try await wait(in: host, for: {
@@ -248,13 +270,40 @@ enum InterfaceLayoutTests {
             }) else {
                 throw PisaError.message("Term review did not save the correction")
             }
-            guard let visible = candidates.snapshot?.candidates,
-                  !visible.contains(where: { $0.text == "MapKit" }),
-                  visible.contains(where: { $0.text == "LLM" }),
+            let expectedAfterCorrection = initial.filter { $0 != "MapKit" }
+            guard candidates.snapshot?.candidates.map(\.text) == expectedAfterCorrection,
                   try await wait(in: host, for: { host.frames[.termCandidate("MapKit")] == nil &&
-                      host.frames[.termCandidate("LLM")] != nil && host.frames[.termCandidate("Qwen3-ASR")] != nil }) else {
-                throw PisaError.message("The corrected term stayed in the candidate list after saving")
+                      host.frames[.termCandidate("LLM")] != nil && host.frames[.termCandidate("Qwen3-ASR")] != nil }),
+                  let current = state.meetings.first(where: { $0.id == meeting.id }),
+                  TranscriptTerms.candidates(in: [current.segments[0]], vocabulary: "").contains(where: { $0.text == "Kubernetes" }) else {
+                throw PisaError.message("Correction changed unrelated rows or the fixture cannot detect a rescan")
             }
+
+            try capture("02-corrected", in: host)
+            try click(.termCandidate("LLM"), relativeTo: .termSearch, placeholder: "Слово или фраза", in: host)
+            guard host.field(in: .zero, placeholder: "Термин")?.stringValue == "LLM" else {
+                throw PisaError.message("The next candidate did not open")
+            }
+            try click(.termAdd, relativeTo: .termReplacement, placeholder: "Термин", in: host)
+            let expectedAfterAddition = expectedAfterCorrection.filter { $0 != "LLM" }
+            guard state.preferences.vocabulary == TranscriptTerms.adding("LLM", to: originalVocabulary) else {
+                throw PisaError.message("The selected term was not saved to the dictionary")
+            }
+            guard candidates.snapshot?.candidates.map(\.text) == expectedAfterAddition,
+                  try await wait(in: host, for: { host.frames[.termCandidate("LLM")] == nil &&
+                      host.frames[.termCandidate("Qwen3-ASR")] != nil }),
+                  let undo = host.frames[.termUndo] else {
+                throw PisaError.message("Adding to the dictionary reset the candidate list or kept a known term")
+            }
+            try capture("03-dictionary", in: host)
+            host.click(CGPoint(x: undo.midX, y: undo.midY))
+            guard !state.canUndoTermReplacement(meetingID: meeting.id),
+                  candidates.snapshot?.candidates.map(\.text) == initial.filter({ $0 != "LLM" }),
+                  try await wait(in: host, for: { host.frames[.termCandidate("MapKit")] != nil &&
+                      host.frames[.termCandidate("LLM")] == nil }) else {
+                throw PisaError.message("Undo did not restore the candidate list while preserving the dictionary addition")
+            }
+            try capture("04-undone", in: host)
         }
 
         // Reopen after a saved edit made outside the dialog invalidates its prewarmed list.
@@ -267,12 +316,17 @@ enum InterfaceLayoutTests {
         let reopened = LayoutHost(TermReview(meeting: current, candidateList: candidates).environmentObject(state),
                                   size: size, scale: 1.2)
         defer { reopened.close() }
-        guard reopened.frames[.termCandidate("Qwen3-ASR")] == nil,
-              try await wait(in: reopened, for: { reopened.frames[.termCandidate("LLM")] != nil }),
-              reopened.frames[.termCandidate("Qwen3-ASR")] == nil else {
-            throw PisaError.message("Reopening the term review showed a stale candidate")
+        guard reopened.frames[.termCandidate("Qwen3-ASR")] == nil else {
+            throw PisaError.message("Reopening showed an old candidate before the scan")
         }
-        print("TERM_REVIEW_INTERFACE_OK immediate_candidate_removal fresh_reopen")
+        guard try await wait(in: reopened, for: { reopened.frames[.termCandidate("хедхантере")] != nil }) else {
+            throw PisaError.message("Reopening did not show the refreshed candidates")
+        }
+        guard reopened.frames[.termCandidate("Qwen3-ASR")] == nil else {
+            throw PisaError.message("Reopening showed an old candidate after the scan")
+        }
+        try capture("05-large-reopen", in: reopened)
+        print("TERM_REVIEW_INTERFACE_OK observed_labels stable_corrections stable_dictionary_add undo fresh_reopen")
     }
 }
 

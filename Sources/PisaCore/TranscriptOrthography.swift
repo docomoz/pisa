@@ -44,12 +44,18 @@ public enum TranscriptOrthography {
         let pattern = #"(?i)(?<![\p{L}\p{N}_/\\@])(?:"# + alternatives + #")(?![\p{L}\p{N}_/\\@])"#
         return try! NSRegularExpression(pattern: pattern)
     }()
+    // Each protected form starts with a quote/fence or contains one of these
+    // link markers. Ordinary turns can skip the more expensive full matcher.
+    private static let literalCue = try! NSRegularExpression(pattern:
+        #"["«“‘`@]|(?<![\p{L}\p{N}])'|~~~|://|(?i:mailto:)|\.(?=\S)"#)
     private static let quotedOrLinked = try! NSRegularExpression(pattern:
         #"(?i)(?m:^[\t ]{0,3}((`|~)\2{2,})(?!\2)[^\r\n]*\R[\s\S]*?^[\t ]{0,3}\1\2*[\t ]*(?=\r?$))|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\3(?!`)|"[^"\r\n]*"|(?<![\p{L}\p{N}])'[^'\r\n]*'(?![\p{L}\p{N}])|«[^»]*»|“[^”]*”|‘[^’]*’|\b(?:[a-z][a-z0-9+.-]*://|www\.|mailto:)\S+|[\p{L}\p{N}_.+%'-]+@[\p{L}\p{N}.-]+|(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}(?:[/#?]\S*)?"#)
     private static let sentenceBreaks = CharacterSet(charactersIn: ".!?…\n\r")
 
     static func literalRanges(in text: String) -> [NSRange] {
-        quotedOrLinked.matches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text)).map(\.range)
+        let range = NSRange(text.startIndex..., in: text)
+        guard literalCue.firstMatch(in: text, range: range) != nil else { return [] }
+        return quotedOrLinked.matches(in: text, range: range).map(\.range)
     }
 
     public static func normalize(_ text: String, vocabulary: String = "") -> String {
