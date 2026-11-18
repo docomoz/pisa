@@ -43,7 +43,11 @@ struct VocabularyDictionaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
-            SectionHeading("Словарь распознавания", subtitle: "Нужное написание имён, названий и специальных слов")
+            SectionHeading(
+                "Словарь распознавания",
+                subtitle: "Нужное написание имён, названий и специальных слов · Терминов:\u{00a0}\(entries.count)"
+            )
+                .monospacedDigit()
                 .measuredForInterfaceTest(.dictionaryHeading)
             HStack(spacing: PisaDesign.Spacing.related) {
                 SearchField(title: typographicText("Поиск по словарю"), text: $search)

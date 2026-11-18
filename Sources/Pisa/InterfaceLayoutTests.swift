@@ -659,7 +659,8 @@ private final class LayoutSuite {
             }
             if let measured = frames([.dictionarySearch, .dictionaryEntry, .dictionaryAdd, .dictionaryResult], in: host) {
                 checkFormRow(measured.prefix(3))
-                if let heading = frames([.dictionaryHeading], in: host)?.first {
+                let heading = frames([.dictionaryHeading], in: host)?.first
+                if let heading {
                     equal(measured[0].minY - heading.maxY, PisaDesign.Spacing.content,
                           "dictionary search starts directly below the heading")
                 }
@@ -703,6 +704,17 @@ private final class LayoutSuite {
                 if let entry = host.field(in: measured[1]) {
                     equal(entry.font?.pointSize ?? 0, 16 * scale, "dictionary entry uses the same body font")
                 } else { check(false, "dictionary entry exposes a native text field") }
+                if let heading {
+                    equal(host.frames[.dictionaryHeading]?.width ?? 0, heading.width,
+                          "search does not change the total dictionary count")
+                    let vocabulary = state.preferences.vocabulary
+                    defer { state.preferences.vocabulary = vocabulary }
+                    state.preferences.vocabulary = vocabulary + (1...10).map { "\nТермин \($0)" }.joined()
+                    check(host.wait { (host.frames[.dictionaryHeading]?.width ?? 0) > heading.width },
+                          "dictionary heading widens when the total gains a digit")
+                    equal(host.frames[.dictionaryHeading]?.height ?? 0, heading.height,
+                          "the total fits on the dictionary subtitle line")
+                }
             }
         }
 
