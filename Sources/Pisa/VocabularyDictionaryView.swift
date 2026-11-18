@@ -45,7 +45,7 @@ struct VocabularyDictionaryView: View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
             SectionHeading(
                 "Словарь распознавания",
-                subtitle: "Нужное написание имён, названий и специальных слов · Терминов:\u{00a0}\(entries.count)"
+                subtitle: "Нужное написание имён, названий и специальных слов · \(dictionaryCountCaption(entries.count))"
             )
                 .monospacedDigit()
                 .measuredForInterfaceTest(.dictionaryHeading)
@@ -196,6 +196,17 @@ struct VocabularyDictionaryView: View {
             self.removal = nil
         }
     }
+}
+
+private func dictionaryCountCaption(_ count: Int) -> String {
+    let noun: String
+    switch (count % 100, count % 10) {
+    case (11...14, _): noun = "терминов"
+    case (_, 1): noun = "термин"
+    case (_, 2...4): noun = "термина"
+    default: noun = "терминов"
+    }
+    return "Всего \(count)\u{00a0}\(noun)"
 }
 
 struct VocabularyEditForm: View {
