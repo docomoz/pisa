@@ -110,11 +110,35 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(result.map(\.speaker), ["Remote", "Собеседники", "Я"])
         XCTAssertEqual(SpeakerClustering.assign([short], profiles: []).first?.speaker, "Собеседники")
     }
+    func testFreshLibraryDefaultsToStandardProcessingAndLiveTranscription() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let library = try MeetingLibrary(root: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var preferences = try library.preferences()
+        XCTAssertFalse(preferences.usesQuietProcessing)
+        XCTAssertTrue(preferences.usesBackgroundTranscription)
+        try library.savePreferences(preferences)
+        let savedDefaults = try library.preferences()
+        XCTAssertFalse(savedDefaults.usesQuietProcessing)
+        XCTAssertTrue(savedDefaults.usesBackgroundTranscription)
+
+        preferences.quietProcessing = true
+        preferences.backgroundTranscription = false
+        try library.savePreferences(preferences)
+        let savedChoices = try library.preferences()
+        XCTAssertTrue(savedChoices.usesQuietProcessing)
+        XCTAssertFalse(savedChoices.usesBackgroundTranscription)
+
+        preferences.quietProcessing = false
+        try library.savePreferences(preferences)
+        XCTAssertFalse(try library.preferences().usesQuietProcessing)
+    }
     func testLegacyPreferencesDefaultToQuietProcessing() throws {
-        let data = try JSONEncoder().encode(Preferences())
+        var preferences = Preferences()
+        preferences.quietProcessing = nil
+        let data = try JSONEncoder().encode(preferences)
         XCTAssertTrue(try JSONDecoder().decode(Preferences.self, from: data).usesQuietProcessing)
-        var preferences = Preferences(); preferences.quietProcessing = false
-        XCTAssertFalse(try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(preferences)).usesQuietProcessing)
     }
     func testFolderIconBackwardCompatibilityAndPersistence() throws {
         let id = UUID()

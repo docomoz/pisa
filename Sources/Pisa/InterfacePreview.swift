@@ -392,6 +392,7 @@ final class InterfacePreview: NSObject {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Queued-Turbo-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let state = AppState(rootURL: root)
+        state.preferences.quietProcessing = true
         try prepareModelPath(for: state)
         let blocker = Meeting(title: "Текущая обработка", source: state.source)
         let normal = Meeting(title: "Обычная обработка", source: state.source)
@@ -500,6 +501,7 @@ final class InterfacePreview: NSObject {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Recording-Queue-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let state = AppState(rootURL: root)
+        state.preferences.quietProcessing = true
         try prepareModelPath(for: state)
         var saved = Meeting(title: "Предыдущая встреча", source: state.source)
         saved.liveCommittedUntil = 3

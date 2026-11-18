@@ -144,7 +144,7 @@ public struct Preferences: Codable, Sendable {
     // Retain manually entered variants when saving preferences from older builds.
     private var storedVocabularyVariants: [String: [String]]?
     public var keepAudio = true
-    public var quietProcessing: Bool?
+    public var quietProcessing: Bool? = false
     public var usesQuietProcessing: Bool { quietProcessing ?? true }
     public var backgroundTranscription: Bool?
     public var usesBackgroundTranscription: Bool { backgroundTranscription ?? true }
