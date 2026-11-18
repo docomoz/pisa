@@ -30,60 +30,11 @@ struct SettingsView: View {
                     case "Модель":
                         modelSettings
                     case "Экспорт":
-                        columns {
-                        block("Папка для расшифровок", "Markdown — для обычной папки, Dropbox или Obsidian") {
-                            if state.preferences.exportBookmark != nil {
-                                if let path = state.preferences.exportDisplayPath {
-                                    screenText(verbatim: path).textStyle(PisaDesign.Typography.code)
-                                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                                }
-                            } else {
-                                screenText("Автоэкспорт выключен").foregroundStyle(Color.mutedInk)
-                            }
-                            HStack(spacing: PisaDesign.Spacing.related) {
-                                screenButton("Выбрать папку…") { state.chooseExportFolder() }.actionButton()
-                                if state.preferences.exportBookmark != nil {
-                                    screenButton("Отключить") { state.disableExportFolder() }.actionButton()
-                                }
-                            }
-                            if state.exportFolderUnavailable {
-                                SupportingText("Папка недоступна. Автоэкспорт приостановлен. Выберите папку заново, чтобы его возобновить.")
-                            } else {
-                                SupportingText("После расшифровки и последующих правок файл обновляется автоматически. В него входят текст, участники и временные метки. Аудио остаётся в библиотеке.")
-                            }
-                        }.onAppear { state.refreshExportFolderAccess() }
-                        } right: {
-                            VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-                        block("Если папка синхронизируется", "Dropbox, iCloud или другой сервис могут отправлять её содержимое в облако") { SupportingText("Выбор такой папки разрешает выгрузку текстов через приложение синхронизации. Это отдельно от локального распознавания.") }
-
-                            }
-                        }
+                        exportSettings
                     case "Хранилище":
                         StorageSettings()
                     case "MCP":
-                        columns {
-                        block("Доступ к встречам через MCP", "Локальный сервер даёт доступ только для чтения и работает без сетевого порта") {
-                            screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled).onChange(of: state.preferences.mcpEnabled) { state.saveMCPSetting() }
-                            SupportingText("Подключённый клиент сможет находить реплики с контекстом и читать расшифровки. Ссылки на источники открывают нужный фрагмент в Pisa. Если клиент использует облачную модель, прочитанный текст может уйти к ней. Аудиофайлы и изменение библиотеки через MCP недоступны.")
-                        }
-                        } right: {
-                            VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-                        block("Подключение", "Добавьте этот локальный сервер в настройки вашего клиента:") {
-                            screenText(verbatim: MCPClientConfiguration.toml(commandPath: state.mcpPath))
-                                .textStyle(PisaDesign.Typography.code)
-                                .foregroundStyle(PisaDesign.Colors.paper)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .textSelection(.enabled)
-                                .padding(PisaDesign.Spacing.content)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(PisaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
-                            screenButton("Скопировать конфигурацию") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(MCPClientConfiguration.toml(commandPath: state.mcpPath), forType: .string) }.actionButton()
-                            SupportingText("Доступны встречи, папки, поиск реплик и сведения о полноте расшифровки. Выключатель отзывает доступ и у уже запущенного клиента.")
-                        }
-                            }
-                            .disabled(!state.preferences.mcpEnabled)
-                            .opacity(state.preferences.mcpEnabled ? 1 : 0.45)
-                        }
+                        mcpSettings
                     default:
                         block("Обновления Pisa", "Новые версии загружаются с GitHub") {
                             screenToggle("Устанавливать обновления автоматически", isOn: Binding(
@@ -118,6 +69,85 @@ struct SettingsView: View {
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
     }
+
+    private var exportSettings: some View {
+        let hasFolder = state.preferences.exportBookmark != nil
+        let status = if !hasFolder {
+            "Автоэкспорт выключен"
+        } else if state.exportFolderUnavailable {
+            "Автоэкспорт приостановлен"
+        } else {
+            "Автоэкспорт включён"
+        }
+        return VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
+            SectionHeading(status)
+                .measuredForInterfaceTest(.exportStatus(status))
+            if hasFolder, let path = state.preferences.exportDisplayPath {
+                screenText(verbatim: path)
+                    .textStyle(PisaDesign.Typography.code)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .measuredForInterfaceTest(.exportPath)
+            }
+            if state.exportFolderUnavailable {
+                SupportingText("Папка недоступна. Выберите её заново, чтобы возобновить экспорт.")
+            }
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                HStack(spacing: PisaDesign.Spacing.related) {
+                    screenButton(hasFolder && !state.exportFolderUnavailable ? "Выбрать другую папку…" : "Выбрать папку…") {
+                        state.chooseExportFolder()
+                    }.actionButton()
+                        .measuredForInterfaceTest(.exportChooseFolder)
+                    if hasFolder {
+                        screenButton("Отключить автоэкспорт") { state.disableExportFolder() }
+                            .actionButton()
+                            .measuredForInterfaceTest(.exportDisable)
+                    }
+                }
+                SupportingText("Если папка синхронизируется с облаком, расшифровки могут попасть туда")
+                    .measuredForInterfaceTest(.exportCloudNotice)
+            }
+            SupportingText("Когда расшифровка готова, Pisa сохраняет текст, имена участников и временные метки в Markdown. После правок файл обновляется автоматически. Аудио остаётся в библиотеке.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { state.refreshExportFolderAccess() }
+    }
+
+    private var mcpSettings: some View {
+        let configuration = MCPClientConfiguration.toml(commandPath: state.mcpPath)
+        return columns {
+            FormSection("Доступ к встречам через MCP") {
+                VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                    screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled)
+                        .onChange(of: state.preferences.mcpEnabled) { state.saveMCPSetting() }
+                        .measuredForInterfaceTest(.mcpAccessToggle)
+                    SupportingText("Подключённый клиент может искать реплики и читать расшифровки. Облачная модель клиента может получить прочитанный текст.")
+                        .measuredForInterfaceTest(.mcpAccessNotice)
+                }
+                SupportingText("Клиент также видит папки и сведения о полноте расшифровки. Ссылки открывают нужные фрагменты в Pisa. Аудиофайлы и изменение библиотеки через MCP недоступны.")
+                SupportingText("Выключатель отзывает доступ и у уже запущенного клиента")
+            }
+        } right: {
+            FormSection("Подключение", subtitle: "Добавьте локальный сервер в настройки клиента") {
+                screenText(verbatim: configuration)
+                    .textStyle(PisaDesign.Typography.code)
+                    .foregroundStyle(PisaDesign.Colors.paper)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(PisaDesign.Spacing.content)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(PisaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
+                screenButton("Скопировать конфигурацию") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(configuration, forType: .string)
+                }.actionButton()
+                    .measuredForInterfaceTest(.mcpCopyConfiguration)
+                SupportingText("Сервер работает на этом Mac без сетевого порта")
+            }
+            .disabled(!state.preferences.mcpEnabled)
+        }
+    }
+
     private var modelSettings: some View {
         let setup = state.modelSetup
         let checksModels = setup.ready || setup.phase == .checking
