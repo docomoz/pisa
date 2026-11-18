@@ -221,7 +221,8 @@ struct MeetingView: View {
         let audioSources = presentation.allowsSavedAudio && !state.demo && (showsAutomaticPlayer || hasAudio)
             ? MeetingAudioExport.playbackSources(for: meeting, in: state.library) : []
         let termReviewInput = self.termReviewInput
-        let canOpenRequestedTermReview = openingTermReview && termCandidates.snapshot != nil
+        let canOpenRequestedTermReview = openingTermReview &&
+            termReviewInput.flatMap { termCandidates.snapshot(for: $0) } != nil
         let canToggleAudio = !showsAutomaticPlayer && !audioSources.isEmpty
         let visibleAudioSources = showsAutomaticPlayer || (canToggleAudio && showsSavedAudio) ? audioSources : []
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
@@ -661,9 +662,9 @@ struct MeetingView: View {
                     .measuredForInterfaceTest(.firstMeetingAction)
 
                     Button {
-                        guard termReviewInput != nil else { return }
+                        guard let termReviewInput else { return }
                         showsMeetingDetails = false
-                        if termCandidates.snapshot != nil {
+                        if termCandidates.snapshot(for: termReviewInput) != nil {
                             presentTermReview()
                         } else {
                             openingTermReview = true

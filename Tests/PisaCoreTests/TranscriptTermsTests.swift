@@ -14,6 +14,23 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(complete.first?.occurrences.count, 2)
     }
 
+    func testCandidateRefreshDropsEditedSpansAndKeepsOtherOccurrencesThroughConsecutiveEdits() throws {
+        let original = [segment("🎙 Проверили MapKit, CI/CD и ЛПР."), segment("Продолжили работу с MapKit.")]
+        let initial = TranscriptTerms.candidates(in: original, vocabulary: "")
+        let firstEdit = TranscriptTerms.matches("MapKit, CI/CD", in: original)
+        XCTAssertEqual(firstEdit.count, 1)
+        let edited = try XCTUnwrap(TranscriptTerms.replacing(firstEdit, with: "платформу", in: original))
+        let candidates = TranscriptTerms.retainingCandidates(initial, afterReplacing: firstEdit, with: "платформу",
+            in: Dictionary(uniqueKeysWithValues: edited.map { ($0.id, $0) }))
+        XCTAssertEqual(Set(candidates.map(\.text)), ["MapKit", "ЛПР"])
+        XCTAssertEqual(candidates.first { $0.text == "MapKit" }?.occurrences.map(\.segmentID), [original[1].id])
+
+        let nextEdit = TranscriptTerms.matches("ЛПР", in: edited)
+        let updated = try XCTUnwrap(TranscriptTerms.replacing(nextEdit, with: "команду", in: edited))
+        XCTAssertEqual(TranscriptTerms.retainingCandidates(candidates, afterReplacing: nextEdit, with: "команду",
+            in: Dictionary(uniqueKeysWithValues: updated.map { ($0.id, $0) })).map(\.text), ["MapKit"])
+    }
+
     func testCancelledReviewDiscardsCandidatesAndMatches() async {
         let segments = [segment("Обсудили B2B, ЛПР и договор.")]
         let scan = Task {

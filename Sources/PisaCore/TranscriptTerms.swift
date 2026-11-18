@@ -276,6 +276,37 @@ public enum TranscriptTerms {
         return pending.isEmpty ? result : nil
     }
 
+    // Keep the rows supported by untouched occurrences while the full ranking
+    // runs again. Rebase their ranges so consecutive edits can use this list.
+    static func retainingCandidates(_ candidates: [TermCandidate], afterReplacing occurrences: [TermOccurrence],
+                                    with replacement: String, in segmentsByID: [UUID: TranscriptSegment]) -> [TermCandidate] {
+        let edits = Dictionary(grouping: occurrences, by: \.segmentID).mapValues { occurrences in
+            occurrences.compactMap { occurrence -> (range: NSRange, offset: Int)? in
+                guard let rendered = self.replacement(for: occurrence, with: replacement),
+                      rendered != occurrence.text else { return nil }
+                return (occurrence.range, rendered.utf16.count - occurrence.range.length)
+            }
+        }
+        return candidates.compactMap { candidate in
+            let retained = candidate.occurrences.compactMap { item -> TermOccurrence? in
+                guard let segmentEdits = edits[item.segmentID] else { return item }
+                var offset = 0
+                for edit in segmentEdits {
+                    if NSMaxRange(edit.range) <= item.range.location {
+                        offset += edit.offset
+                    } else if edit.range.location < NSMaxRange(item.range) {
+                        return nil
+                    }
+                }
+                guard let segment = segmentsByID[item.segmentID] else { return nil }
+                let range = NSRange(location: item.range.location + offset, length: item.range.length)
+                return occurrence(range, in: segment, text: item.text, family: item.family)
+            }
+            guard !retained.isEmpty else { return nil }
+            return TermCandidate(id: candidate.id, text: candidate.text, occurrences: retained)
+        }
+    }
+
     public static func adding(_ term: String, to vocabulary: String) -> String {
         let trimmed = dictionaryTerm(term)
         guard trimmed.contains(where: \.isLetter), trimmed.rangeOfCharacter(from: separators) == nil,

@@ -14,6 +14,7 @@ enum InterfaceLayoutElement: Hashable {
     case settingsTab(String), settingsTabBar, settingsContent(String)
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
     case termSearch, termFind, termReplacement
+    case termCandidate(String)
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
     case savedVoiceHeading, savedVoiceRow(UUID)
     case voiceMergeList, voiceMergeCandidate(UUID)
@@ -149,6 +150,11 @@ enum InterfaceLayoutTests {
             let state = AppState(rootURL: root)
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
+            // Run this scenario in AppKit's event loop so the candidate and
+            // occurrence tasks can resume between interactions.
+            if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
+                return 1
+            }
             try suite.checkScreens(state: state)
             print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
             return suite.failures == 0 && suite.checks > 0 ? 0 : 1
@@ -156,6 +162,94 @@ enum InterfaceLayoutTests {
             fputs("INTERFACE_LAYOUT_TEST_FAILED: \(error)\n", stderr)
             return 1
         }
+    }
+
+    private static func runTermReplacement(state: AppState, app: NSApplication) -> Bool {
+        var passed = false
+        Task { @MainActor in
+            do {
+                try await checkTermReplacement(state: state)
+                passed = true
+            } catch {
+                fputs("TERM_REVIEW_INTERFACE_FAILED: \(error)\n", stderr)
+            }
+            app.stop(nil)
+            if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                                             windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+                app.postEvent(event, atStart: true)
+            }
+        }
+        app.run()
+        return passed
+    }
+
+    private static func checkTermReplacement(state: AppState) async throws {
+        var meeting = Meeting(title: "Разметка терминов", source: "Тест интерфейса")
+        meeting.status = .ready
+        meeting.segments = (0..<1_800).map { index in
+            TranscriptSegment(start: Double(index), end: Double(index + 1), speaker: "Анна",
+                              text: "Обсудили MapKit, LLM и Qwen3-ASR.")
+        }
+        state.update(meeting)
+        let candidates = TermReview.CandidateList()
+        let size = CGSize(width: 940, height: 660)
+        func wait(in host: LayoutHost, for condition: () -> Bool) async throws -> Bool {
+            let deadline = ContinuousClock.now + .seconds(20)
+            repeat {
+                host.settle()
+                if condition() { return true }
+                try await Task.sleep(for: .milliseconds(20))
+            } while ContinuousClock.now < deadline
+            return false
+        }
+        do {
+            let host = LayoutHost(TermReview(meeting: meeting, candidateList: candidates).environmentObject(state),
+                                  size: size, scale: 1)
+            defer { host.close() }
+            guard try await wait(in: host, for: { candidates.snapshot?.candidates.contains { $0.text == "MapKit" } == true }) else {
+                throw PisaError.message("The candidate scan did not find MapKit")
+            }
+            guard host.frames[.termCandidate("MapKit")] != nil,
+                  let search = host.field(in: .zero, placeholder: "Слово или фраза"),
+                  host.type("MapKit", into: search) else {
+                throw PisaError.message("Initial term candidates and search did not render")
+            }
+            host.pressReturn()
+            guard let replacement = host.field(in: .zero, placeholder: "Термин"),
+                  host.type("платформа", into: replacement) else {
+                throw PisaError.message("Replacement field did not accept a term")
+            }
+            guard try await wait(in: host, for: {
+                host.pressReturn(settle: false)
+                return state.canUndoTermReplacement(meetingID: meeting.id)
+            }) else {
+                throw PisaError.message("Term review did not save the correction")
+            }
+            guard let visible = candidates.snapshot?.candidates,
+                  !visible.contains(where: { $0.text == "MapKit" }),
+                  visible.contains(where: { $0.text == "LLM" }),
+                  try await wait(in: host, for: { host.frames[.termCandidate("MapKit")] == nil &&
+                      host.frames[.termCandidate("LLM")] != nil && host.frames[.termCandidate("Qwen3-ASR")] != nil }) else {
+                throw PisaError.message("The corrected term stayed in the candidate list after saving")
+            }
+        }
+
+        // Reopen after a saved edit made outside the dialog invalidates its prewarmed list.
+        guard let current = state.meetings.first(where: { $0.id == meeting.id }) else {
+            throw PisaError.message("The corrected meeting is missing")
+        }
+        let qwen = TranscriptTerms.matches("Qwen3-ASR", in: current.segments)
+        guard !qwen.isEmpty else { throw PisaError.message("The second candidate has no test occurrences") }
+        try state.replaceTerms(qwen, with: "модель", meetingID: meeting.id)
+        let reopened = LayoutHost(TermReview(meeting: current, candidateList: candidates).environmentObject(state),
+                                  size: size, scale: 1.2)
+        defer { reopened.close() }
+        guard reopened.frames[.termCandidate("Qwen3-ASR")] == nil,
+              try await wait(in: reopened, for: { reopened.frames[.termCandidate("LLM")] != nil }),
+              reopened.frames[.termCandidate("Qwen3-ASR")] == nil else {
+            throw PisaError.message("Reopening the term review showed a stale candidate")
+        }
+        print("TERM_REVIEW_INTERFACE_OK immediate_candidate_removal fresh_reopen")
     }
 }
 
@@ -773,9 +867,9 @@ private final class LayoutHost {
         return find(view)
     }
 
-    func pressReturn() { pressKey("\r", keyCode: 36) }
+    func pressReturn(settle: Bool = true) { pressKey("\r", keyCode: 36, settle: settle) }
 
-    func pressKey(_ character: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []) {
+    func pressKey(_ character: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = [], settle: Bool = true) {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
             if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers,
                                             timestamp: ProcessInfo.processInfo.systemUptime,
@@ -784,7 +878,7 @@ private final class LayoutHost {
                 window.sendEvent(event)
             }
         }
-        settle()
+        if settle { self.settle() }
     }
 
     func isEditing(_ field: NSTextField) -> Bool {

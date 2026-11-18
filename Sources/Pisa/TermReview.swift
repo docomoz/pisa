@@ -18,17 +18,43 @@ struct TermReview: View {
     @MainActor
     @Observable
     final class CandidateList {
-        private(set) var snapshot: (input: ReviewInput, candidates: [TermCandidate], isComplete: Bool)?
+        struct Snapshot {
+            enum Phase { case preview, edited, complete }
+
+            let input: ReviewInput
+            let candidates: [TermCandidate]
+            let phase: Phase
+
+            var isComplete: Bool { phase == .complete }
+        }
+
+        private(set) var snapshot: Snapshot?
 
         @ObservationIgnored private var requestedInput: ReviewInput?
         @ObservationIgnored private var worker: Task<Void, Never>?
+
+        func snapshot(for input: ReviewInput) -> Snapshot? {
+            guard snapshot?.input == input else { return nil }
+            return snapshot
+        }
+
+        func didReplace(_ occurrences: [TermOccurrence], with replacement: String,
+                        from previous: ReviewInput, to input: ReviewInput) {
+            if let snapshot = snapshot(for: previous) {
+                let retained = TranscriptTerms.retainingCandidates(snapshot.candidates, afterReplacing: occurrences,
+                                                                    with: replacement, in: input.indexSegments())
+                self.snapshot = Snapshot(input: input, candidates: retained, phase: snapshot.phase == .preview ? .preview : .edited)
+            }
+            prepare(input)
+        }
 
         func prepare(_ input: ReviewInput) {
             guard requestedInput != input else { return }
             requestedInput = input
             worker?.cancel()
             worker = nil
-            guard !input.segments.isEmpty, snapshot?.input != input || snapshot?.isComplete == false else { return }
+            if snapshot?.input != input { snapshot = nil }
+            guard !input.segments.isEmpty, snapshot?.isComplete != true else { return }
 
             let needsFirstCandidates = snapshot == nil
             worker = Task(priority: .utility) { [weak self] in
@@ -47,7 +73,7 @@ struct TermReview: View {
                 defer { analyzer.cancel() }
                 for await (candidates, isComplete) in updates {
                     guard !Task.isCancelled else { return }
-                    self?.snapshot = (input, candidates, isComplete)
+                    self?.snapshot = Snapshot(input: input, candidates: candidates, phase: isComplete ? .complete : .preview)
                 }
                 if !Task.isCancelled { self?.worker = nil }
             }
@@ -107,7 +133,7 @@ struct TermReview: View {
     var body: some View {
         let input = self.input
         let request = matchRequest
-        let candidateSnapshot = candidateList.snapshot
+        let candidateSnapshot = candidateList.snapshot(for: input)
         let matches = matchResult?.request == request ? matchResult : nil
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             HStack(spacing: PisaDesign.Spacing.related) {
@@ -117,9 +143,7 @@ struct TermReview: View {
             }
             if let currentMeeting {
                 HSplitView {
-                    candidatePane(candidateSnapshot?.candidates, input: input,
-                                  snapshotIsComplete: candidateSnapshot?.isComplete == true,
-                                  snapshotIsCurrent: candidateSnapshot?.input == input && candidateSnapshot?.isComplete == true)
+                    candidatePane(candidateSnapshot, input: input)
                         .frame(minWidth: 275, idealWidth: 300, maxWidth: 360)
                     reviewPane(in: currentMeeting, matches: matches).frame(minWidth: 450)
                 }
@@ -137,8 +161,8 @@ struct TermReview: View {
         .onDisappear { state.stopPlayback() }
     }
 
-    private func candidatePane(_ candidates: [TermCandidate]?, input: ReviewInput, snapshotIsComplete: Bool,
-                               snapshotIsCurrent: Bool) -> some View {
+    @ViewBuilder private func candidatePane(_ snapshot: CandidateList.Snapshot?, input: ReviewInput) -> some View {
+        let showsCounts = snapshot.map { $0.phase != .preview } ?? false
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                 SectionHeading("Поиск по тексту")
@@ -151,15 +175,14 @@ struct TermReview: View {
             }
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                 SectionHeading("Кандидаты", subtitle: "Названия и необычные слова из этой расшифровки")
-                if let candidates, !candidates.isEmpty {
+                if let candidates = snapshot?.candidates, !candidates.isEmpty {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
                             ForEach(candidates) { candidate in
                                 Button {
                                     select(candidate.text)
-                                    // A visible row can predate the current transcript or dictionary.
-                                    // In that case the selection's search task will find fresh ranges.
-                                    guard snapshotIsCurrent, input == self.input else { return }
+                                    // The selection's search task supplies fresh matches for partial lists.
+                                    guard snapshot?.isComplete == true, input == self.input else { return }
                                     let request = MatchRequest(input: input, source: candidate.text, selectionID: selectionID)
                                     matchResult = Matches(request: request, occurrences: candidate.occurrences,
                                                           segmentsByID: input.indexSegments())
@@ -168,12 +191,12 @@ struct TermReview: View {
                                         HStack(spacing: PisaDesign.Spacing.related) {
                                             screenText(candidate.text).lineLimit(2)
                                             Spacer(minLength: 0)
-                                            if snapshotIsComplete {
+                                            if showsCounts {
                                                 screenText(verbatim: String(candidate.occurrences.count))
                                                     .foregroundStyle(Color.mutedInk)
                                             }
                                         }
-                                        if snapshotIsComplete {
+                                        if showsCounts {
                                             let forms = Array(Set(candidate.occurrences.map(\.text))).sorted()
                                             if Set(forms.map { $0.lowercased() }).count > 1 {
                                                 SupportingText(forms.joined(separator: ", "), style: PisaDesign.Typography.caption)
@@ -189,10 +212,11 @@ struct TermReview: View {
                                 }
                                 .shapeAwarePlainButton()
                                 .accessibilityAddTraits(source == candidate.text ? .isSelected : [])
+                                .measuredForInterfaceTest(.termCandidate(candidate.text))
                             }
                         }
                     }
-                } else if candidates == nil {
+                } else if snapshot?.isComplete != true {
                     SupportingText("Ищем кандидатов…")
                 } else {
                     SupportingText("Кандидаты не найдены. Нужное слово можно найти вручную.")
@@ -338,6 +362,7 @@ struct TermReview: View {
             let original = source
             let correctedSource = TranscriptTerms.replacementSearchTerm(for: occurrences, with: corrected)
             try state.replaceTerms(chosen, with: corrected, meetingID: meeting.id)
+            candidateList.didReplace(chosen, with: corrected, from: matches.request.input, to: input)
             if let original { lastReplacement = (original, correctedSource) }
             source = correctedSource
             replacement = corrected
