@@ -237,10 +237,15 @@ enum RussianRecognition {
 
     /// When the recognizers disagree elsewhere in a mixed turn, recover a
     /// damaged phrase between words occurring just once in each audio reading.
-    private static func anchoredCyrillicSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
+    private static func anchoredCyrillicSpelling(original: String, heard: String, vocabulary: String,
+                                                 sharedAlphabet: Bool = false) -> CyrillicSpellingRepair? {
         let source = tokens(in: original), evidence = tokens(in: heard)
-        guard source.filter({ ParakeetRecognitionPolicy.hasDistinctCyrillicLetters($0.key) }).count >= 2,
-              !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(heard) else { return nil }
+        guard !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(heard) else { return nil }
+        if sharedAlphabet {
+            guard source.count >= 7, abs(source.count - evidence.count) <= 3 else { return nil }
+        } else {
+            guard source.filter({ ParakeetRecognitionPolicy.hasDistinctCyrillicLetters($0.key) }).count >= 2 else { return nil }
+        }
         let primaryPositions = Dictionary(grouping: source.indices, by: { source[$0].key })
         let heardPositions = Dictionary(grouping: evidence.indices, by: { evidence[$0].key })
         let anchors = source.indices.compactMap { i -> (source: Int, heard: Int)? in
@@ -249,16 +254,24 @@ enum RussianRecognition {
                   TranscriptTerms.isCommonRussianWord(key) || AbbreviationFamilies.isRussianFunctionWord(key) else { return nil }
             return (i, positions[0])
         }
-        guard anchors.count >= 3, zip(anchors, anchors.dropFirst()).allSatisfy({ $0.heard < $1.heard }) else { return nil }
+        guard anchors.count >= (sharedAlphabet ? 6 : 3),
+              zip(anchors, anchors.dropFirst()).allSatisfy({ $0.heard < $1.heard }) else { return nil }
         let protected = TranscriptOrthography.literalRanges(in: original)
             + TranscriptOrthography.glossaryRanges(in: original, vocabulary: vocabulary, range: NSRange(original.startIndex..., in: original))
         var repairs: [CyrillicSpellingRepair] = []
         for (left, right) in zip(anchors, anchors.dropFirst()) {
             let old = (left.source + 1)..<right.source, new = (left.heard + 1)..<right.heard
             guard (1...4).contains(old.count), (1...5).contains(new.count),
-                  source[old].contains(where: { ParakeetRecognitionPolicy.hasDistinctCyrillicLetters($0.key) }),
                   source[old].allSatisfy({ $0.text.allSatisfy(\.isLowercase) && $0.key.unicodeScalars.allSatisfy { (0x400...0x52F).contains($0.value) } }),
                   evidence[new].allSatisfy({ $0.text.allSatisfy(\.isLowercase) && TranscriptTerms.isCommonRussianWord($0.key) }) else { continue }
+            if sharedAlphabet {
+                let spelling = source[old.lowerBound].key, candidate = evidence[new.lowerBound].key
+                guard old.count == 1, new.count == 1, (2...3).contains(spelling.count), (2...4).contains(candidate.count),
+                      isCyrillic(spelling), !TranscriptTerms.isCommonRussianWord(spelling),
+                      !Set(spelling).isDisjoint(with: candidate), distance(spelling, candidate) <= 2 else { continue }
+            } else {
+                guard source[old].contains(where: { ParakeetRecognitionPolicy.hasDistinctCyrillicLetters($0.key) }) else { continue }
+            }
             let range = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
             let originalContext = original[source[left.source].range.upperBound..<source[right.source].range.lowerBound]
             let acousticContext = heard[evidence[left.heard].range.upperBound..<evidence[right.heard].range.lowerBound]
@@ -276,9 +289,14 @@ enum RussianRecognition {
     }
 
     /// A shared-alphabet error such as "гатовы" carries no script signal.
-    /// Nominate one interior spelling only when the independent audio retained
-    /// every surrounding word. A separate unprompted reread must agree in full.
+    /// Prefer full agreement. If a hesitation disrupts alignment elsewhere,
+    /// require a unique, locally confirmed word in a longer Russian turn.
     static func sharedAlphabetSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
+        exactSharedAlphabetSpelling(original: original, heard: heard, vocabulary: vocabulary)
+            ?? anchoredCyrillicSpelling(original: original, heard: heard, vocabulary: vocabulary, sharedAlphabet: true)
+    }
+
+    private static func exactSharedAlphabetSpelling(original: String, heard: String, vocabulary: String) -> CyrillicSpellingRepair? {
         let source = tokens(in: original), independent = tokens(in: heard)
         guard source.count >= 3, source.count == independent.count else { return nil }
         let changed = source.indices.filter { source[$0].key != independent[$0].key }

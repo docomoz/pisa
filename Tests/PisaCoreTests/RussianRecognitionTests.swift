@@ -116,6 +116,21 @@ final class RussianRecognitionTests: XCTestCase {
         }
     }
 
+    func testSharedAlphabetRepairKeepsOnlyTheLocallyConfirmedWordAcrossAHesitation() throws {
+        let source = "По остальным вопросам думаю чуть-чуть нас що есть в списке на завтра."
+        let acoustic = "По остальным вопросам думаю что у нас ещё есть в списке на завтра."
+        let reread = "По остальным вопросам думаю ч ч что у нас еще есть в списке на завтра."
+        let repair = try XCTUnwrap(RussianRecognition.sharedAlphabetSpelling(original: source, heard: acoustic, vocabulary: ""))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: reread),
+                       source.replacingOccurrences(of: "що", with: "ещё"))
+        XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: reread))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: reread.replacingOccurrences(of: "еще", with: "уже")))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: reread + " У нас еще есть вопрос."))
+        XCTAssertNil(RussianRecognition.sharedAlphabetSpelling(original: source, heard: acoustic, vocabulary: "що"))
+        XCTAssertNil(RussianRecognition.sharedAlphabetSpelling(original: source.replacingOccurrences(of: "нас що есть", with: "«нас що есть»"), heard: acoustic, vocabulary: ""))
+        XCTAssertNil(RussianRecognition.sharedAlphabetSpelling(original: "У нас що есть в списке?", heard: "У нас ещё есть в списке?", vocabulary: ""))
+    }
+
     func testGenuineLanguageSwitchCannotBeConfirmedByRepetitionAlone() {
         for (original, heard) in [("Привіт, привет.", "привет привет"), ("Обідали, обедали.", "обедали обедали")] {
             let repair = RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: "")
