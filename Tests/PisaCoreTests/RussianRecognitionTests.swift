@@ -60,6 +60,77 @@ final class RussianRecognitionTests: XCTestCase {
             heard: "Мы говорим: где-то Румыния. Мы это уже обсуждали сегодня.", vocabulary: ""))
     }
 
+    func testOneDecoderMisspellingKeepsThePrimarySpellingInAlignedMixedSpeech() throws {
+        let original = "Мы вже сегодня посмотрели і сравнили каждий макет із папки, там мінімум два варіанта, там три варіанта."
+        let acoustic = "мы уже сегодня посмотрели и сравнили каждый макэт из папки, там минимум два варианта, там три варианта"
+        let checked = "Мы уже сегодня посмотрели и сравнили каждый макет из папки, там минимум два варианта, там три варианта."
+        let repair = try XCTUnwrap(RussianRecognition.cyrillicSpelling(original: original, heard: acoustic, vocabulary: ""))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: checked), checked)
+        XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: checked))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: checked.replacingOccurrences(of: "макет", with: "букет")))
+    }
+
+    func testMixedSpeechRecoversOnlyTheIndependentlyAgreedInteriorPhrase() throws {
+        let original = "Ві собирался к семенарам, нужна лікамута тетрадка тут."
+        let acoustic = "Все собирались к семинарам: нужна ли кому-то тетрадь тут"
+        let checked = "Вы собирались к семинарам, нужна ли кому-то тетрадь тут?"
+        let repair = try XCTUnwrap(RussianRecognition.cyrillicSpelling(original: original, heard: acoustic, vocabulary: ""))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: checked), "Ві собирался к семенарам, нужна ли кому-то тетрадь тут.")
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: checked.replacingOccurrences(of: "тетрадь", with: "папка")))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: checked + " " + checked))
+        XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: checked))
+        XCTAssertNil(RussianRecognition.cyrillicSpelling(original: original, heard: acoustic, vocabulary: "лікамута"))
+        XCTAssertNil(RussianRecognition.cyrillicSpelling(original: original.replacingOccurrences(of: "лікамута", with: "«лікамута»"), heard: acoustic, vocabulary: ""))
+    }
+
+    func testSharedAlphabetErrorsRequireTwoIndependentReadingsAndKeepOnlyTheSpokenWord() throws {
+        for (source, heard) in [
+            ("Мы сегодня гатовы показать результат!", "мы сегодня готовы показать результат"),
+            ("Мы уже проекти закрыли вчера.", "мы уже проекты закрыли вчера"),
+            ("Уже гатовы завтра?", "уже готовы завтра"),
+            ("Сейчас нас що есть попросили?", "сейчас нас что есть попросили"),
+        ] {
+            let repair = try XCTUnwrap(RussianRecognition.sharedAlphabetSpelling(original: source, heard: heard, vocabulary: ""))
+            XCTAssertEqual(repair.confirmedText(language: "Russian", reread: heard)?.lowercased().dropLast(), Substring(heard))
+            XCTAssertEqual(repair.text.first, source.first)
+            XCTAssertEqual(repair.text.last, source.last)
+            for label in ["Belarusian", "Ukrainian", "English"] {
+                XCTAssertNil(repair.confirmedText(language: label, reread: heard))
+            }
+            XCTAssertNil(repair.confirmedText(language: nil, reread: heard))
+            XCTAssertNil(repair.confirmedText(language: "Russian", reread: source))
+            XCTAssertNil(repair.confirmedText(language: "Russian", reread: heard + " завтра"))
+        }
+    }
+
+    func testSharedAlphabetPreservesLiteralsNamesDictionaryWordsAndUnsupportedGuesses() {
+        let heard = "мы сегодня готовы показать результат"
+        for (source, vocabulary) in [
+            ("Мы сегодня «гатовы» показать результат.", ""), ("Мы сегодня Гатовы показать результат.", ""),
+            ("Мы сегодня гатовы показать результат.", "гатовы"), ("Мы сегодня гатовы показать результат.", "сегодня гатовы"),
+            ("Мы сегодня сияем показать результат.", ""), ("Мы сегодня готово показать результат.", ""),
+            ("Мы гатовы готовы показать результат.", ""),
+            ("Гатовы показать результат.", ""), ("Мы сегодня гатовы. Показать результат?", ""),
+        ] {
+            XCTAssertNil(RussianRecognition.sharedAlphabetSpelling(original: source, heard: heard, vocabulary: vocabulary), source)
+        }
+    }
+
+    func testSharedAlphabetRepairKeepsOnlyTheLocallyConfirmedWordAcrossAHesitation() throws {
+        let source = "По остальным вопросам думаю чуть-чуть нас що есть в списке на завтра."
+        let acoustic = "По остальным вопросам думаю что у нас ещё есть в списке на завтра."
+        let reread = "По остальным вопросам думаю ч ч что у нас еще есть в списке на завтра."
+        let repair = try XCTUnwrap(RussianRecognition.sharedAlphabetSpelling(original: source, heard: acoustic, vocabulary: ""))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: reread),
+                       source.replacingOccurrences(of: "що", with: "ещё"))
+        XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: reread))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: reread.replacingOccurrences(of: "еще", with: "уже")))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: reread + " У нас еще есть вопрос."))
+        XCTAssertNil(RussianRecognition.sharedAlphabetSpelling(original: source, heard: acoustic, vocabulary: "що"))
+        XCTAssertNil(RussianRecognition.sharedAlphabetSpelling(original: source.replacingOccurrences(of: "нас що есть", with: "«нас що есть»"), heard: acoustic, vocabulary: ""))
+        XCTAssertNil(RussianRecognition.sharedAlphabetSpelling(original: "У нас що есть в списке?", heard: "У нас ещё есть в списке?", vocabulary: ""))
+    }
+
     func testGenuineLanguageSwitchCannotBeConfirmedByRepetitionAlone() {
         for (original, heard) in [("Привіт, привет.", "привет привет"), ("Обідали, обедали.", "обедали обедали")] {
             let repair = RussianRecognition.cyrillicSpelling(original: original, heard: heard, vocabulary: "")

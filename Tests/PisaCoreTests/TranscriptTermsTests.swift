@@ -342,6 +342,69 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(TranscriptTerms.adding("Куделька", to: ""), "Куделька")
     }
 
+    func testCandidatesSkipUnlistedSurnameFormsAndKeepSurnameBasedBrand() {
+        let segments = [segment("Затем выступил Лазуркин. Встретились с Лазуркиным и Световым. Обсудили Лабораторию Касперского."),
+                        segment("Сравнили Лаборатория Касперского, Positive Technologies и ЛПР.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["Лаборатория Касперского", "Positive Technologies", "ЛПР"])
+        XCTAssertEqual(TranscriptTerms.matches("Лазуркин", in: segments).map(\.text), ["Лазуркин"])
+        XCTAssertEqual(TranscriptTerms.matches("Лазуркиным", in: segments).map(\.text), ["Лазуркиным"])
+        XCTAssertEqual(TranscriptTerms.adding("Лазуркин", to: "API"), "API\nЛазуркин")
+    }
+
+    func testCandidateKeepsSurnameShapedProductIntroducedAsAService() {
+        let segments = [segment("Затем выступил Лазуркин. Встретились с Лазуркиным."),
+                        segment("Затем объявили сервис Лазуркин.")]
+        let candidate = TranscriptTerms.candidates(in: segments, vocabulary: "").first
+        XCTAssertEqual(candidate?.text, "Лазуркин")
+        XCTAssertEqual(candidate?.occurrences.map(\.segmentID), [segments[1].id])
+    }
+
+    func testCandidatesSkipContextualNameVariantsAndJoinsWithPersonWords() {
+        let segments = [
+            segment("Решили, Тэд, подробнее обсудить вечером."),
+            segment("Спросили у Кирилла-дизайнера о прототипе."),
+            segment("Тогда выступал Вадимон после обеда, и он ответил."),
+            segment("Затем обсудили сервис Вадимон и API.")
+        ]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["Вадимон", "API"])
+        XCTAssertEqual(candidates.first { $0.text == "Вадимон" }?.occurrences.map(\.segmentID), [segments[3].id])
+        XCTAssertEqual(TranscriptTerms.matches("Кирилла-дизайнера", in: segments).map(\.text), ["Кирилла-дизайнера"])
+    }
+
+    func testCandidatesRequireEvidenceForCommonAdjacentWords() {
+        let ordinary = [segment("Сдали план. Факт проверим завтра. Ввели код безопасности. На картине Глаз Бога в центре."),
+                        segment("Снова поменяли Отчёт-План. Проверили би - ту би.")]
+        XCTAssertTrue(TranscriptTerms.candidates(in: ordinary, vocabulary: "").isEmpty)
+        XCTAssertTrue(TranscriptTerms.candidates(in: [segment("Сдали план."), segment("Факт проверим завтра.")], vocabulary: "").isEmpty)
+        let names = [segment("Обсудили компанию Код Безопасности, Positive Technologies и pull request. Проверили би-ту-би."),
+                     segment("Выбрали компанию Глаз Бога.")]
+        let candidates = TranscriptTerms.candidates(in: names, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["Код Безопасности", "The Eye of God", "Positive Technologies", "pull request", "B2B"])
+        XCTAssertEqual(candidates.first(where: { $0.text == "The Eye of God" })?.occurrences.map(\.text), ["Глаз Бога"])
+        XCTAssertEqual(candidates.first(where: { $0.text == "B2B" })?.occurrences.map(\.text), ["би-ту-би"])
+        XCTAssertEqual(TranscriptTerms.candidates(in: [segment("Выбрали ПланФакт.")], vocabulary: "").map(\.text), ["ПланФакт"])
+    }
+
+    func testKnownNumericBrandIsNotOfferedWithCompetingCatalogSpelling() {
+        let segments = [segment("Проверили ту гис, 2ГИС'ом и 2GIS'е. Другая запись — 2GS.")]
+        let vocabulary = "2GIS"
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: vocabulary)
+        XCTAssertEqual(candidates.map(\.text), ["2GS"])
+        XCTAssertEqual(TranscriptTerms.matches("2GIS", in: segments, vocabulary: vocabulary).map(\.text), ["ту гис", "2ГИС'ом", "2GIS'е"])
+        XCTAssertEqual(TranscriptTerms.matches("2GS", in: segments, vocabulary: vocabulary + ", 2GS").map(\.text), ["2GS"])
+    }
+
+    func testAddingTheLatinSpellingResolvesTheCachedCatalogFamily() {
+        let segments = [segment("Сравнили ту гис и 2GS после обновления.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["2ГИС", "2GS"])
+        let retained = TranscriptTerms.retainingCandidates(candidates, afterAdding: "2GIS")
+        XCTAssertEqual(retained.map(\.id), candidates.filter { $0.text == "2GS" }.map(\.id))
+        XCTAssertEqual(retained.first?.occurrences.map(\.text), ["2GS"])
+    }
+
     func testCandidatesSkipMultiwordNamesInEnglish() {
         let segments = [segment("The team met Alice Smith in London and flew to New York with Bob. Later we tested PostgreSQL and the API.")]
         let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")

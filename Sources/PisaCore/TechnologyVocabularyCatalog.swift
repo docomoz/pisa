@@ -6,7 +6,7 @@ enum TechnologyVocabularyCatalog {
     // w requires a technical cue only for English spoken aliases; i permits
     // observed endings on a company name. h hides an entry from term candidates.
     // Flags can be combined (e.g. ic).
-    // = marks a written alias with exact case.
+    // = marks a written alias with exact case. ~ requires a personal entry.
     // Plain written terms are useful for extraction even without spoken aliases.
     static let entries = """
     # Markets, strategy and leadership
@@ -728,7 +728,7 @@ enum TechnologyVocabularyCatalog {
     Битрикс24||битрикс двадцать четыре;битрикс 24;=Bitrix24
     СКБ Контур||эс ка бэ контур;скб контур
     ИнфоТеКС||инфотекс;инфо текс
-    Код Безопасности||код безопасности
+    Код Безопасности|c|код безопасности
     UserGate||юзергейт;юзер гейт
     F.A.C.C.T.|c|факт
     BI.ZONE||би зона;би зон;би зоун
@@ -746,6 +746,6 @@ enum TechnologyVocabularyCatalog {
     Самокат|c|самокат
     Купер|c|купер
     СДЭК||сдэк;сдек
-    2ГИС||ту гис;=2GIS
+    2ГИС||ту гис;~2 ги;~два гес;~два гиз;=2GIS
     """
 }

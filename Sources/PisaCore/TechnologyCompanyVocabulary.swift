@@ -85,7 +85,9 @@ enum TechnologyCompanyVocabulary {
                 // Match the literal spelling, including punctuation, and require
                 // its case. Phonetic/caseless aliases belong to the curated layer.
                 guard source == alias.text else { continue }
-                if alias.contextRequired {
+                // A title-cased ordinary phrase can also be a catalog alias.
+                // Its words alone do not identify the company.
+                if alias.contextRequired || (alias.keys.count > 1 && alias.keys.allSatisfy(TranscriptTerms.isCommonRussianWord)) {
                     let lower = max(0, position - 3), upper = min(words.count, end + 3)
                     guard (lower..<upper).contains(where: { cue in
                         guard (cue < position || cue >= end) && cues.contains(keys[cue]),

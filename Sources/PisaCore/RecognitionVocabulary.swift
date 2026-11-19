@@ -44,11 +44,14 @@ enum RecognitionVocabulary {
                 pattern = "(?:\(NSRegularExpression.escapedPattern(for: digits))|\(spoken))[\\s-]*(\(stems))(?:['’]?(\(AbbreviationFamilies.endingPattern(numeric: true))))?"
                 numericAcronym = true
             }
-            guard let expression = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:"# + pattern + #")(?![\p{L}\p{N}])"#, options: [.caseInsensitive]) else { continue }
+            guard let expression = expression(for: #"(?<![\p{L}\p{N}])(?:"# + pattern + #")(?![\p{L}\p{N}])"#) else { continue }
+            let ns = result as NSString
+            let matches = expression.matches(in: result, range: NSRange(location: 0, length: ns.length))
+            guard !matches.isEmpty else { continue }
             let protected = TranscriptOrthography.literalRanges(in: result)
+            let output = NSMutableString(string: result)
             if numericAcronym {
-                let ns = result as NSString, output = NSMutableString(string: result)
-                for match in expression.matches(in: result, range: NSRange(location: 0, length: ns.length)).reversed()
+                for match in matches.reversed()
                 where !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) {
                     let source = ns.substring(with: match.range)
                     guard !families.isExplicit(source) || AbbreviationFamilies.key(source) == AbbreviationFamilies.key(term) else { continue }
@@ -59,41 +62,41 @@ enum RecognitionVocabulary {
                     guard families.known(written)?.base == term else { continue }
                     output.replaceCharacters(in: match.range, with: term + (ending.isEmpty ? "" : "'" + ending))
                 }
-                result = output as String
             } else {
-                let ns = result as NSString, output = NSMutableString(string: result)
-                for match in expression.matches(in: result, range: NSRange(location: 0, length: ns.length)).reversed()
+                for match in matches.reversed()
                 where !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) {
                     output.replaceCharacters(in: match.range, with: sentenceCase(term, replacing: match.range, in: result))
                 }
-                result = output as String
             }
+            result = output as String
         }
         return normalizeCyrillicSpelling(in: result, terms: terms)
     }
 
+    private static let cardinalForms = [
+        ["ноль", "нуля", "нулю", "нулём", "нуле"],
+        ["один", "одна", "одно", "одного", "одному", "одним", "одной"],
+        ["два", "две", "двух", "двум", "двумя", "дву"],
+        ["три", "трёх", "трём", "тремя"],
+        ["четыре", "четырёх", "четырём", "четырьмя"],
+        ["пять", "пяти", "пятью"], ["шесть", "шести", "шестью"],
+        ["семь", "семи", "семью"], ["восемь", "восьми", "восемью"],
+        ["девять", "девяти", "девятью"], ["десять", "десяти", "десятью"],
+        ["одиннадцать", "одиннадцати", "одиннадцатью"], ["двенадцать", "двенадцати", "двенадцатью"],
+        ["тринадцать", "тринадцати", "тринадцатью"], ["четырнадцать", "четырнадцати", "четырнадцатью"],
+        ["пятнадцать", "пятнадцати", "пятнадцатью"], ["шестнадцать", "шестнадцати", "шестнадцатью"],
+        ["семнадцать", "семнадцати", "семнадцатью"], ["восемнадцать", "восемнадцати", "восемнадцатью"],
+        ["девятнадцать", "девятнадцати", "девятнадцатью"], ["двадцать", "двадцати", "двадцатью"]
+    ]
+
     /// Cardinal numeral forms used as prefixes of an explicit numeric acronym.
     static func numericForms(for term: String) -> [String]? {
-        let digits = String(term.prefix(while: \.isNumber))
-        let acronym = String(term.dropFirst(digits.count))
-        let forms = [
-            ["ноль", "нуля", "нулю", "нулём", "нуле"],
-            ["один", "одна", "одно", "одного", "одному", "одним", "одной"],
-            ["два", "две", "двух", "двум", "двумя", "дву"],
-            ["три", "трёх", "трём", "тремя"],
-            ["четыре", "четырёх", "четырём", "четырьмя"],
-            ["пять", "пяти", "пятью"], ["шесть", "шести", "шестью"],
-            ["семь", "семи", "семью"], ["восемь", "восьми", "восемью"],
-            ["девять", "девяти", "девятью"], ["десять", "десяти", "десятью"],
-            ["одиннадцать", "одиннадцати", "одиннадцатью"], ["двенадцать", "двенадцати", "двенадцатью"],
-            ["тринадцать", "тринадцати", "тринадцатью"], ["четырнадцать", "четырнадцати", "четырнадцатью"],
-            ["пятнадцать", "пятнадцати", "пятнадцатью"], ["шестнадцать", "шестнадцати", "шестнадцатью"],
-            ["семнадцать", "семнадцати", "семнадцатью"], ["восемнадцать", "восемнадцати", "восемнадцатью"],
-            ["девятнадцать", "девятнадцати", "девятнадцатью"], ["двадцать", "двадцати", "двадцатью"]
-        ]
-        guard let number = Int(digits), forms.indices.contains(number), (2...8).contains(acronym.count),
+        let digits = term.prefix(while: \.isNumber)
+        guard let number = Int(digits), cardinalForms.indices.contains(number) else { return nil }
+        let acronym = term.dropFirst(digits.count)
+        guard (2...8).contains(acronym.count),
               acronym.allSatisfy(\.isLetter), acronym == acronym.uppercased(), acronym != acronym.lowercased() else { return nil }
-        return forms[number]
+        return cardinalForms[number]
     }
 
     private static func normalizeCyrillicSpelling(in text: String, terms: [String]) -> String {
@@ -119,9 +122,11 @@ enum RecognitionVocabulary {
             let pattern = #"(?<![\p{L}\p{N}])(?:"# + alternatives.joined(separator: "|") + ")" + endingPattern + #"(?![\p{L}\p{N}])"#
             guard let expression = expression(for: pattern) else { continue }
             let ns = result as NSString
+            let matches = expression.matches(in: result, range: NSRange(location: 0, length: ns.length))
+            guard !matches.isEmpty else { continue }
             let output = NSMutableString(string: result)
             let protected = TranscriptOrthography.literalRanges(in: result)
-            for match in expression.matches(in: result, range: NSRange(location: 0, length: ns.length)).reversed()
+            for match in matches.reversed()
             where !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) {
                 let ending = match.range(at: 1)
                 let suffix = ending.location == NSNotFound ? "" : ns.substring(with: ending).lowercased()

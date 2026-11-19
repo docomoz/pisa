@@ -375,6 +375,10 @@ struct SpokenVocabulary {
             variants.append(("ай" + source.dropFirst(2), "с "))
         }
         for (variant, prefix) in variants {
+            // The spelling pass already handled exact numeric initials.
+            // Collapsed vowel sounds can make 2GS and 2GIS sound identical.
+            if entry.initialism, entry.term.first?.isNumber == true, variant.first?.isNumber == true,
+               variant.prefix(while: { !$0.isWhitespace }).contains(where: \.isLetter) { continue }
             let lower = variant.lowercased()
             var stems: [(text: String, phoneticSuffix: String, literalSuffix: String)] = [(variant, "", "")]
             for ending in AbbreviationFamilies.caseEndings where lower.hasSuffix(ending) {
