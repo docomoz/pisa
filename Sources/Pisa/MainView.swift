@@ -61,10 +61,17 @@ struct MainView: View {
             Spacer(minLength: PisaDesign.Spacing.none)
             if let installUpdate {
                 Button(action: installUpdate) {
-                    screenText("Установить обновление")
-                        .underline()
-                        .foregroundStyle(canInstallUpdate ? Color.moss : Color.disabledInk)
-                        .measuredForInterfaceTest(.updateFooterLink)
+                    HStack(spacing: PisaDesign.Spacing.compact) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .imageScale(.small)
+                            .accessibilityHidden(true)
+                            .measuredForInterfaceTest(.updateFooterIcon)
+                        screenText("Установить обновление")
+                            .underline()
+                            .measuredForInterfaceTest(.updateFooterLink)
+                    }
+                    .foregroundStyle(canInstallUpdate ? Color.moss : Color.disabledInk)
+                    .contentShape(Rectangle())
                 }
                 .shapeAwarePlainButton()
                 .disabled(!canInstallUpdate)

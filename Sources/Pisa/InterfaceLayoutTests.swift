@@ -6,7 +6,7 @@ import SwiftUI
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
     case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
-    case recognitionFooterLabel, updateFooterLink
+    case recognitionFooterLabel, updateFooterLink, updateFooterIcon
     case transcriptionStatusHeading, transcriptionStatusAction, transcriptionProgressCaption, transcriptionProgressRow
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
@@ -934,14 +934,18 @@ private final class LayoutSuite {
         var clicks = 0
         let host = LayoutHost(MainView(installUpdate: { clicks += 1 }).environmentObject(state), size: size, scale: scale)
         defer { host.close() }
-        if let measured = frames([.recognitionFooterLabel, .updateFooterLink], in: host) {
-            let (label, link) = (measured[0], measured[1])
+        if let measured = frames([.recognitionFooterLabel, .updateFooterLink, .updateFooterIcon], in: host) {
+            let (label, link, icon) = (measured[0], measured[1], measured[2])
             equal(link.midY, label.midY, "update link shares the recognition footer's baseline")
             equal(link.height, label.height, "update link uses the recognition footer's text size")
             equal(link.maxX, size.width - PisaDesign.Spacing.page, "update link is aligned to the right content edge")
             equal(link.maxY, size.height - PisaDesign.Spacing.content, "update link sits at the bottom of the window")
+            equal(link.minX - icon.maxX, PisaDesign.Spacing.compact, "update icon sits just to the left of the link")
+            equal(icon.midY, link.midY, "update icon is centered beside the link text")
             host.click(link.center)
             check(clicks == 1, "clicking the link opens the update action")
+            host.click(icon.center)
+            check(clicks == 2, "clicking the icon also opens the update action")
             try saveScreenshot("update-footer-\(Int(size.width))-\(Int(scale * 100))", in: host)
         }
     }
