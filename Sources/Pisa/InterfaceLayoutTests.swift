@@ -6,6 +6,7 @@ import SwiftUI
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
     case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
+    case recognitionFooterLabel, updateFooterLink
     case transcriptionStatusHeading, transcriptionStatusAction, transcriptionProgressCaption, transcriptionProgressRow
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
@@ -420,6 +421,8 @@ private final class LayoutSuite {
             guard let reference = checkMeetingHeader(in: host) else { continue }
             checkTranscript(in: host, wide: size.width > 980)
             try saveScreenshot("meeting-\(Int(size.width))-\(Int(scale * 100))", in: host)
+            check(host.frames[.updateFooterLink] == nil, "only show the update link when an update is available")
+            try checkUpdateFooter(state: state, size: size, scale: scale)
 
             var processingPositions: (heading: CGRect, action: CGRect, progress: CGRect)?
             for (meeting, firstContent) in [(saved, InterfaceLayoutElement.waveform), (queued, .meetingStatus),
@@ -924,6 +927,23 @@ private final class LayoutSuite {
             try await Task.sleep(for: .milliseconds(25))
         }
         return condition()
+    }
+
+    private func checkUpdateFooter(state: AppState, size: CGSize, scale: CGFloat) throws {
+        scenario = "update footer \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
+        var clicks = 0
+        let host = LayoutHost(MainView(installUpdate: { clicks += 1 }).environmentObject(state), size: size, scale: scale)
+        defer { host.close() }
+        if let measured = frames([.recognitionFooterLabel, .updateFooterLink], in: host) {
+            let (label, link) = (measured[0], measured[1])
+            equal(link.midY, label.midY, "update link shares the recognition footer's baseline")
+            equal(link.height, label.height, "update link uses the recognition footer's text size")
+            equal(link.maxX, size.width - PisaDesign.Spacing.page, "update link is aligned to the right content edge")
+            equal(link.maxY, size.height - PisaDesign.Spacing.content, "update link sits at the bottom of the window")
+            host.click(link.center)
+            check(clicks == 1, "clicking the link opens the update action")
+            try saveScreenshot("update-footer-\(Int(size.width))-\(Int(scale * 100))", in: host)
+        }
     }
 
     private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,

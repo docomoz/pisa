@@ -8,7 +8,8 @@ struct PisaApp: App {
     @AppStorage("appTextSize") private var textSize = AppTextSize.normal
     var body: some Scene {
         Window("Pisa", id: "main") {
-            MainView().environmentObject(state).frame(minWidth: 980, minHeight: 660)
+            MainView(installUpdate: installUpdate, canInstallUpdate: updates.canCheck)
+                .environmentObject(state).frame(minWidth: 980, minHeight: 660)
                 .background(MainWindowConnection(state: state, delegate: delegate).allowsHitTesting(false))
                 .preferredColorScheme(.light)
                 .environment(\.locale, Locale(identifier: "ru_RU"))
@@ -63,6 +64,11 @@ struct PisaApp: App {
             }
             CommandGroup(replacing: .appSettings) { screenButton("Настройки") { state.showingSettings = true }.keyboardShortcut(",") }
         }
+    }
+
+    private var installUpdate: (() -> Void)? {
+        guard updates.hasInstallableUpdate else { return nil }
+        return { updates.check() }
     }
 
     private func changeTextSize(by step: Int) {

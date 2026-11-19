@@ -4,6 +4,8 @@ import AppKit
 struct MainView: View {
     @EnvironmentObject var state: AppState
     @State private var recordingDateReference = Date()
+    var installUpdate: (() -> Void)? = nil
+    var canInstallUpdate = true
     var body: some View {
         HStack(spacing: PisaDesign.Spacing.none) {
             sidebar.frame(width: 270)
@@ -14,6 +16,7 @@ struct MainView: View {
                 if let meeting = state.selected {
                     MeetingView(meeting: meeting, dateReference: recordingDateReference).id(meeting.id)
                 } else { welcome }
+                if state.selected != nil || installUpdate != nil { footer }
             }.background(Color.paper)
         }
         .background(SlimScrollbars().allowsHitTesting(false))
@@ -48,6 +51,30 @@ struct MainView: View {
             }
         }
     }
+    private var footer: some View {
+        HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
+            if state.selected != nil {
+                screenLabel("Распознавание на этом Mac", systemImage: "lock.shield")
+                    .foregroundStyle(Color.mutedInk)
+                    .measuredForInterfaceTest(.recognitionFooterLabel)
+            }
+            Spacer(minLength: PisaDesign.Spacing.none)
+            if let installUpdate {
+                Button(action: installUpdate) {
+                    screenText("Установить обновление")
+                        .underline()
+                        .foregroundStyle(canInstallUpdate ? Color.moss : Color.disabledInk)
+                        .measuredForInterfaceTest(.updateFooterLink)
+                }
+                .shapeAwarePlainButton()
+                .disabled(!canInstallUpdate)
+            }
+        }
+        .textStyle(PisaDesign.Typography.footnote)
+        .padding(.horizontal, PisaDesign.Spacing.page)
+        .padding(.vertical, PisaDesign.Spacing.content)
+    }
+
     private var sidebar: some View { LibrarySidebar(dateReference: recordingDateReference) }
     private var topbar: some View {
         let panelHeight = PisaDesign.Metrics.regularHeight + 2 * PisaDesign.Spacing.related
@@ -284,10 +311,6 @@ struct MeetingView: View {
                 }
             }
             .padding(.top, showsTranscriptStatus ? PisaDesign.Spacing.inline : PisaDesign.Spacing.content)
-            screenLabel("Распознавание на этом Mac", systemImage: "lock.shield")
-                .textStyle(PisaDesign.Typography.footnote)
-                .foregroundStyle(Color.mutedInk)
-                .padding(.vertical, PisaDesign.Spacing.content)
         }
         .padding(.top, PisaDesign.Spacing.related)
         .padding(.horizontal, PisaDesign.Spacing.page)

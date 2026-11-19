@@ -3,19 +3,20 @@ import Foundation
 import Sparkle
 
 @MainActor
-final class AppUpdates: ObservableObject {
+final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
     static let shared = AppUpdates()
 
     @Published private(set) var isReady = false
     @Published private(set) var canCheck = false
     @Published private(set) var installsAutomatically = false
+    @Published private(set) var hasInstallableUpdate = false
     private var controller: SPUStandardUpdaterController?
     private var observations: Set<AnyCancellable> = []
 
     func start() {
         guard controller == nil else { return }
         let controller = SPUStandardUpdaterController(
-            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
+            startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil
         )
         let updater = controller.updater
         do {
@@ -42,5 +43,17 @@ final class AppUpdates: ObservableObject {
 
     func setAutomaticInstallation(_ enabled: Bool) {
         controller?.updater.automaticallyDownloadsUpdates = enabled
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        hasInstallableUpdate = !item.isInformationOnlyUpdate
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        hasInstallableUpdate = false
+    }
+
+    func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate item: SUAppcastItem, state: SPUUserUpdateState) {
+        if choice == .skip { hasInstallableUpdate = false }
     }
 }
