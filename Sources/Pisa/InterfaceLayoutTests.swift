@@ -11,6 +11,7 @@ enum InterfaceLayoutElement: Hashable {
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case sidebarRecording(UUID), sidebarTranscriptionStatus(UUID, String)
+    case sidebarRecordingFolderName(UUID)
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
@@ -159,6 +160,7 @@ enum InterfaceLayoutTests {
             let state = AppState(rootURL: root)
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
+            try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
             // Run this scenario in AppKit's event loop so the candidate and
             // occurrence tasks can resume between interactions.
             if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
@@ -359,6 +361,41 @@ private final class LayoutSuite {
         guard let path = ProcessInfo.processInfo.environment["PISA_LAYOUT_SCREENSHOTS"] else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true)
         try host.savePNG(to: directory.appendingPathComponent(name + ".png"))
+    }
+
+    func checkActiveRecordingFolder(state: AppState) throws {
+        state.modelSetup.phase = .ready
+        let meeting = Meeting(title: "Текущая запись", source: "Системный звук")
+        let folderName = "HR-встречи"
+        guard let folder = state.saveFolder(folderName) else {
+            throw PisaError.message("Не удалось создать папку для проверки переноса")
+        }
+        state.update(meeting)
+        state.beginRecordingSession(meeting, automatic: false)
+        let menu = MeetingActionSet(state: state, meeting: meeting).contextMenuItems
+        guard let submenu = menu.first(where: \.hasSubmenu)?.submenu,
+              let destination = submenu.item(withTitle: folderName) else {
+            throw PisaError.message("В меню записи нет папки для переноса")
+        }
+        let folderLabel = InterfaceLayoutElement.sidebarRecordingFolderName(meeting.id)
+        for (width, height, scale) in [(980, 660, 1.2), (1200, 800, 1.0)] {
+            scenario = "active recording folder \(width)×\(height), \(Int(scale * 100))%"
+            let host = LayoutHost(MainView().environmentObject(state), size: CGSize(width: width, height: height), scale: scale)
+            defer { host.close() }
+            if state.folderFilter != nil { state.openFolder() }
+            state.move(meeting, to: nil)
+            host.settle()
+            check(host.frames[folderLabel] == nil, "unfiled recording has no folder name")
+            submenu.performActionForItem(at: submenu.index(of: destination))
+            let saved = try state.library.read(meeting.id)
+            check(saved.folderID == folder && state.recordingMeetingID == meeting.id, "the folder move was saved while recording continued")
+            if let measured = frames([.sidebarRecording(meeting.id), folderLabel], in: host) {
+                check(measured[0].contains(measured[1]), "folder name fits within the active recording row")
+            }
+            try saveScreenshot("active-recording-folder-\(width)-\(Int(scale * 100))", in: host)
+            state.openFolder(folder)
+            check(state.filtered.map(\.id) == [meeting.id], "the active recording appears in the destination folder")
+        }
     }
 
     func checkScreens(state: AppState) throws {
