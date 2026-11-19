@@ -465,7 +465,7 @@ actor Transcriber {
                             let inferenceStarted = ContinuousClock.now
                             let recognized = try await recognize(regionSamples, expandedSamples: expandedSamples, model: model,
                                 russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic,
-                                isRemote: url.lastPathComponent.contains("-remote."), diagnostic: collectDiagnostics ? (speech.lowerBound, url.lastPathComponent) : nil)
+                                diagnostic: collectDiagnostics ? (speech.lowerBound, url.lastPathComponent) : nil)
                             try await performance.pace(after: inferenceStarted)
                             guard let recognized else { continue }
                             let speaker = isMic ? "Я" : TranscriptSegment.unidentifiedSpeaker
@@ -1130,7 +1130,7 @@ actor Transcriber {
         return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
     }
 
-    private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: ParakeetRecognitionSession, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool, isRemote: Bool = false,
+    private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: ParakeetRecognitionSession, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool,
                            diagnostic: (start: Double, track: String)? = nil) async throws -> RecognizedSpeech? {
         let recognitionTiming = beginPerformanceInterval()
         defer { endPerformanceInterval(recognitionTiming, kind: "recognizeTotal") }
@@ -1196,6 +1196,7 @@ actor Transcriber {
         let isRussian = ParakeetRecognitionPolicy.hasRussianTextEvidence(primaryText)
         var acoustic = isRussian ? spellingEvidence : nil
         var text = spokenVocabulary.apply(to: primaryText)
+        var uncertainLanguage = false
         guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
               !MeetingSpeechText.containsForeignLetters(text) else { return nil }
         try Task.checkCancellation()
@@ -1209,8 +1210,9 @@ actor Transcriber {
         // the acoustic recognizer then has to agree before context can use it.
         if BackchannelLanguage.shouldRecheckLexical(text, duration: duration, vocabulary: vocabulary) {
             let decoded = try await generate(language: nil, context: "")
-            if BackchannelLanguage.hasForeignLatinEvidence(language: decoded.language, text: decoded.text)
-                || BackchannelLanguage.confirmsLatinSource(original: text, reread: decoded.text) {
+            // A foreign language label can come from a different hallucination
+            // on the same short turn. Require the actual words to agree.
+            if BackchannelLanguage.confirmsLatinSource(original: text, reread: decoded.text) {
                 return RecognizedSpeech(text: text)
             }
             let independent = acousticRecognition(samples, using: russian)
@@ -1228,26 +1230,22 @@ actor Transcriber {
             if let alternative {
                 return RecognizedSpeech(text: text, russianLexical: alternative, acoustic: independent)
             }
-            if BackchannelLanguage.hasConflictingHesitation(original: text, duration: duration,
-                reread: decoded.text, corroboration: independent?.text) {
-                return RecognizedSpeech(text: text, uncertainLanguage: true, acoustic: independent)
-            }
-            // Echo residues can trigger VAD while containing no recoverable
-            // words. Two successful empty decodes make the text unconfirmed;
-            // retain its audio row, and let independent context mark uncertainty.
             if BackchannelLanguage.isBriefCyrillicSource(text, vocabulary: vocabulary) {
                 return RecognizedSpeech(text: text, acoustic: independent)
             }
-            if isMic || isRemote, BackchannelLanguage.hasNoSpeechEvidence(language: decoded.language,
+            // Keep a disputed Latin reading tentative until conversation
+            // context is available. Use padded microphone audio when both
+            // models abstain to give faint overlapping replies another chance.
+            uncertainLanguage = independent != nil
+            if isMic, BackchannelLanguage.hasNoSpeechEvidence(language: decoded.language,
                 text: decoded.text, corroboration: independent?.text) {
                 let retry = expandedSamples ?? BackchannelLanguage.retryAudio(samples)
                 let checked = try await generate(language: nil, context: "", audioSamples: retry)
                 let confirmation = acousticRecognition(retry, using: russian)
-                if BackchannelLanguage.hasForeignLatinEvidence(language: checked.language, text: checked.text)
-                    || BackchannelLanguage.confirmsLatinSource(original: text, reread: checked.text) {
+                if BackchannelLanguage.confirmsLatinSource(original: text, reread: checked.text) {
                     return RecognizedSpeech(text: text, acoustic: confirmation)
                 }
-                if isMic, checked.language?.lowercased() == "russian",
+                if checked.language?.lowercased() == "russian",
                    let alternative = BackchannelLanguage.lexicalAlternative(original: text,
                        russian: spokenVocabulary.apply(to: checked.text), corroboration: confirmation?.text, vocabulary: vocabulary) {
                     return RecognizedSpeech(text: text, russianLexical: alternative, acoustic: confirmation)
@@ -1276,7 +1274,7 @@ actor Transcriber {
                         corroboration: independent, vocabulary: vocabulary)
                 }
             }
-            return RecognizedSpeech(text: text, russianBackchannel: alternative, acoustic: acoustic)
+            return RecognizedSpeech(text: text, russianBackchannel: alternative, uncertainLanguage: uncertainLanguage, acoustic: acoustic)
         }
         // Diarization can leave a complete lexical reply shorter than two
         // seconds, or clip its last syllable during an overlapping next turn.
@@ -1392,9 +1390,9 @@ actor Transcriber {
                 text = revised
             }
         }
-        return RecognizedSpeech(text: text, acoustic: acoustic)
+        return RecognizedSpeech(text: text, uncertainLanguage: uncertainLanguage, acoustic: acoustic)
         } catch is ParakeetRecognitionSession.VerifierUnavailable {
-            return RecognizedSpeech(text: text, acoustic: acoustic)
+            return RecognizedSpeech(text: text, uncertainLanguage: uncertainLanguage, acoustic: acoustic)
         }
     }
 }

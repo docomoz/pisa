@@ -217,19 +217,6 @@ final class BackchannelLanguageTests: XCTestCase {
     }
 
     func testConflictingSubsecondHesitationRetainsAudioWithoutInventingAnEnglishWord() {
-        XCTAssertTrue(BackchannelLanguage.hasConflictingHesitation(original: "Well.", duration: 0.4,
-            reread: "嗯。", corroboration: "Ой."))
-        XCTAssertTrue(BackchannelLanguage.hasConflictingHesitation(original: "Well", duration: 0.6,
-            reread: "我。", corroboration: ""))
-        XCTAssertFalse(BackchannelLanguage.hasConflictingHesitation(original: "Well.", duration: 0.4,
-            reread: "Well.", corroboration: "Ой."))
-        XCTAssertFalse(BackchannelLanguage.hasConflictingHesitation(original: "Well.", duration: 0.4,
-            reread: "嗯。", corroboration: nil))
-        XCTAssertFalse(BackchannelLanguage.hasConflictingHesitation(original: "Well.", duration: 0.4,
-            reread: "嗯。", corroboration: "Хорошо."))
-        XCTAssertFalse(BackchannelLanguage.hasConflictingHesitation(original: "Listen.", duration: 0.4,
-            reread: "我。", corroboration: ""))
-
         let russian = segment(1, "Давайте вернёмся к обсуждению проекта", mic: false)
         let english = segment(1, "Please send the report before Friday", mic: false)
         var hesitation = segment(4, "Well.", mic: false)
@@ -248,18 +235,6 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: "None", text: "", corroboration: "да"))
         for text in ["Угу.", "Well.", "好。"] {
             XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: "None", text: text, corroboration: ""), text)
-        }
-    }
-
-    func testIndependentForeignEvidenceRequiresExplicitLanguageAndLatinSpeech() {
-        XCTAssertTrue(BackchannelLanguage.hasForeignLatinEvidence(language: "English", text: "It's all right."))
-        XCTAssertTrue(BackchannelLanguage.hasForeignLatinEvidence(language: "en", text: "Beyoncé sang 2 songs."))
-        XCTAssertTrue(BackchannelLanguage.hasForeignLatinEvidence(language: "French", text: "À bientôt."))
-        XCTAssertTrue(BackchannelLanguage.hasForeignLatinEvidence(language: "Spanish", text: "Hasta mañana."))
-        XCTAssertFalse(BackchannelLanguage.hasForeignLatinEvidence(language: "None", text: "Text."))
-        for (language, text) in [(nil, "Well."), ("Russian", "Good."), ("English", "…"), ("en", "2026"),
-                                 ("English", "Да."), ("en", "Good, да."), ("English", "好。")] {
-            XCTAssertFalse(BackchannelLanguage.hasForeignLatinEvidence(language: language, text: text), text)
         }
     }
 
@@ -298,13 +273,15 @@ final class BackchannelLanguageTests: XCTestCase {
         }
     }
 
-    func testRemoteAbstentionNeedsSubstantialOverlappingMicrophoneSpeech() {
+    func testDisputedRemoteTurnUsesNearbySameTrackLanguageWithoutMicrophoneOverlap() {
         let remote = segment(14, "Let me check later.", mic: false)
         let russian = segment(11, "Давайте обсудим следующий вопрос проекта")
-        var briefOverlap = russian
-        briefOverlap.end = 14.2
         let sameTrack = segment(14, russian.text, mic: false)
-        for other in [russian, briefOverlap, sameTrack, segment(14, "Hmm."), segment(14, "We could discuss the next question.")] {
+        var unclear = remote
+        unclear.text = "Неразборчиво"
+        XCTAssertEqual(BackchannelLanguage.resolve([remote], alternatives: [:], uncertain: [remote.id],
+            preceding: [sameTrack]), [unclear])
+        for other in [segment(14, "Hmm."), segment(14, "We could discuss the next question.")] {
             let result = BackchannelLanguage.resolve([remote], alternatives: [:], uncertain: [remote.id], preceding: [other])
             XCTAssertEqual(result, [remote])
         }

@@ -89,30 +89,6 @@ enum BackchannelLanguage {
             && corroboration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// A subsecond hesitation can acquire a different spelling from each
-    /// model. Unsupported letters and silence or another interjection do not
-    /// corroborate a lexical English reading.
-    static func hasConflictingHesitation(original: String, duration: Double,
-                                        reread: String, corroboration: String?) -> Bool {
-        guard isBriefHesitation(original, duration: duration), MeetingSpeechText.containsForeignLetters(reread),
-              let corroboration else { return false }
-        return RussianRecognition.words(corroboration).allSatisfy {
-            russianFillers.contains($0) || ["ой", "ох", "эх"].contains($0)
-        }
-    }
-
-    private static func isBriefHesitation(_ text: String, duration: Double) -> Bool {
-        guard (0...1).contains(duration) else { return false }
-        let words = RussianRecognition.words(text)
-        return words.count == 1 && (englishVocalizations.contains(words[0]) || words[0] == "well")
-    }
-
-    static func hasForeignLatinEvidence(language: String?, text: String) -> Bool {
-        let language = language?.lowercased()
-        guard let language, !["", "none", "unknown", "und", "russian", "ru"].contains(language) else { return false }
-        return latinSpeech.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
-    }
-
     /// Independent agreement preserves foreign Latin speech regardless of its
     /// language label. Punctuation and case do not change the spoken words.
     static func confirmsLatinSource(original: String, reread: String) -> Bool {
@@ -211,14 +187,6 @@ enum BackchannelLanguage {
         return segments.map { segment in
             guard let alternative = replacements[segment.id] else { return segment }
             func gap(_ anchor: TranscriptSegment) -> Double { max(0, max(anchor.start - segment.end, segment.start - anchor.end)) }
-            if unconfirmed.contains(segment.id), track(segment) != "mic",
-               !isBriefHesitation(segment.text, duration: segment.end - segment.start) {
-                let minimumOverlap = (segment.end - segment.start) / 2
-                guard track(segment) == "remote", minimumOverlap > 0, anchors.contains(where: {
-                    $0.russian && track($0.segment) == "mic"
-                        && min(segment.end, $0.segment.end) - max(segment.start, $0.segment.start) >= minimumOverlap
-                }) else { return segment }
-            }
             let nearby = anchors.filter { $0.segment.id != segment.id && gap($0.segment) <= 60 }
             let sameTrack = nearby.filter { track($0.segment) == track(segment) }
             let relevant = sameTrack.isEmpty ? nearby : sameTrack
