@@ -61,7 +61,7 @@ private func restorePointingCursor(over view: NSView) {
 func nativeActionMenu(items: [NSMenuItem], minimumWidth: CGFloat = 0) -> NSMenu {
     let menu = PointingActionMenu()
     menu.autoenablesItems = false
-    menu.showsStateColumn = false
+    menu.showsStateColumn = items.contains { $0.state != .off }
     menu.minimumWidth = minimumWidth
     menu.items = items
     return menu

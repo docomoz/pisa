@@ -276,6 +276,44 @@ final class InterfacePreview: NSObject {
         guard (try? state.library.read(deleted.id)) == nil else { throw PisaError.message("Запись осталась на диске") }
     }
 
+    static func testFolderMenuSelection() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Folder-Menu-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        guard let work = state.saveFolder("Работа"), state.saveFolder("Планы") != nil else {
+            throw PisaError.message("Не удалось создать папки для проверки меню")
+        }
+        var meeting = Meeting(title: "Проверка меню папок", source: "Аудио")
+        meeting.status = .ready
+        state.update(meeting)
+        _ = NSApplication.shared
+
+        func checkedMenus(marking title: String) throws -> (sidebar: NSMenu, details: NSMenu) {
+            let saved = try state.library.read(meeting.id)
+            let actions = MeetingActionSet(state: state, meeting: saved)
+            guard let sidebar = actions.contextMenuItems.first(where: \.hasSubmenu)?.submenu else {
+                throw PisaError.message("В контекстном меню нет списка папок")
+            }
+            let details = nativeActionMenu(items: actions.folderMenuItems(beforeNewFolder: {}))
+            for (menu, location) in [(sidebar, "сайдбар"), (details, "детали встречи")] {
+                guard menu.showsStateColumn,
+                      menu.items.filter({ $0.state == .on }).map(\.title) == [title] else {
+                    throw PisaError.message("\(location): нужна галочка только у пункта «\(title)»")
+                }
+            }
+            return (sidebar, details)
+        }
+
+        let initial = try checkedMenus(marking: "Без папки")
+        initial.sidebar.performActionForItem(at: initial.sidebar.indexOfItem(withTitle: "Работа"))
+        guard try state.library.read(meeting.id).folderID == work else {
+            throw PisaError.message("Контекстное меню не переместило встречу в папку")
+        }
+        let moved = try checkedMenus(marking: "Работа")
+        moved.details.performActionForItem(at: moved.details.indexOfItem(withTitle: "Без папки"))
+        _ = try checkedMenus(marking: "Без папки")
+    }
+
     static func testQueue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Queue-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

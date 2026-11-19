@@ -108,18 +108,6 @@ struct LibrarySidebar: View {
     @ViewBuilder
     private func recordingMetadata(_ meeting: Meeting, showsDate: Bool) -> some View {
         let folder = state.folders.first(where: { $0.id == meeting.folderID })
-        if let folder, state.recordingMeetingID == meeting.id {
-            VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
-                recordingMetadata(meeting, showsDate: showsDate, inlineFolder: nil)
-                recordingFolderLabel(folder, meetingID: meeting.id).screenHelp(folder.name)
-            }
-        } else {
-            recordingMetadata(meeting, showsDate: showsDate, inlineFolder: folder)
-        }
-    }
-
-    @ViewBuilder
-    private func recordingMetadata(_ meeting: Meeting, showsDate: Bool, inlineFolder folder: MeetingFolder?) -> some View {
         let metadata = HStack(spacing: PisaDesign.Spacing.none) {
             recordingTiming(meeting, showsDate: showsDate).layoutPriority(1)
             if let folder {
@@ -218,29 +206,20 @@ struct LibrarySidebar: View {
     }
 
     private func recordingFolder(_ folder: MeetingFolder, meetingID: UUID, iconOnly: Bool = false) -> some View {
-        ViewThatFits(in: .horizontal) {
+        let icon = Image(systemName: folder.iconName).imageScale(.small)
+        return ViewThatFits(in: .horizontal) {
             if !iconOnly {
                 HStack(spacing: PisaDesign.Spacing.inline) {
                     screenText("·")
-                    recordingFolderLabel(folder, meetingID: meetingID)
+                    icon
+                    screenText(folder.name)
                 }.padding(.leading, PisaDesign.Spacing.inline)
             }
             HStack(spacing: PisaDesign.Spacing.inline) {
                 screenText("·")
-                Image(systemName: folder.iconName).imageScale(.small).accessibilityLabel(screenText(folder.name))
-            }.padding(.leading, PisaDesign.Spacing.inline)
-            if !iconOnly {
-                Color.clear.frame(width: 0, height: 0)
-            }
-        }.screenHelp(folder.name)
-    }
-
-    private func recordingFolderLabel(_ folder: MeetingFolder, meetingID: UUID) -> some View {
-        HStack(spacing: PisaDesign.Spacing.inline) {
-            Image(systemName: folder.iconName).imageScale(.small).accessibilityHidden(true)
-            screenText(folder.name).truncationMode(.tail)
-                .measuredForInterfaceTest(.sidebarRecordingFolderName(meetingID))
-        }
+                icon.accessibilityLabel(screenText(folder.name))
+            }.padding(.leading, PisaDesign.Spacing.inline).fixedSize()
+        }.screenHelp(folder.name).measuredForInterfaceTest(.sidebarRecordingFolder(meetingID))
     }
 
     private struct FolderDrag {
@@ -422,7 +401,8 @@ struct MeetingActionSet {
     func folderMenuItems(beforeNewFolder: @escaping () -> Void) -> [NSMenuItem] {
         func folderItem(_ title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> NSMenuItem {
             let item = NativeActionMenuItem(title, perform: action)
-            item.image = NSImage(systemSymbolName: selected ? "checkmark" : icon, accessibilityDescription: nil)
+            item.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+            item.state = selected ? .on : .off
             return item
         }
         var items: [NSMenuItem] = [folderItem("Без папки", icon: "tray", selected: meeting.folderID == nil) { state.move(meeting, to: nil) }]

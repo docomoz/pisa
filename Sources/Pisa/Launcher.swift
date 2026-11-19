@@ -85,6 +85,7 @@ enum Launcher {
         if CommandLine.arguments.contains("--queue-self-test") {
             Task { @MainActor in
                 do {
+                    try InterfacePreview.testFolderMenuSelection()
                     try InterfacePreview.testQueue()
                     try InterfacePreview.testTrashQueuedRecording()
                     try await InterfacePreview.testQueuedTurboTranscription()

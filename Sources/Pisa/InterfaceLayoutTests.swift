@@ -11,7 +11,7 @@ enum InterfaceLayoutElement: Hashable {
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case sidebarRecording(UUID), sidebarTranscriptionStatus(UUID, String)
-    case sidebarRecordingFolderName(UUID)
+    case sidebarRecordingFolder(UUID)
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
@@ -366,7 +366,7 @@ private final class LayoutSuite {
     func checkActiveRecordingFolder(state: AppState) throws {
         state.modelSetup.phase = .ready
         let meeting = Meeting(title: "Текущая запись", source: "Системный звук")
-        let folderName = "HR-встречи"
+        let folderName = "Документы и рабочие созвоны"
         guard let folder = state.saveFolder(folderName) else {
             throw PisaError.message("Не удалось создать папку для проверки переноса")
         }
@@ -377,7 +377,8 @@ private final class LayoutSuite {
               let destination = submenu.item(withTitle: folderName) else {
             throw PisaError.message("В меню записи нет папки для переноса")
         }
-        let folderLabel = InterfaceLayoutElement.sidebarRecordingFolderName(meeting.id)
+        let recordingRow = InterfaceLayoutElement.sidebarRecording(meeting.id)
+        let folderLabel = InterfaceLayoutElement.sidebarRecordingFolder(meeting.id)
         for (width, height, scale) in [(980, 660, 1.2), (1200, 800, 1.0)] {
             scenario = "active recording folder \(width)×\(height), \(Int(scale * 100))%"
             let host = LayoutHost(MainView().environmentObject(state), size: CGSize(width: width, height: height), scale: scale)
@@ -385,12 +386,16 @@ private final class LayoutSuite {
             if state.folderFilter != nil { state.openFolder() }
             state.move(meeting, to: nil)
             host.settle()
-            check(host.frames[folderLabel] == nil, "unfiled recording has no folder name")
+            check(host.frames[folderLabel] == nil, "unfiled recording has no folder indicator")
+            let unfiledRow = frames([recordingRow], in: host)?.first
             submenu.performActionForItem(at: submenu.index(of: destination))
             let saved = try state.library.read(meeting.id)
             check(saved.folderID == folder && state.recordingMeetingID == meeting.id, "the folder move was saved while recording continued")
-            if let measured = frames([.sidebarRecording(meeting.id), folderLabel], in: host) {
-                check(measured[0].contains(measured[1]), "folder name fits within the active recording row")
+            if let measured = frames([recordingRow, folderLabel], in: host) {
+                check(measured[0].contains(measured[1]), "folder indicator fits within the active recording row")
+                if let unfiledRow {
+                    equal(measured[0].height, unfiledRow.height, "the folder indicator does not add a line")
+                }
             }
             try saveScreenshot("active-recording-folder-\(width)-\(Int(scale * 100))", in: host)
             state.openFolder(folder)
