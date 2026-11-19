@@ -54,21 +54,26 @@ struct MainView: View {
     private var footer: some View {
         HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
             if state.selected != nil {
-                screenLabel("Распознавание на этом Mac", systemImage: "lock.shield")
-                    .foregroundStyle(Color.mutedInk)
-                    .measuredForInterfaceTest(.recognitionFooterLabel)
+                Label {
+                    screenText("Распознавание на этом Mac")
+                        .measuredForInterfaceTest(.recognitionFooterLabel)
+                } icon: {
+                    Image(systemName: "lock.shield")
+                        .measuredForInterfaceTest(.recognitionFooterIcon)
+                }
+                .foregroundStyle(Color.mutedInk)
             }
             Spacer(minLength: PisaDesign.Spacing.none)
             if let installUpdate {
                 Button(action: installUpdate) {
-                    HStack(spacing: PisaDesign.Spacing.compact) {
+                    Label {
+                        screenText("Установить обновление")
+                            .measuredForInterfaceTest(.updateFooterLink)
+                    } icon: {
                         Image(systemName: "tray.and.arrow.down")
                             .imageScale(.small)
                             .accessibilityHidden(true)
                             .measuredForInterfaceTest(.updateFooterIcon)
-                        screenText("Установить обновление")
-                            .underline()
-                            .measuredForInterfaceTest(.updateFooterLink)
                     }
                     .foregroundStyle(canInstallUpdate ? Color.moss : Color.disabledInk)
                     .contentShape(Rectangle())
