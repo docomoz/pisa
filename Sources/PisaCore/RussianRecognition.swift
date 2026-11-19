@@ -275,9 +275,7 @@ enum RussianRecognition {
             let range = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
             let originalContext = original[source[left.source].range.upperBound..<source[right.source].range.lowerBound]
             let acousticContext = heard[evidence[left.heard].range.upperBound..<evidence[right.heard].range.lowerBound]
-            guard [originalContext, acousticContext].allSatisfy({ phrase in
-                phrase.first == " " && phrase.last == " " && phrase.allSatisfy { $0.isLetter || $0 == " " || "-‐‑".contains($0) }
-            }),
+            guard isSpellingRepairContext(originalContext), isSpellingRepairContext(acousticContext),
                   !protected.contains(where: { NSIntersectionRange($0, NSRange(range, in: original)).length > 0 }) else { continue }
             let replacement = heard[evidence[new.lowerBound].range.lowerBound..<evidence[new.upperBound - 1].range.upperBound]
             var result = original
@@ -286,6 +284,13 @@ enum RussianRecognition {
             repairs.append(CyrillicSpellingRepair(text: result, confirmedByRepetition: false, confirmation: .anchoredPhrase(phrase)))
         }
         return repairs.count == 1 ? repairs[0] : nil
+    }
+
+    private static func isSpellingRepairContext(_ phrase: Substring) -> Bool {
+        guard phrase.first == " ", phrase.last == " " else { return false }
+        return phrase.allSatisfy { (character: Character) in
+            character.isLetter || character == " " || "-‐‑".contains(character)
+        }
     }
 
     /// A shared-alphabet error such as "гатовы" carries no script signal.
