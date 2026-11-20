@@ -1,19 +1,34 @@
 import AppKit
 import Combine
+import os
 import ServiceManagement
 
-@MainActor
 private final class LoginItemProbe: LoginItemRegistration {
-    var status: SMAppService.Status = .notRegistered
-    var registrationResult: SMAppService.Status = .enabled
-    var rejectsRegistration = false
+    struct State {
+        var status: SMAppService.Status = .notRegistered
+        var registrationResult: SMAppService.Status = .enabled
+        var rejectsRegistration = false
+        var completedWrites = 0
+    }
+    let state = OSAllocatedUnfairLock(initialState: State())
+    var status: SMAppService.Status { state.withLock { $0.status } }
 
     func register() throws {
-        if rejectsRegistration { throw CocoaError(.fileWriteNoPermission) }
-        status = registrationResult
+        Thread.sleep(forTimeInterval: 0.4)
+        try state.withLock {
+            if $0.rejectsRegistration { throw CocoaError(.fileWriteNoPermission) }
+            $0.status = $0.registrationResult
+            $0.completedWrites += 1
+        }
     }
 
-    func unregister() throws { status = .notRegistered }
+    func unregister() throws {
+        Thread.sleep(forTimeInterval: 0.4)
+        state.withLock {
+            $0.status = .notRegistered
+            $0.completedWrites += 1
+        }
+    }
 }
 
 // Keep the real status-menu controller; replace audio and library services for this layout probe.
@@ -65,7 +80,8 @@ enum StatusBarMenuProbe {
         var settingsOpens = 0
         let launchAtLogin = LaunchAtLogin(service: loginItem, openSettings: { settingsOpens += 1 })
         let state = AppState(launchAtLogin: launchAtLogin)
-        let controller = StatusBarController(state: state, openMain: {})
+        var mainWindowOpens = 0
+        let controller = StatusBarController(state: state, openMain: { mainWindowOpens += 1 })
         let menu = Mirror(reflecting: controller).children.compactMap { $0.value as? NSMenu }.first!
         let automatic = menu.items.first { $0.title == "Автоматическая запись" }!
         guard menu.items.count >= 3, menu.items[0].title == "Открыть Pisa",
@@ -76,40 +92,89 @@ enum StatusBarMenuProbe {
             fputs("FAIL: the login checkbox must follow Open Pisa, before the first separator\n", stderr)
             exit(1)
         }
+        func wait(in mode: RunLoop.Mode = .default, for condition: () -> Bool) -> Bool {
+            let timer = Timer(timeInterval: 0.01, repeats: true) { _ in }
+            RunLoop.main.add(timer, forMode: mode)
+            defer { timer.invalidate() }
+            let deadline = Date().addingTimeInterval(3)
+            while !condition(), Date() < deadline {
+                RunLoop.main.run(mode: mode, before: deadline)
+            }
+            return condition()
+        }
+        func clickLogin() {
+            let start = ContinuousClock.now
+            NSApp.sendAction(loginAction, to: loginControl.target, from: loginControl)
+            let elapsed = start.duration(to: .now)
+            print("LOGIN_MENU_CLICK \(elapsed)")
+            guard elapsed < .milliseconds(200) else {
+                fputs("FAIL: the menu click waited \(elapsed) for the system login item\n", stderr)
+                exit(1)
+            }
+        }
         controller.menuWillOpen(menu)
         let loginMenuSize = menu.size
         for expected in [true, false] {
-            NSApp.sendAction(loginAction, to: loginControl.target, from: loginControl)
+            clickLogin()
             guard launchAtLogin.isEnabled == expected,
                   loginControl.state == (expected ? .on : .off), menu.size == loginMenuSize,
-                  !state.preferences.automaticRecording else {
+                  !state.preferences.automaticRecording,
+                  wait(in: .eventTracking, for: { launchAtLogin.status == (expected ? .enabled : .notRegistered) }) else {
                 fputs("FAIL: the login checkbox must toggle the system setting in place\n", stderr)
                 exit(1)
             }
         }
         controller.menuDidClose(menu)
-        loginItem.status = .enabled
+        loginItem.state.withLock { $0.status = .enabled }
         controller.menuWillOpen(menu)
-        guard loginControl.state == .on else {
+        guard wait(for: { loginControl.state == .on }) else {
             fputs("FAIL: reopening the menu must read changes made in System Settings\n", stderr)
             exit(1)
         }
         launchAtLogin.setEnabled(false)
-        guard loginControl.state == .off else {
+        guard loginControl.state == .off, wait(for: { launchAtLogin.status == .notRegistered }) else {
             fputs("FAIL: changes from the settings toggle must update the menu checkbox\n", stderr)
             exit(1)
         }
-        loginItem.registrationResult = .requiresApproval
-        NSApp.sendAction(loginAction, to: loginControl.target, from: loginControl)
-        guard loginControl.state == .off, !launchAtLogin.isEnabled, settingsOpens == 1 else {
+        loginItem.state.withLock { $0.registrationResult = .requiresApproval }
+        clickLogin()
+        guard loginControl.state == .on,
+              wait(in: .eventTracking, for: { settingsOpens == 1 }),
+              loginControl.state == .off, !launchAtLogin.isEnabled else {
             fputs("FAIL: pending system approval must leave the checkbox off and open Login Items\n", stderr)
             exit(1)
         }
+        launchAtLogin.setEnabled(false)
+        guard wait(for: { launchAtLogin.status == .notRegistered }) else {
+            fputs("FAIL: a pending login item can be unregistered\n", stderr)
+            exit(1)
+        }
+        let writes = loginItem.state.withLock { $0.completedWrites }
+        clickLogin()
+        clickLogin()
+        var canQuit = false
+        Task { @MainActor in
+            await launchAtLogin.waitForPendingChange()
+            canQuit = true
+        }
+        guard loginControl.state == .off, launchAtLogin.hasPendingChange,
+              wait(for: { canQuit }), loginItem.state.withLock({ $0.completedWrites == writes + 2 }),
+              loginItem.status == .notRegistered, loginControl.state == .off, settingsOpens == 1 else {
+            fputs("FAIL: a quick reversal must apply the last click before quit and skip obsolete approval\n", stderr)
+            exit(1)
+        }
+        loginItem.state.withLock { $0.rejectsRegistration = true }
+        clickLogin()
+        guard loginControl.state == .on,
+              wait(in: .eventTracking, for: { mainWindowOpens == 1 }),
+              !launchAtLogin.isEnabled, state.message == launchAtLogin.error, loginControl.state == .off else {
+            fputs("FAIL: a menu error must restore the checkmark and open the app with the error\n", stderr)
+            exit(1)
+        }
         controller.menuDidClose(menu)
-        loginItem.status = .notRegistered
-        loginItem.rejectsRegistration = true
         launchAtLogin.setEnabled(true)
-        guard !launchAtLogin.isEnabled, launchAtLogin.error != nil, loginControl.state == .off else {
+        guard launchAtLogin.isEnabled, wait(for: { launchAtLogin.error != nil }),
+              !launchAtLogin.isEnabled, loginControl.state == .off, mainWindowOpens == 1 else {
             fputs("FAIL: registration failure must keep the previous setting and report the error\n", stderr)
             exit(1)
         }

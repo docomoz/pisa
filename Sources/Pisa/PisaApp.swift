@@ -170,9 +170,10 @@ final class PisaDelegate: NSObject, NSApplicationDelegate {
             sender.windows.first?.makeKeyAndOrderFront(nil)
             return .terminateCancel
         }
-        if state.modelSetup.busy {
+        if state.modelSetup.busy || state.launchAtLogin.hasPendingChange {
             Task { @MainActor in
-                await state.modelSetup.cancelAndWait()
+                if state.modelSetup.busy { await state.modelSetup.cancelAndWait() }
+                await state.launchAtLogin.waitForPendingChange()
                 sender.reply(toApplicationShouldTerminate: true)
             }
             return .terminateLater
