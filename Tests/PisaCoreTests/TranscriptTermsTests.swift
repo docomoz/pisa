@@ -263,6 +263,30 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertEqual(TranscriptTerms.matches("think", in: segments).count, 3)
     }
 
+    func testHyphenatedDescriptionsDoNotCompeteWithTermCandidates() {
+        let descriptions = ["HR-департамент", "HR-история", "KPI-таблиц", "KPI‐таблицам", "KPI‑таблице",
+                            "KPI-таблицу", "ЗП-шки", "3D-элементы", "Product-лидом", "топ-5", "TOP‑100"]
+        let segments = [segment("Обсудили " + descriptions.joined(separator: ", ") + "."),
+                        segment("Ещё созвонимся-синканёмся, завтра созвонимся-синканёмся."),
+                        segment("Проверили Wi-Fi, Qwen3-ASR, 1-Wire и сервис Пиксель-Пэй.")]
+
+        for vocabulary in ["", "HR, KPI, ЗП"] {
+            let candidates = TranscriptTerms.candidates(in: segments, vocabulary: vocabulary)
+            let noise = Set(candidates.map(\.observedLabel)).intersection(descriptions + ["созвонимся-синканёмся"])
+            XCTAssertTrue(noise.isEmpty, "\(noise)")
+            XCTAssertTrue(Set(["Wi-Fi", "Qwen3-ASR", "1-Wire", "Пиксель-Пэй"]).isSubset(of: candidates.map(\.text)))
+            for word in descriptions {
+                XCTAssertEqual(TranscriptTerms.matches(word, in: segments, vocabulary: vocabulary).map(\.text), [word])
+            }
+        }
+    }
+
+    func testEnglishAcknowledgementsInSavedTranscriptsAreSearchableButNotSuggested() {
+        let segments = [segment("Mm-hmm. Mm-hmm, mm-hmm. Uh‑huh. Uh‑huh. А потом Hmm.")]
+        XCTAssertTrue(TranscriptTerms.candidates(in: segments, vocabulary: "").isEmpty)
+        XCTAssertEqual(TranscriptTerms.matches("mm-hmm", in: segments).map(\.text), ["Mm-hmm", "Mm-hmm", "mm-hmm"])
+    }
+
     func testCandidatesSkipSystemPlanningTermsAndKeepManualSearch() {
         let segments = [segment("Обсудили Q1, Q2, Q3 и q4, затем Roadmap и Challenge. Сравнили роудмап, челлендж и кью три. Открыли API и Qwen3-ASR.")]
         XCTAssertEqual(Set(TranscriptTerms.candidates(in: segments, vocabulary: "").map(\.text)), ["API", "Qwen3-ASR"])

@@ -2,6 +2,15 @@ import XCTest
 @testable import PisaCore
 
 final class SpokenVocabularyTests: XCTestCase {
+    func testShortCompanyNamesDoNotOverrideBackchannelsOrUnrelatedShortWords() {
+        let names = SpokenVocabulary("Okko, Siri")
+        for reply in ["Okay.", "Ака.", "Ага.", "Mm-hmm, mm-hmm. Okay.", "Okay, let's continue.", "Окей, обсудим."] {
+            XCTAssertEqual(names.apply(to: reply), reply)
+        }
+        XCTAssertEqual(names.apply(to: "Смотрели в Окко. Открыли Okko."), "Смотрели в Okko. Открыли Okko.")
+        XCTAssertEqual(SpokenVocabulary("Okay, Okko").apply(to: "Okay."), "Okay.")
+    }
+
     func testBuiltInTechnologyTermsNormalizeWithEmptyUserVocabulary() {
         let vocabulary = SpokenVocabulary("")
         let text = "Для битуби-рынка обсудили пи ар ди, эй-пи-ай и эс дэ ка. Для би ту си — эм ви пи, оу кей ар и эн пи эс."

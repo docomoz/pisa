@@ -45,8 +45,8 @@ public enum TranscriptTerms {
     private static let word = try! NSRegularExpression(
         pattern: leadingBoundary + #"[\p{L}\p{N}][\p{L}\p{M}\p{N}\-‐‑]*(?:['’][\p{L}\p{M}\p{N}]+)*"# + trailingBoundary
     )
-    private static let russianOrdinalNumeral = try! NSRegularExpression(
-        pattern: #"\A\p{Nd}+[-‐‑](?:[йяеюмх]|го|му|ми)\z"#, options: .caseInsensitive
+    private static let numericExpression = try! NSRegularExpression(
+        pattern: #"\A(?:\p{Nd}+[-‐‑](?:[йяеюмх]|го|му|ми)|(?:топ|top)[-‐‑]\p{Nd}+)\z"#, options: .caseInsensitive
     )
     private static let russianSurname = try! NSRegularExpression(pattern:
         #"\A[а-я]{2,}(?:(?:ов|ев|ин|ын)(?:а|у|е|ым|ой|ою|ых|ыми)?|(?:ск|цк)(?:ий|ая|ого|ому|им|ом|ой|ую|ие|их|ими))\z"#)
@@ -138,7 +138,8 @@ public enum TranscriptTerms {
                     if (2...48).contains(token.count), token.contains(where: \.isLetter),
                        !plainFunctionWord, !known.contains(key(token)), families.known(token) == nil,
                        !TechnologyVocabulary.isHiddenFromCandidates(token),
-                       russianOrdinalNumeral.firstMatch(in: token, range: NSRange(location: 0, length: match.range.length)) == nil {
+                       !isDescriptiveCompound(token), !isSpokenFiller(token),
+                       numericExpression.firstMatch(in: token, range: NSRange(location: 0, length: match.range.length)) == nil {
                         let family = families.form(token)
                         eligibleForms.updateValue((key(family?.base ?? token), family), forKey: token)
                     } else {
@@ -491,6 +492,24 @@ public enum TranscriptTerms {
         return parts.count > 1 && parts.allSatisfy { !$0.isEmpty && isCommonRussianWord(String($0)) }
     }
 
+    /// Written abbreviations and foreign modifiers combine freely with Russian
+    /// words. Their case forms do not establish a new name for each compound.
+    private static func isDescriptiveCompound(_ token: String) -> Bool {
+        guard let hyphen = token.lastIndex(where: { "-‐‑".contains($0) }) else { return false }
+        let head = token[..<hyphen]
+        let tail = token[token.index(after: hyphen)...]
+        guard !head.isEmpty, !tail.isEmpty, tail.allSatisfy(\.isLowercase),
+              AbbreviationFamilies.isBase(String(head)) || head.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) })
+        else { return false }
+        let word = entityKey(String(tail))
+        return isCommonRussianWord(word) || TechnologyVocabulary.russianEndings.contains(word)
+    }
+
+    private static func isSpokenFiller(_ token: String) -> Bool {
+        token.first?.isASCII == true && token.first?.isLetter == true && !AbbreviationFamilies.isBase(token)
+            && BackchannelLanguage.russianSpelling(ofFiller: token) != nil
+    }
+
     private static func hasPersonNameShape(_ word: String, key: String, in text: String, at range: Range<String.Index>) -> Bool {
         // A speaker name can run into a role separated by a hyphen.
         let parts = word.split(whereSeparator: { "-‐‑".contains($0) })
@@ -589,7 +608,7 @@ public enum TranscriptTerms {
            !sentenceBreaks.contains(previous) {
             return 3
         }
-        if token.contains(where: { "-‐‑".contains($0) }) ||
+        if (letters.contains(where: \.isUppercase) && token.contains(where: { "-‐‑".contains($0) })) ||
             (token.count >= 4 && token.allSatisfy({ $0.isASCII && $0.isLetter })) {
             return 1
         }

@@ -235,6 +235,100 @@ enum RussianRecognition {
             ?? anchoredCyrillicSpelling(original: original, heard: heard, vocabulary: vocabulary)
     }
 
+    // Parakeet can mix scripts within an otherwise Russian word, or spell
+    // the conjunction with Cyrillic І. A Latin I by itself can be a numeral.
+    private static let suspectI = try! NSRegularExpression(pattern: #"(?i)(?<![\p{L}\p{N}])i(?=[а-яё])"#)
+
+    static func needsScriptSpellingCheck(_ text: String) -> Bool {
+        ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text)
+            || (text.contains("I") || text.contains("i"))
+                && suspectI.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
+    private static func russianLetters(_ word: String) -> String {
+        String(word.map { letter in
+            switch letter {
+            case "і", "ї", "i": return "и"
+            case "І", "Ї", "I": return "И"
+            case "є": return "е"
+            case "Є": return "Е"
+            default: return letter
+            }
+        })
+    }
+
+    /// Keep punctuation and all unrelated words from the primary. Agreement
+    /// on a unique adjacent pair in both independent decodes suffices even
+    /// when a stutter or different wording prevents whole-turn alignment.
+    struct LocalScriptRepair {
+        fileprivate struct Edit {
+            let range: NSRange
+            let spelling: String
+            let pairs: [String]
+        }
+        fileprivate let original: String
+        fileprivate let edits: [Edit]
+
+        func confirmedText(language: String?, reread: String) -> String? {
+            guard language?.lowercased() == "russian" else { return nil }
+            let pairs = adjacentWordPairs(in: reread, tokens: tokens(in: reread))
+            let unique = uniquePairs(pairs)
+            let revised = NSMutableString(string: original)
+            for edit in edits.reversed() where !unique.isDisjoint(with: edit.pairs) {
+                revised.replaceCharacters(in: edit.range, with: edit.spelling)
+            }
+            return revised as String == original ? nil : revised as String
+        }
+    }
+
+    // Each entry corresponds to the gap after the token at that index. Do
+    // not use words across sentence boundaries, links or quotations as anchors.
+    private static func adjacentWordPairs(in text: String, tokens: [Token], repairLetters: Bool = false) -> [String?] {
+        let literals = TranscriptOrthography.literalRanges(in: text)
+        return zip(tokens, tokens.dropFirst()).map { left, right in
+            let gap = text[left.range.upperBound..<right.range.lowerBound]
+            let span = NSRange(left.range.lowerBound..<right.range.upperBound, in: text)
+            guard !gap.isEmpty, gap.allSatisfy({ $0 == "," || ($0.isWhitespace && !$0.isNewline) }),
+                  !literals.contains(where: { NSIntersectionRange($0, span).length > 0 }) else { return nil }
+            let pair = left.key + " " + right.key
+            return repairLetters ? russianLetters(pair) : pair
+        }
+    }
+
+    private static func uniquePairs(_ pairs: [String?]) -> Set<String> {
+        let grouped = Dictionary(grouping: pairs.compactMap { $0 }, by: { $0 })
+        return Set(grouped.compactMap { $0.value.count == 1 ? $0.key : nil })
+    }
+
+    static func localScriptSpelling(original: String, heard: String, vocabulary: String) -> LocalScriptRepair? {
+        let source = tokens(in: original)
+        let pairs = adjacentWordPairs(in: original, tokens: source, repairLetters: true)
+        let sourcePairs = uniquePairs(pairs)
+        let heardPairs = uniquePairs(adjacentWordPairs(in: heard, tokens: tokens(in: heard)))
+        let glossary = TranscriptOrthography.glossaryRanges(in: original, vocabulary: vocabulary, range: NSRange(original.startIndex..., in: original))
+        let attached = "_/@\\-‐‑'’+#"
+        var edits: [LocalScriptRepair.Edit] = []
+        for (i, token) in source.enumerated() {
+            let spelling = russianLetters(token.text)
+            guard spelling != token.text, needsScriptSpellingCheck(token.text),
+                  token.key == "і" || token.key.count >= 3,
+                  TranscriptTerms.isCommonRussianWord(russianLetters(token.key)) || token.key == "і",
+                  original[..<token.range.lowerBound].last.map(attached.contains) != true,
+                  original[token.range.upperBound...].first.map(attached.contains) != true else { continue }
+            let range = NSRange(token.range, in: original)
+            guard !glossary.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { continue }
+            let anchors = [i - 1, i + 1].compactMap { neighbor -> String? in
+                guard source.indices.contains(neighbor), source[neighbor].key.count >= 2,
+                      TranscriptTerms.isCommonRussianWord(source[neighbor].key),
+                      let pair = pairs[min(i, neighbor)],
+                      sourcePairs.contains(pair), heardPairs.contains(pair) else { return nil }
+                return pair
+            }
+            if !anchors.isEmpty { edits.append(.init(range: range, spelling: spelling, pairs: anchors)) }
+        }
+        return edits.isEmpty ? nil : LocalScriptRepair(original: original, edits: edits)
+    }
+
     /// When the recognizers disagree elsewhere in a mixed turn, recover a
     /// damaged phrase between words occurring just once in each audio reading.
     private static func anchoredCyrillicSpelling(original: String, heard: String, vocabulary: String,

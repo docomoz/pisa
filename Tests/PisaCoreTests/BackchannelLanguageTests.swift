@@ -115,7 +115,7 @@ final class BackchannelLanguageTests: XCTestCase {
             ("Uh.", "Аааа."), ("Um.", "Ааа."), ("Ah!", "А!"), ("Hmm?", "Хм?"),
             ("Uh-huh.", "Угу."), ("Mhm.", "Угу."), ("Yeah.", "Да."), ("Yep.", "Да."),
             ("Yes.", "Да."), ("Da da da.", "Да, да, да."), ("Okay.", "Окей."), ("Sorry.", "Сорри."),
-            ("Uh-huh, yeah.", "Угу, да."),
+            ("Uh-huh, yeah.", "Угу, да."), ("Yeah,", "Да,"),
             ("Uh-huh, uh-huh.", "Угу, угу."),
         ] {
             let short = segment(30, original, mic: false)
@@ -140,6 +140,65 @@ final class BackchannelLanguageTests: XCTestCase {
             let speech = segment(30, text)
             XCTAssertEqual(BackchannelLanguage.resolve([speech], alternatives: [:], preceding: [russian])[0].text, text)
         }
+    }
+
+    func testClippedQuestionAndNamesDoNotHideAcknowledgmentsInRussianConversation() {
+        var discussion = segment(10, "Давайте проверим сроки и обсудим наши дальнейшие действия.")
+        discussion.end = 30
+        let single = segment(13, "Mm-hmm.", mic: false)
+        let fragment = segment(15, "Is this", mic: false)
+        let named = segment(18, "Иван Петров — это кто?", mic: false)
+        let repeated = segment(20, "Mm-hmm, mm-hmm.", mic: false)
+        let acknowledgment = segment(24, "Ajá.", mic: false)
+        let result = BackchannelLanguage.resolve([single, fragment, named, repeated, acknowledgment],
+            alternatives: [:], preceding: [discussion])
+        XCTAssertEqual(result.map(\.text), ["Угу.", "Is this", named.text, "Угу, угу.", "Ага."])
+        let jargon = segment(12, "Ой, я уже как бы протранслировал это в текущем состоянии доапрува.", mic: false)
+        XCTAssertEqual(BackchannelLanguage.resolve([single], alternatives: [:], preceding: [jargon])[0].text, "Угу.")
+
+        for foreign in ["Is this?", "Are you ready?", "¿Puedes revisar el informe mañana?"] {
+            let anchor = segment(12, foreign, mic: false)
+            XCTAssertEqual(BackchannelLanguage.resolve([single, acknowledgment], alternatives: [:],
+                preceding: [discussion, anchor]), [single, acknowledgment], foreign)
+        }
+        XCTAssertEqual(BackchannelLanguage.resolve([acknowledgment], alternatives: [:], preceding: []), [acknowledgment])
+        for literal in ["«Ajá.»", "Ajá, seguimos mañana."] {
+            let quoted = segment(16, literal, mic: false)
+            XCTAssertEqual(BackchannelLanguage.resolve([quoted], alternatives: [:], preceding: [discussion]), [quoted])
+        }
+    }
+
+    func testIndependentEquivalentAcknowledgmentsPreserveEverySoundAndSentenceBoundary() {
+        let primary = "Mm-hmm, mm hmm. Okay."
+        XCTAssertTrue(BackchannelLanguage.confirmsFillerSequence(original: primary, reread: "Uh huh. Uh huh. Okay.", corroboration: "Угу, угу. О'кей."))
+        XCTAssertTrue(BackchannelLanguage.confirmsFillerSequence(original: "Okay.", reread: "okei.", corroboration: "О’кей."))
+        for (reread, acoustic) in [("Uh huh. Okay.", "Угу, угу. Окей."), ("Uh huh. Uh huh. Okay.", "Окей."), ("Is this?", "Угу, угу. Окей.")] {
+            XCTAssertFalse(BackchannelLanguage.confirmsFillerSequence(original: primary, reread: reread, corroboration: acoustic))
+        }
+        XCTAssertFalse(BackchannelLanguage.confirmsFillerSequence(original: "Okko.", reread: "Okay.", corroboration: "Окей."))
+        XCTAssertFalse(BackchannelLanguage.confirmsFillerSequence(original: "Okay.", reread: "okei.", corroboration: nil))
+        let speech = segment(1, "Давайте обсудим оставшиеся вопросы.")
+        let turn = segment(3, primary, mic: false)
+        XCTAssertEqual(BackchannelLanguage.resolve([turn], alternatives: [:], preceding: [speech])[0].text, "Угу, угу. Окей.")
+        XCTAssertEqual(BackchannelLanguage.resolve([turn], alternatives: [:], preceding: [segment(1, "We can discuss the remaining questions.")])[0], turn)
+    }
+
+    func testFillerChainWithOneUnknownSyllableDoesNotEstablishTheLanguageOfNeighboringReplies() {
+        let russian = segment(1, "Давайте обсудим оставшиеся вопросы.")
+        let repeated = segment(3, "Mm-hmm.", mic: false)
+        let chain = segment(5, "Uhum, tá, ok, ok.", mic: false)
+        let result = BackchannelLanguage.resolve([repeated, chain], alternatives: [:], preceding: [russian])
+        XCTAssertEqual(result.map(\.text), ["Угу.", chain.text])
+    }
+
+    func testLeadingVocalizationBeforeUnpunctuatedRussianSpeech() {
+        XCTAssertEqual(TranscriptOrthography.normalize("Uh по каким"), "Аааа по каким")
+        XCTAssertEqual(TranscriptOrthography.normalize("Uh значит работа."), "Аааа значит работа.")
+        for text in ["Uh I know.", "Uh ne знаю trend of", "Uh і", "Okay сегодня идёт дождь",
+                     "«Uh значит работа».", "Uh то ми по"] {
+            XCTAssertEqual(TranscriptOrthography.normalize(text), text)
+        }
+        XCTAssertEqual(TranscriptOrthography.normalize("Uh значит работа.", vocabulary: "Uh"), "Uh значит работа.")
     }
 
     func testMixedFillerChainsKeepRussianWordsAndSentencePunctuation() {
@@ -379,11 +438,14 @@ final class BackchannelLanguageTests: XCTestCase {
     func testForeignCyrillicTurnsAreNotRussianAnchors() {
         let earlier = segment(0, "Сегодня мы проверим новый проект.")
         let reply = segment(12, "I mean.")
-        for anchor in ["Ми сьогодні перевіряємо новий проєкт.", "Мы працуем над новым праектам.",
+        for anchor in ["Ми сьогодні перевіряємо новий проєкт.", "Мы працуем над новым праектам.", "Мы працуем над планам.",
                        "Мы сёння ўдакладняем тэрміны сустрэчы."] {
             let result = BackchannelLanguage.resolve([reply], alternatives: [:],
                 lexicalAlternatives: [reply.id: "Ну да."], preceding: [earlier, segment(10, anchor)])
             XCTAssertEqual(result[0], reply, anchor)
+            let acknowledgment = segment(12, "Mm-hmm.")
+            XCTAssertEqual(BackchannelLanguage.resolve([acknowledgment], alternatives: [:],
+                preceding: [earlier, segment(10, anchor)]), [acknowledgment], anchor)
         }
         let quote = segment(10, "«Сегодня мы проверим новый проект».")
         XCTAssertEqual(BackchannelLanguage.resolve([reply], alternatives: [:],

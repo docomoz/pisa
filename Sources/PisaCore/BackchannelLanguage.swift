@@ -3,13 +3,14 @@ import Foundation
 /// Language-neutral vocal acknowledgments need nearby conversation context.
 /// Known fillers can use a Russian spelling when a new audio decode is inconclusive.
 enum BackchannelLanguage {
-    private static let englishVocalizations: Set<String> = ["ah", "uh", "huh", "uhhuh", "hmm", "hm", "mm", "mhm", "um"]
+    private static let latinVocalizations: Set<String> = ["ah", "uh", "huh", "uhhuh", "hmm", "hm", "mm", "mhm", "mmhmm", "uhum", "um", "ajá"]
     private static let englishAffirmatives: Set<String> = ["yeah", "yep", "yes"]
     private static let englishOpenVowels: Set<String> = ["ah", "uh", "um"]
     private static let russianVocalizations: Set<String> = ["угу", "ага", "мгм", "хм", "мм", "м", "эм"]
     private static let fillerSpellings: [String: String] = [
         "ah": "а", "uh": "аааа", "um": "ааа", "huh": "а",
-        "hmm": "хм", "hm": "хм", "mm": "мм", "mhm": "угу",
+        "hmm": "хм", "hm": "хм", "mm": "мм", "mhm": "угу", "mmhmm": "угу",
+        "uhum": "угу", "ajá": "ага",
         "uh huh": "угу", "uhhuh": "угу", "mm hmm": "угу",
         "yes": "да", "yeah": "да", "yep": "да", "da": "да", "ok": "окей", "okay": "окей",
         "sorry": "сорри",
@@ -19,6 +20,14 @@ enum BackchannelLanguage {
         "i", "you", "he", "she", "we", "they", "it", "am", "is", "are", "was", "were", "do", "does", "did",
         "can", "could", "will", "would", "shall", "should", "what", "who", "where", "when", "why", "how",
         "я", "ты", "он", "она", "мы", "вы", "они", "это", "как", "где", "когда", "куда", "кто", "что", "почему",
+    ]
+    private static let questionAuxiliaries: Set<String> = ["am", "is", "are", "was", "were", "do", "does", "did", "can", "could", "will", "would", "shall", "should"]
+    private static let questionSubjects: Set<String> = ["i", "you", "he", "she", "we", "they", "it", "this", "that", "these", "those"]
+    // Unlike shared words such as "мы" or "над", these common spellings
+    // distinguish colloquial Russian from Ukrainian and Belarusian.
+    private static let russianContextWords: Set<String> = [
+        "вот", "давайте", "здесь", "очень", "потому", "сегодня", "сейчас",
+        "спасибо", "тоже", "только", "уже", "чтобы", "это", "этот",
     ]
     private static let literalMarks = try! NSRegularExpression(pattern:
         #"[/\\`"«»“”‘~@]|(?<![A-Za-z])['’]|['’](?![A-Za-z])|(?<=[A-Za-z])\.(?=[A-Za-z])"#)
@@ -99,14 +108,30 @@ enum BackchannelLanguage {
         return !words.isEmpty && words == RussianRecognition.words(reread)
     }
 
+    /// Three decoders may use different orthographies for the same sequence
+    /// of sounds. Compare every acknowledgment, including its multiplicity,
+    /// before treating a short turn as independently confirmed.
+    static func confirmsFillerSequence(original: String, reread: String, corroboration: String?) -> Bool {
+        guard let corroboration, let source = russianSpelling(ofFiller: original) else { return false }
+        func evidence(_ text: String) -> String? {
+            let input = text.lowercased()
+                .replacingOccurrences(of: "о'кей", with: "окей")
+                .replacingOccurrences(of: "о’кей", with: "окей")
+            guard !containsLiteralMarks(input) else { return nil }
+            let words = RussianRecognition.words(input).map { ["okei", "okey"].contains($0) ? "okay" : $0 }
+            return fillerSpelling(words)
+        }
+        return source == evidence(reread) && source == evidence(corroboration)
+    }
+
     /// A short lead-in can stabilize decoding without cutting or changing speech.
     static func retryAudio(_ samples: [Float]) -> [Float] {
         Array(repeating: 0, count: 2_000) + samples
     }
 
     private static func isAmbiguous(_ words: [String]) -> Bool {
-        words.contains(where: englishVocalizations.contains) && words.allSatisfy {
-            englishVocalizations.contains($0) || englishAffirmatives.contains($0)
+        words.contains(where: latinVocalizations.contains) && words.allSatisfy {
+            latinVocalizations.contains($0) || englishAffirmatives.contains($0)
         }
     }
 
@@ -182,6 +207,12 @@ enum BackchannelLanguage {
             guard words.count >= 4 || isShortSentence, fillerSpelling(words) == nil,
                   !words.allSatisfy({ russianFillers.contains($0) || isOpenVowel($0) }),
                   let russian = russianConversationEvidence(text, words: words) else { return nil }
+            // In a run of acknowledgments, one stray syllable does not establish
+            // a language switch. Nor does an unfinished subject/auxiliary pair.
+            let nonFillers = words.filter { fillerSpellings[$0] == nil && !russianFillers.contains($0) }
+            guard nonFillers.count >= 2 else { return nil }
+            if !russian, words.count == 2, questionAuxiliaries.contains(words[0]), questionSubjects.contains(words[1]),
+               text.last?.isLetter == true { return nil }
             return (anchor, russian)
         }
         return segments.map { segment in
@@ -204,7 +235,11 @@ enum BackchannelLanguage {
         guard let spelling = russianSpelling(ofFiller: text) else { return nil }
         let words = RussianRecognition.words(text)
         guard words.contains(where: { fillerSpellings[$0] != nil }) else { return nil }
-        if words.contains(where: russianFillers.contains) {
+        let sentencePunctuation = CharacterSet(charactersIn: ".!?…")
+        let body = text.trimmingCharacters(in: sentencePunctuation.union(.whitespacesAndNewlines))
+        let distinctSentences = body.rangeOfCharacter(from: sentencePunctuation) != nil
+            && Set(spelling.components(separatedBy: ", ")).count > 1
+        if words.contains(where: russianFillers.contains) || distinctSentences {
             let matches = fillerWords.matches(in: text, range: NSRange(text.startIndex..., in: text))
             let source = text as NSString
             let result = NSMutableString(string: text)
@@ -234,13 +269,17 @@ enum BackchannelLanguage {
             for (range, replacement) in edits.reversed() { result.replaceCharacters(in: range, with: replacement) }
             return result as String
         }
-        let punctuation = text.trimmingCharacters(in: .whitespacesAndNewlines).reversed().prefix { ".!?…".contains($0) }
+        let punctuation = text.trimmingCharacters(in: .whitespacesAndNewlines).reversed().prefix { ".!?,:;…".contains($0) }
         return spelling.prefix(1).uppercased() + spelling.dropFirst() + String(punctuation.reversed())
     }
 
     static func russianSpelling(ofFiller text: String) -> String? {
         guard !containsLiteralMarks(text) else { return nil }
         return fillerSpelling(RussianRecognition.words(text))
+    }
+
+    static func isVocalization(_ text: String) -> Bool {
+        isAmbiguous(RussianRecognition.words(text))
     }
 
     private static func containsLiteralMarks(_ text: String) -> Bool {
@@ -281,7 +320,15 @@ enum BackchannelLanguage {
             let content = words.filter { $0.count >= 4 }
             let evidence = content.isEmpty ? words : content
             let known = evidence.filter(TranscriptTerms.isCommonRussianWord)
-            return known.count * 2 > evidence.count
+            if known.count * 2 > evidence.count { return true }
+            // Technical nouns and names are often missing from the common-form
+            // dictionary. Count the surrounding Russian words too when the
+            // content words alone are inconclusive.
+            guard !known.isEmpty, !content.isEmpty, words.contains(where: russianContextWords.contains) else { return false }
+            let shortKnown = words.filter {
+                $0.count < 4 && (TranscriptTerms.isCommonRussianWord($0) || AbbreviationFamilies.isRussianFunctionWord($0))
+            }.count
+            return shortKnown > 0 && (known.count * 2 == content.count || (known.count + shortKnown) * 3 >= words.count * 2)
         }
         if latin > 0, latin >= cyrillic * 2 { return false }
         return nil

@@ -22,8 +22,8 @@ struct TechnologyVocabulary {
     }
 
     private static let token = try! NSRegularExpression(pattern: #"[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*|[.+#/&]"#)
-    private static let endingLookup = Set(AbbreviationFamilies.endings + ["шками", "шкой", "шкам", "шках", "шек", "шка", "шки", "шку", "шке"])
-    private static let endings = endingLookup.sorted { $0.count > $1.count }
+    static let russianEndings = Set(AbbreviationFamilies.endings + ["шками", "шкой", "шкам", "шках", "шек", "шка", "шки", "шку", "шке"])
+    private static let endings = russianEndings.sorted { $0.count > $1.count }
     private static let attached = "_/@\\"
     private static let hyphens = "-‐‑"
     private static let dataAmountNouns: Set<String> = ["данных", "памяти", "трафика", "места", "информации"]
@@ -312,7 +312,7 @@ struct TechnologyVocabulary {
     private static func declinedForms(_ word: String) -> [(String, String)] {
         if let apostrophe = word.lastIndex(where: { $0 == "'" || $0 == "’" }) {
             let ending = String(word[word.index(after: apostrophe)...])
-            return endingLookup.contains(ending) ? [(String(word[..<apostrophe]), ending)] : []
+            return russianEndings.contains(ending) ? [(String(word[..<apostrophe]), ending)] : []
         }
         return endings.compactMap { ending in
             guard word.count > ending.count, word.hasSuffix(ending) else { return nil }

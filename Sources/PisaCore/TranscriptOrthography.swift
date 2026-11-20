@@ -39,7 +39,7 @@ public enum TranscriptOrthography {
         let focus = "(?:focus|фокус)" + separator + "(групп(?:ами|ах|ам|ою|ой|а|ы|е|у)?)"
         let idea = "(иде(?:ями|ях|ям|ей|ею|я|и|е|ю|й))" + separator + "(?:fix|фикс)"
         let yo = "([а-яё]*е[а-яё]*)"
-        let filler = "(uh" + separator + "huh|mm" + separator + "hmm|uhhuh|hmm|hm|mhm|uh|huh|um|ah|yeah|yep|yes|ok|okay)"
+        let filler = "(uh" + separator + "huh|mm" + separator + "hmm|uhhuh|uhum|hmm|hm|mmhmm|mhm|uh|huh|um|ah|ajá|yeah|yep|yes|ok|okay)"
         let alternatives = [focus, idea, "sorry|сори", yo, filler].joined(separator: "|")
         let pattern = #"(?i)(?<![\p{L}\p{N}_/\\@])(?:"# + alternatives + #")(?![\p{L}\p{N}_/\\@])"#
         return try! NSRegularExpression(pattern: pattern)
@@ -88,7 +88,8 @@ public enum TranscriptOrthography {
                 mask(NSRange(location: NSMaxRange(idea), length: NSMaxRange(match.range) - NSMaxRange(idea)), in: evidence)
             } else if match.range(at: 4).location != NSNotFound {
                 let context = sentenceContext(around: match.range, source: source, evidence: evidence)
-                if isIsolatedFiller(before: context.before, after: context.after) {
+                if isIsolatedFiller(before: context.before, after: context.after)
+                    || isLeadingVocalization(source.substring(with: match.range), before: context.before, after: context.after) {
                     isolatedFillers.insert(match.range.location)
                     mask(match.range, in: evidence)
                 }
@@ -164,6 +165,14 @@ public enum TranscriptOrthography {
         // A preceding word can make "Yes" in "слушаю Yes, ..." a name.
         return (!before.contains(where: \.isLetter) && trailing == ",")
             || (leading == "," && (trailing == "," || trailing == nil))
+    }
+
+    private static func isLeadingVocalization(_ word: String, before: String, after: String) -> Bool {
+        guard before.allSatisfy(\.isWhitespace), after.first?.isWhitespace == true,
+              BackchannelLanguage.isVocalization(word) else { return false }
+        let following = RussianRecognition.words(after).prefix(2)
+        return following.count == 2 && following.contains { $0.count >= 4 }
+            && following.allSatisfy(TranscriptTerms.isCommonRussianWord)
     }
 
     static func glossaryRanges(in text: String, vocabulary: String, range: NSRange, minimumWordCount: Int = 1) -> [NSRange] {

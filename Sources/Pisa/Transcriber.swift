@@ -1176,18 +1176,22 @@ actor Transcriber {
         }
         var primaryText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         var spellingEvidence: RecognitionAcousticResult?
-        if ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(primaryText) {
+        if RussianRecognition.needsScriptSpellingCheck(primaryText) {
             try Task.checkCancellation()
             spellingEvidence = acousticRecognition(samples, using: russian)
-            if let heard = spellingEvidence?.text,
-               let repair = RussianRecognition.cyrillicSpelling(original: primaryText, heard: heard, vocabulary: vocabulary) {
-                if repair.confirmedByRepetition {
+            if let heard = spellingEvidence?.text {
+                let repair = RussianRecognition.cyrillicSpelling(original: primaryText, heard: heard, vocabulary: vocabulary)
+                if let repair, repair.confirmedByRepetition {
                     primaryText = repair.text
                 } else if model.canVerify {
-                    do {
-                        let reread = try await generate(language: nil, context: "")
-                        primaryText = repair.confirmedText(language: reread.language, reread: reread.text) ?? primaryText
-                    } catch is ParakeetRecognitionSession.VerifierUnavailable { }
+                    let local = RussianRecognition.localScriptSpelling(original: primaryText, heard: heard, vocabulary: vocabulary)
+                    if repair != nil || local != nil {
+                        do {
+                            let reread = try await generate(language: nil, context: "")
+                            primaryText = repair?.confirmedText(language: reread.language, reread: reread.text)
+                                ?? local?.confirmedText(language: reread.language, reread: reread.text) ?? primaryText
+                        } catch is ParakeetRecognitionSession.VerifierUnavailable { }
+                    }
                 }
             }
         }
@@ -1217,6 +1221,9 @@ actor Transcriber {
             }
             let independent = acousticRecognition(samples, using: russian)
             acoustic = independent
+            if BackchannelLanguage.confirmsFillerSequence(original: text, reread: decoded.text, corroboration: independent?.text) {
+                return RecognizedSpeech(text: text, acoustic: independent)
+            }
             let alternative = decoded.language?.lowercased() == "russian"
                 ? BackchannelLanguage.lexicalAlternative(original: text,
                     russian: spokenVocabulary.apply(to: decoded.text),

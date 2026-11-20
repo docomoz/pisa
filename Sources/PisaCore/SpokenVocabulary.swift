@@ -6,6 +6,7 @@ struct SpokenVocabulary {
     private struct Entry {
         var term: String
         var keys: Set<String>
+        var pronunciations: Set<String>
         var initialism: Bool
         var cyrillicSpelling: String?
     }
@@ -87,8 +88,8 @@ struct SpokenVocabulary {
                 sounds += sounds.filter { $0.hasPrefix("вай") }.map { String($0.dropFirst()) }
             }
             let spelling = initialism && term.count >= 3 ? Self.transliterate(term.lowercased()) : nil
-            return Entry(term: term, keys: Set(sounds.map(Self.key).filter { $0.count >= 3 }), initialism: initialism,
-                         cyrillicSpelling: spelling)
+            return Entry(term: term, keys: Set(sounds.map(Self.key).filter { $0.count >= 3 }), pronunciations: Set(sounds),
+                         initialism: initialism, cyrillicSpelling: spelling)
         }
     }
 
@@ -402,7 +403,13 @@ struct SpokenVocabulary {
                     return (prefix, literalSuffix)
                 }
                 let key = soundKey(stem)
-                if entry.keys.contains(key) { return (prefix, phoneticSuffix) }
+                guard entry.keys.contains(key) else { continue }
+                // A three-sound key collapses both vowels and repeated
+                // consonants: Okay, Ака and Окко otherwise all match Okko.
+                if !entry.initialism, key.count <= 3,
+                   !entry.pronunciations.contains(Self.sound(stem, phones: phones)) { continue }
+                if literal != entry.term.lowercased(), BackchannelLanguage.russianSpelling(ofFiller: source) != nil { continue }
+                return (prefix, phoneticSuffix)
             }
         }
         return nil

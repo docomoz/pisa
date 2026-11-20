@@ -2,6 +2,44 @@ import XCTest
 @testable import PisaCore
 
 final class RussianRecognitionTests: XCTestCase {
+    func testLocalScriptSpellingUsesTheSameSpokenPairAcrossBothIndependentReadings() throws {
+        for (source, acoustic, checked, expected) in [
+            ("Нам нужен точно ізмеримый результат.", "нужен измеримый результат",
+             "Здесь нужен измеримый результат.", "Нам нужен точно измеримый результат."),
+            ("О, ка какие варіанты?", "а какие варианты", "Какие варианты?", "О, ка какие варианты?"),
+            ("Iдея появилась вчера.", "идея появилась", "Идея появилась позже.", "Идея появилась вчера."),
+            ("І возможно.", "и возможно", "И возможно потом.", "И возможно."),
+            ("По дневной аудиторії и общей аудиторії.", "по дневной аудитории и общей аудитории",
+             "По дневной аудитории.", "По дневной аудитории и общей аудиторії."),
+            ("Опять у нас єсть вопрос.", "у нас есть вопрос", "Есть вопрос.", "Опять у нас есть вопрос."),
+        ] {
+            let repair = try XCTUnwrap(RussianRecognition.localScriptSpelling(original: source, heard: acoustic, vocabulary: ""), source)
+            XCTAssertEqual(repair.confirmedText(language: "Russian", reread: checked), expected)
+            XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: checked))
+            XCTAssertNil(repair.confirmedText(language: nil, reread: checked))
+        }
+    }
+
+    func testLocalScriptSpellingAbstainsForAmbiguousOrProtectedTokens() throws {
+        for (source, acoustic, vocabulary) in [
+            ("I квартал.", "и квартал", ""), ("I agree.", "я согласен", ""), ("iPhone работает.", "айфон работает", ""),
+            ("Покажи «какие варіанты» завтра.", "какие варианты", ""),
+            ("Доступна /ініциатива сегодня.", "инициатива сегодня", ""),
+            ("Вышел модуль-Iдея сегодня.", "идея сегодня", ""),
+            ("Обсудим ініциативу завтра.", "инициативу завтра", "ініциативу"),
+            ("Пришли варіанты письма.", "варианты ответа", ""),
+            ("Нужны варіанты письма.", "варианты письма варианты письма", ""),
+        ] {
+            XCTAssertNil(RussianRecognition.localScriptSpelling(original: source, heard: acoustic, vocabulary: vocabulary), source)
+        }
+        let repair = try XCTUnwrap(RussianRecognition.localScriptSpelling(original: "О, какие варіанты?", heard: "а какие варианты", vocabulary: ""))
+        for unrelated in ["Есть варианты.", "«Какие варианты?»", "Какие. Варианты.", "Какие варианты, какие варианты?"] {
+            XCTAssertNil(repair.confirmedText(language: "Russian", reread: unrelated))
+        }
+        XCTAssertTrue(RussianRecognition.needsScriptSpellingCheck("Это Iнициатива."))
+        XCTAssertFalse(RussianRecognition.needsScriptSpellingCheck("I квартал, IT и iPhone."))
+    }
+
     func testAcousticallyConfirmedCyrillicRepetitionsKeepCaseAndPunctuation() {
         for (original, heard, expected) in [
             ("Добрійшего, добрейшего.", "добрейшего добрейшего", "Добрейшего, добрейшего."),
