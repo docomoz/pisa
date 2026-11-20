@@ -71,7 +71,7 @@ def default_checks() -> tuple[Check, ...]:
     native = (
         ("quit-shortcut", "QuitShortcutProbe", ("QuitShortcut",), ()),
         ("capture-window", "CaptureWindowProbe", ("CaptureWindow",), ()),
-        ("status-menu", "StatusBarMenuProbe", ("AppTypography", "StatusBarController"), ()),
+        ("status-menu", "StatusBarMenuProbe", ("AppTypography", "LaunchAtLogin", "StatusBarController"), ()),
         ("interface-controls", "InterfaceControlsProbe",
          ("Appearance", "AppTypography", "ScreenTypography", "DesignComponents", "SlimScrollbars", "SettingsSectionPicker"),
          ("Models", "MeetingTitles", "LiveTranscriptionSchedule")),

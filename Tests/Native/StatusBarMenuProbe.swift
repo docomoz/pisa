@@ -1,5 +1,20 @@
 import AppKit
 import Combine
+import ServiceManagement
+
+@MainActor
+private final class LoginItemProbe: LoginItemRegistration {
+    var status: SMAppService.Status = .notRegistered
+    var registrationResult: SMAppService.Status = .enabled
+    var rejectsRegistration = false
+
+    func register() throws {
+        if rejectsRegistration { throw CocoaError(.fileWriteNoPermission) }
+        status = registrationResult
+    }
+
+    func unregister() throws { status = .notRegistered }
+}
 
 // Keep the real status-menu controller; replace audio and library services for this layout probe.
 @MainActor
@@ -11,8 +26,10 @@ final class AppState: ObservableObject {
     @Published var demo = false
     @Published var canToggleManualRecording = true
     @Published var preferences = Preferences()
+    let launchAtLogin: LaunchAtLogin
     var processingID: UUID?
     var message: String?
+    init(launchAtLogin: LaunchAtLogin) { self.launchAtLogin = launchAtLogin }
     func setAutomatic(_ enabled: Bool) { preferences.automaticRecording = enabled }
     func toggleManualRecording() { recording.toggle() }
 }
@@ -44,10 +61,58 @@ enum StatusBarMenuProbe {
     @MainActor
     static func main() {
         _ = NSApplication.shared
-        let state = AppState()
+        let loginItem = LoginItemProbe()
+        var settingsOpens = 0
+        let launchAtLogin = LaunchAtLogin(service: loginItem, openSettings: { settingsOpens += 1 })
+        let state = AppState(launchAtLogin: launchAtLogin)
         let controller = StatusBarController(state: state, openMain: {})
         let menu = Mirror(reflecting: controller).children.compactMap { $0.value as? NSMenu }.first!
         let automatic = menu.items.first { $0.title == "Автоматическая запись" }!
+        guard menu.items.count >= 3, menu.items[0].title == "Открыть Pisa",
+              menu.items[1].title.replacingOccurrences(of: "\u{00A0}", with: " ") == "Запускать при входе",
+              let loginControl = menu.items[1].view as? NSButton,
+              let loginAction = loginControl.action,
+              menu.items[2].isSeparatorItem else {
+            fputs("FAIL: the login checkbox must follow Open Pisa, before the first separator\n", stderr)
+            exit(1)
+        }
+        controller.menuWillOpen(menu)
+        let loginMenuSize = menu.size
+        for expected in [true, false] {
+            NSApp.sendAction(loginAction, to: loginControl.target, from: loginControl)
+            guard launchAtLogin.isEnabled == expected,
+                  loginControl.state == (expected ? .on : .off), menu.size == loginMenuSize,
+                  !state.preferences.automaticRecording else {
+                fputs("FAIL: the login checkbox must toggle the system setting in place\n", stderr)
+                exit(1)
+            }
+        }
+        controller.menuDidClose(menu)
+        loginItem.status = .enabled
+        controller.menuWillOpen(menu)
+        guard loginControl.state == .on else {
+            fputs("FAIL: reopening the menu must read changes made in System Settings\n", stderr)
+            exit(1)
+        }
+        launchAtLogin.setEnabled(false)
+        guard loginControl.state == .off else {
+            fputs("FAIL: changes from the settings toggle must update the menu checkbox\n", stderr)
+            exit(1)
+        }
+        loginItem.registrationResult = .requiresApproval
+        NSApp.sendAction(loginAction, to: loginControl.target, from: loginControl)
+        guard loginControl.state == .off, !launchAtLogin.isEnabled, settingsOpens == 1 else {
+            fputs("FAIL: pending system approval must leave the checkbox off and open Login Items\n", stderr)
+            exit(1)
+        }
+        controller.menuDidClose(menu)
+        loginItem.status = .notRegistered
+        loginItem.rejectsRegistration = true
+        launchAtLogin.setEnabled(true)
+        guard !launchAtLogin.isEnabled, launchAtLogin.error != nil, loginControl.state == .off else {
+            fputs("FAIL: registration failure must keep the previous setting and report the error\n", stderr)
+            exit(1)
+        }
 
         func measure(_ enabled: Bool) -> NSSize {
             state.setAutomatic(enabled)
@@ -225,6 +290,6 @@ enum StatusBarMenuProbe {
                 controller.menuDidClose(menu)
             }
         }
-        print("STATUS_MENU_LAYOUT_OK opens_without_selection pointer_transitions repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
+        print("STATUS_MENU_LAYOUT_OK launch_at_login opens_without_selection pointer_transitions repeated_toggle fixed_geometry synchronized_checkmark recording_layout")
     }
 }

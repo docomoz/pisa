@@ -7,5 +7,9 @@ toolchain="$(xcrun --find swiftc)"
 sdk="$(xcrun --sdk macosx --show-sdk-path)"
 platform="$(xcrun --sdk macosx --show-sdk-platform-path)"
 plugin_path="$platform/Developer/usr/lib/swift/host/plugins"
-"$toolchain" -sdk "$sdk" -plugin-path "$plugin_path" "$root/Sources/Pisa/AppTypography.swift" "$root/Sources/Pisa/StatusBarController.swift" "$root/Tests/Native/StatusBarMenuProbe.swift" -o "$binary"
+"$toolchain" -sdk "$sdk" -plugin-path "$plugin_path" \
+  "$root/Sources/Pisa/AppTypography.swift" \
+  "$root/Sources/Pisa/LaunchAtLogin.swift" \
+  "$root/Sources/Pisa/StatusBarController.swift" \
+  "$root/Tests/Native/StatusBarMenuProbe.swift" -o "$binary"
 "$binary" "$@"

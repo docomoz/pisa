@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum SettingsCheckbox: Hashable {
-    case automaticRecording, backgroundTranscription, quietProcessing, autoExport, mcpAccess, automaticUpdates
+    case automaticRecording, backgroundTranscription, launchAtLogin, quietProcessing, autoExport, mcpAccess, automaticUpdates
 }
 
 struct SettingsView: View {
@@ -274,6 +274,7 @@ struct SettingsView: View {
                     Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон", systemImage: "mic") }.actionButton()
                     Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук", systemImage: "speaker.wave.2") }.actionButton()
                 }.labelStyle(AlignedIconLabelStyle())
+                LaunchAtLoginSettings(launchAtLogin: state.launchAtLogin)
                 block("Фоновая расшифровка", "Черновик во время звонка") {
                     settingsCheckboxGroup(.backgroundTranscription) {
                         screenToggle("Расшифровывать во время записи", isOn: Binding(
@@ -289,6 +290,33 @@ struct SettingsView: View {
     }
     private func block<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         FormSection(title, subtitle: subtitle, content: content)
+    }
+}
+
+private struct LaunchAtLoginSettings: View {
+    @ObservedObject var launchAtLogin: LaunchAtLogin
+
+    var body: some View {
+        FormSection("Запуск Pisa") {
+            settingsCheckboxGroup(.launchAtLogin) {
+                screenToggle(LaunchAtLogin.title, isOn: Binding(
+                    get: { launchAtLogin.isEnabled },
+                    set: { launchAtLogin.setEnabled($0) }
+                ))
+            } details: {
+                if let error = launchAtLogin.error {
+                    SupportingText(error)
+                } else if launchAtLogin.status == .requiresApproval {
+                    SupportingText("Разрешите запуск Pisa в системных настройках macOS")
+                } else {
+                    SupportingText("Pisa откроется автоматически при входе в macOS")
+                }
+            }
+        }
+        .onAppear { launchAtLogin.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin.refresh()
+        }
     }
 }
 

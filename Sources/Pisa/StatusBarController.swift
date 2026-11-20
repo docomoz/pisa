@@ -6,6 +6,8 @@ import Combine
 final class StatusBarController: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
+    private let loginAction = NSMenuItem(title: LaunchAtLogin.title, action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+    private let loginControl = PersistentMenuToggle(title: LaunchAtLogin.title)
     private let recordAction = NSMenuItem(title: "Начать запись", action: #selector(toggleRecording), keyEquivalent: "")
     private let automaticAction = NSMenuItem(title: "Автоматическая запись", action: #selector(toggleAutomatic), keyEquivalent: "")
     private let automaticControl = PersistentMenuToggle(title: "Автоматическая запись")
@@ -14,6 +16,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var timer: Timer?
     private var subscriptions = Set<AnyCancellable>()
     private var keyboardMonitor: Any?
+    private var checkboxes: [(item: NSMenuItem, control: PersistentMenuToggle)] {
+        [(loginAction, loginControl), (automaticAction, automaticControl)]
+    }
     init(state: AppState, openMain: @escaping () -> Void) {
         self.state = state; self.openMain = openMain
         super.init()
@@ -29,6 +34,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         // Keeping menu states empty prevents the title column from shifting.
         menu.showsStateColumn = false
         menu.addItem(withTitle: "Открыть Pisa", action: #selector(showMainWindow), keyEquivalent: "")
+        menu.addItem(loginAction)
         menu.addItem(.separator())
         menu.addItem(recordAction)
         menu.addItem(automaticAction)
@@ -36,12 +42,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(withTitle: "Завершить Pisa", action: #selector(quit), keyEquivalent: "q")
         for entry in menu.items { entry.target = self }
         // A control inside a menu handles its click without ending menu tracking.
-        automaticControl.target = self
-        automaticControl.action = #selector(toggleAutomatic)
-        automaticAction.view = automaticControl
+        for (entry, control) in checkboxes {
+            control.target = self
+            control.action = entry.action
+            entry.view = control
+        }
         item.menu = menu
         updateMenu()
         state.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in self?.updateMenu() }.store(in: &subscriptions)
+        state.launchAtLogin.$status.sink { [weak self] status in
+            self?.loginControl.state = status == .enabled ? .on : .off
+        }.store(in: &subscriptions)
         state.$recording.combineLatest(state.$recordingStarted).receive(on: RunLoop.main).sink { [weak self] _ in self?.updateCounter() }.store(in: &subscriptions)
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.updateCounter() } }
         RunLoop.main.add(timer, forMode: .common); self.timer = timer
@@ -58,24 +69,28 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         button.toolTip = text.isEmpty ? "Pisa" : "Идёт запись · \(text)"
     }
     func menuWillOpen(_ menu: NSMenu) {
-        automaticControl.menuHighlighted = false
+        for (_, control) in checkboxes { control.menuHighlighted = false }
+        state.launchAtLogin.refresh()
         updateMenu()
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, self.menu.highlightedItem === self.automaticAction,
+            guard let self,
                   event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
-                  [36, 49, 76].contains(event.keyCode) else { return event }
-            self.toggleAutomatic()
+                  [36, 49, 76].contains(event.keyCode),
+                  let checkbox = self.checkboxes.first(where: { $0.item === self.menu.highlightedItem }),
+                  let action = checkbox.control.action else { return event }
+            NSApp.sendAction(action, to: checkbox.control.target, from: checkbox.control)
             return nil
         }
     }
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
         // AppKit clears its selection after a control click even if the pointer
         // has not left that row. Keep hover, but let another selected item win.
-        automaticControl.menuHighlighted = item === automaticAction
-            || (item == nil && automaticControl.containsMouse)
+        for (entry, control) in checkboxes {
+            control.menuHighlighted = item === entry || (item == nil && control.containsMouse)
+        }
     }
     func menuDidClose(_ menu: NSMenu) {
-        automaticControl.menuHighlighted = false
+        for (_, control) in checkboxes { control.menuHighlighted = false }
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
         keyboardMonitor = nil
     }
@@ -96,6 +111,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func toggleAutomatic() {
         state.setAutomatic(!state.preferences.automaticRecording)
         updateMenu()
+    }
+    @objc private func toggleLaunchAtLogin() {
+        let launchAtLogin = state.launchAtLogin
+        launchAtLogin.setEnabled(!launchAtLogin.isEnabled)
+        loginControl.state = launchAtLogin.isEnabled ? .on : .off
+        if let error = launchAtLogin.error {
+            menu.cancelTracking()
+            state.message = error
+            showMainWindow()
+        }
     }
     @objc private func quit() {
         if state.recording || state.starting || state.processingID != nil {

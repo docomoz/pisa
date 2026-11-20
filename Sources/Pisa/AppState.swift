@@ -60,6 +60,7 @@ final class AppState: ObservableObject {
     @Published var permissionIssue: CapturePermission?
     @Published var message: String?
     @Published var showingSettings = false
+    let launchAtLogin: LaunchAtLogin
     @Published private(set) var exportFolderUnavailable = false
     @Published var callActive = false
     @Published var livePaused = false
@@ -389,7 +390,8 @@ final class AppState: ObservableObject {
         savePreferences()
     }
     var mcpPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/pisa-mcp").path }
-    init(rootURL: URL? = nil) {
+    init(rootURL: URL? = nil, launchAtLogin: LaunchAtLogin? = nil) {
+        self.launchAtLogin = launchAtLogin ?? LaunchAtLogin()
         let root = rootURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pisa", isDirectory: true)
         do { library = try MeetingLibrary(root: root) } catch { fatalError("Не удалось открыть библиотеку: \(error.localizedDescription)") }
         do {

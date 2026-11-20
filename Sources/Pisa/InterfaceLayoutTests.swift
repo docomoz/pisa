@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import ServiceManagement
 import SwiftUI
 
 // Attach passive measurements only when a test host supplies the named space.
@@ -157,7 +158,7 @@ enum InterfaceLayoutTests {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Interface-Tests-" + UUID().uuidString)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
-            let state = AppState(rootURL: root)
+            let state = AppState(rootURL: root, launchAtLogin: LaunchAtLogin(service: LayoutLoginItem()))
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
             try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
@@ -795,6 +796,14 @@ private final class LayoutSuite {
                     case "Запись":
                         checkCheckbox(.automaticRecording, in: host)
                         checkCheckbox(.backgroundTranscription, in: host)
+                        checkCheckbox(.launchAtLogin, in: host)
+                        if let toggle = frames([.settingsCheckbox(.launchAtLogin)], in: host)?.first {
+                            host.click(toggle.center)
+                            check(state.launchAtLogin.isEnabled, "clicking the login checkbox enables launch at login")
+                            try saveScreenshot("settings-launch-at-login-on-\(percent)", in: host)
+                            host.click(toggle.center)
+                            check(!state.launchAtLogin.isEnabled, "clicking the login checkbox again disables launch at login")
+                        }
                     case "Модель":
                         checkCheckbox(.quietProcessing, in: host)
                     case "Обновления":
@@ -1232,6 +1241,13 @@ private final class LayoutSuite {
             equal(frame.midY, first.midY, "fields and actions are vertically aligned within the form")
         }
     }
+}
+
+@MainActor
+private final class LayoutLoginItem: LoginItemRegistration {
+    var status: SMAppService.Status = .notRegistered
+    func register() throws { status = .enabled }
+    func unregister() throws { status = .notRegistered }
 }
 
 @MainActor

@@ -44,6 +44,7 @@
 		3220D104F5A6EF428879057F /* RecognitionPromptEcho.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5520B1A444827B410D00C8FA /* RecognitionPromptEcho.swift */; };
 		3228A1C6182038DDA1585CBD /* MCPAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38F945507AE7C0953D9172D0 /* MCPAnalytics.swift */; };
 		32F6136A7779C0B49B70D726 /* TechnologyVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3F3D0B0073B28BFA7077E41 /* TechnologyVocabulary.swift */; };
+		3680DB59FA766B06DDBA5DF9 /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477A14A5A5C183AD1541A92F /* LaunchAtLogin.swift */; };
 		3932CE5ADF3FA35A399B6937 /* TranscriptLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532BF576342D75A89052C231 /* TranscriptLink.swift */; };
 		39950EE73AE7086887441C27 /* RecognitionBoundaryOverlap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3342B6AC4E206748D7298D8F /* RecognitionBoundaryOverlap.swift */; };
 		3C22AD3C9A9F337F55A5FF27 /* PisaYoWords-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = ACE4470EAB9EF99B723009FB /* PisaYoWords-LICENSE.txt */; };
@@ -263,6 +264,7 @@
 		421D7787C7BB6334E699E13A /* RussianSpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RussianSpeechRecognizer.swift; sourceTree = "<group>"; };
 		4372C3819919DBAD303147D8 /* EditingFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditingFocus.swift; sourceTree = "<group>"; };
 		46276700021C9135252E97F2 /* UsageAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAnalytics.swift; sourceTree = "<group>"; };
+		477A14A5A5C183AD1541A92F /* LaunchAtLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLogin.swift; sourceTree = "<group>"; };
 		4F84B0E9A784477656CB5A6A /* PisaPlain.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = PisaPlain.icns; sourceTree = "<group>"; };
 		5067BFAEA91A5F259873DEE6 /* PCMRead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCMRead.swift; sourceTree = "<group>"; };
 		51F2320FEC329CB186F897CC /* TranscriptOrthography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptOrthography.swift; sourceTree = "<group>"; };
@@ -470,6 +472,7 @@
 				E362F69823EB290411A34C68 /* HorizontalWheelScroll.swift */,
 				078820AB33B2733EDCF4F698 /* InterfaceLayoutTests.swift */,
 				D1B4AF05F54CE86A74607D1F /* InterfacePreview.swift */,
+				477A14A5A5C183AD1541A92F /* LaunchAtLogin.swift */,
 				E9EC25E600FF1EF0F5F28529 /* Launcher.swift */,
 				77D141E4073019683F7FE369 /* LibrarySidebar.swift */,
 				C424C33CA491C2B4EFD5155B /* LivePipelineTests.swift */,
@@ -839,6 +842,7 @@
 				247485382CBC1E91351E29DB /* HorizontalWheelScroll.swift in Sources */,
 				5866A8D941808D8D67A6D1DB /* InterfaceLayoutTests.swift in Sources */,
 				A8A3717812AED7F3579E9BA7 /* InterfacePreview.swift in Sources */,
+				3680DB59FA766B06DDBA5DF9 /* LaunchAtLogin.swift in Sources */,
 				AB029DDC5E0621C42DAAF6C1 /* Launcher.swift in Sources */,
 				309A449EB682A105EFA29429 /* Library.swift in Sources */,
 				8F6EE3992A877C8F8CED7727 /* LibrarySearchIndex.swift in Sources */,
