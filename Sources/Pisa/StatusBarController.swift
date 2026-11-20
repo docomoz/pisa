@@ -50,8 +50,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         item.menu = menu
         updateMenu()
         state.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in self?.updateMenu() }.store(in: &subscriptions)
-        state.launchAtLogin.$status.sink { [weak self] status in
-            self?.loginControl.state = status == .enabled ? .on : .off
+        state.launchAtLogin.$isEnabled.sink { [weak self] enabled in
+            self?.loginControl.state = enabled ? .on : .off
         }.store(in: &subscriptions)
         state.$recording.combineLatest(state.$recordingStarted).receive(on: RunLoop.main).sink { [weak self] _ in self?.updateCounter() }.store(in: &subscriptions)
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.updateCounter() } }
@@ -114,9 +114,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
     @objc private func toggleLaunchAtLogin() {
         let launchAtLogin = state.launchAtLogin
-        launchAtLogin.setEnabled(!launchAtLogin.isEnabled)
-        loginControl.state = launchAtLogin.isEnabled ? .on : .off
-        if let error = launchAtLogin.error {
+        launchAtLogin.setEnabled(!launchAtLogin.isEnabled) { [weak self] error in
+            guard let self else { return }
             menu.cancelTracking()
             state.message = error
             showMainWindow()

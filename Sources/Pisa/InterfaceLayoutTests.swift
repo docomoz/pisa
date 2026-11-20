@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import os
 import ServiceManagement
 import SwiftUI
 
@@ -798,11 +799,18 @@ private final class LayoutSuite {
                         checkCheckbox(.backgroundTranscription, in: host)
                         checkCheckbox(.launchAtLogin, in: host)
                         if let toggle = frames([.settingsCheckbox(.launchAtLogin)], in: host)?.first {
-                            host.click(toggle.center)
-                            check(state.launchAtLogin.isEnabled, "clicking the login checkbox enables launch at login")
-                            try saveScreenshot("settings-launch-at-login-on-\(percent)", in: host)
-                            host.click(toggle.center)
-                            check(!state.launchAtLogin.isEnabled, "clicking the login checkbox again disables launch at login")
+                            for enabled in [true, false] {
+                                let start = ContinuousClock.now
+                                host.click(toggle.center)
+                                let elapsed = start.duration(to: .now)
+                                print("LOGIN_SETTINGS_CLICK scale=\(percent) enabled=\(enabled) \(elapsed)")
+                                check(elapsed < .milliseconds(200) && state.launchAtLogin.isEnabled == enabled,
+                                      "the login checkbox changes without waiting for macOS")
+                                if enabled { try saveScreenshot("settings-launch-at-login-on-\(percent)", in: host) }
+                                let expected: SMAppService.Status = enabled ? .enabled : .notRegistered
+                                check(host.wait { state.launchAtLogin.status == expected },
+                                      "macOS confirms the login checkbox change")
+                            }
                         }
                     case "Модель":
                         checkCheckbox(.quietProcessing, in: host)
@@ -1243,11 +1251,19 @@ private final class LayoutSuite {
     }
 }
 
-@MainActor
 private final class LayoutLoginItem: LoginItemRegistration {
-    var status: SMAppService.Status = .notRegistered
-    func register() throws { status = .enabled }
-    func unregister() throws { status = .notRegistered }
+    private let registration = OSAllocatedUnfairLock(initialState: SMAppService.Status.notRegistered)
+    var status: SMAppService.Status { registration.withLock { $0 } }
+
+    func register() throws {
+        Thread.sleep(forTimeInterval: 0.4)
+        registration.withLock { $0 = .enabled }
+    }
+
+    func unregister() throws {
+        Thread.sleep(forTimeInterval: 0.4)
+        registration.withLock { $0 = .notRegistered }
+    }
 }
 
 @MainActor
