@@ -87,6 +87,7 @@ enum Launcher {
                 do {
                     try InterfacePreview.testFolderMenuSelection()
                     try InterfacePreview.testQueue()
+                    try await InterfacePreview.testMoveWhileReprocessing()
                     try InterfacePreview.testTrashQueuedRecording()
                     try await InterfacePreview.testQueuedTurboTranscription()
                     try await InterfacePreview.testQueuedResumeWithProtectedMetadata()

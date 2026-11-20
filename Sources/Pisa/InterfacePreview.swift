@@ -370,6 +370,46 @@ final class InterfacePreview: NSObject {
         guard state.processingID == active else { throw PisaError.message("Отмена очереди остановила обработку") }
     }
 
+    static func testMoveWhileReprocessing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Reprocessing-Move-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        try prepareModelPath(for: state)
+        guard let folderID = state.saveFolder("Работа") else {
+            throw PisaError.message("Не удалось создать папку")
+        }
+        var meeting = Meeting(title: "Готовая расшифровка", source: "Аудио")
+        meeting.status = .ready
+        meeting.segments = [.init(start: 0, end: 1, speaker: "Я", text: "Привет")]
+        state.update(meeting)
+        state.enqueue(meeting.id, reprocess: true)
+        guard state.processingID == meeting.id, state.isReprocessing,
+              let processing = state.meetings.first(where: { $0.id == meeting.id }) else {
+            throw PisaError.message("Не запустилась повторная расшифровка")
+        }
+
+        _ = NSApplication.shared
+        let menu = nativeActionMenu(items: MeetingActionSet(state: state, meeting: processing).contextMenuItems)
+        guard let move = menu.item(withTitle: "Переместить в папку"), move.isEnabled,
+              let submenu = move.submenu, let destination = submenu.item(withTitle: "Работа"),
+              destination.isEnabled else {
+            throw PisaError.message("Перемещение из контекстного меню недоступно при повторной расшифровке")
+        }
+        submenu.performActionForItem(at: submenu.index(of: destination))
+        let moved = try state.library.read(meeting.id)
+        guard moved.folderID == folderID, moved.segments == meeting.segments,
+              moved.status == .processing, state.processingID == meeting.id else {
+            throw PisaError.message("Перемещение не сохранилось или изменило повторную расшифровку")
+        }
+
+        state.cancelProcessing()
+        try await waitForTranscriptionToStop(state)
+        let stopped = try state.library.read(meeting.id)
+        guard stopped.status == .failed, stopped.folderID == folderID, stopped.segments == meeting.segments else {
+            throw PisaError.message("После остановки повторной расшифровки изменились папка или сохранённый текст")
+        }
+    }
+
     static func testTrashQueuedRecording() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Queued-Trash-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

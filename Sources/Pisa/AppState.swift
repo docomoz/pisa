@@ -233,7 +233,6 @@ final class AppState: ObservableObject {
     func canRename(_ m: Meeting) -> Bool { !demo }
     func canMove(_ m: Meeting) -> Bool {
         !demo && m.deletedAt == nil && savingMeetingID != m.id && !isQueued(m.id)
-            && (processingID != m.id || !isReprocessing)
     }
     func isQueued(_ id: UUID) -> Bool { pending.contains { $0.id == id } }
     func stageRecordingTitle(_ title: String, for meeting: Meeting) {
