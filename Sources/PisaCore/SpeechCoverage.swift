@@ -1,4 +1,23 @@
 enum SpeechCoverage {
+    /// Locate the diarized turn inside the padded 16 kHz model input. A
+    /// cropped or already unpadded input cannot provide a second reading.
+    static func unpaddedShortTurn(start: Double, duration: Double, sampleCount: Int,
+                                  includeAlreadyIsolated: Bool = false) -> Range<Int>? {
+        guard duration <= 2 else { return nil }
+        return unpaddedTurn(start: start, duration: duration, sampleCount: sampleCount,
+                            minimumPadding: includeAlreadyIsolated ? 0 : 320)
+    }
+
+    static func unpaddedTurn(start: Double, duration: Double, sampleCount: Int, minimumPadding: Int = 320) -> Range<Int>? {
+        let rate = 16_000.0
+        guard start.isFinite, duration.isFinite, duration >= 0.2, start >= -1 / rate,
+              start + duration <= (Double(sampleCount) + 1) / rate else { return nil }
+        let lower = max(0, Int((start * rate).rounded()))
+        let upper = min(sampleCount, Int(((start + duration) * rate).rounded()))
+        guard upper > lower, sampleCount - (upper - lower) >= minimumPadding else { return nil }
+        return lower..<upper
+    }
+
     /// Combine adjacent VAD detections only while their span remains bounded.
     static func joinNearby(_ speech: [Range<Int>], maximumGap: Int, maximumLength: Int,
                            shortTurnLength: Int = 0, maximumShortTurnGap: Int? = nil) -> [Range<Int>] {

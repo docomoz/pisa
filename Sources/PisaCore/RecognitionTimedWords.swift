@@ -45,3 +45,40 @@ enum RecognitionTimedWords {
         return result
     }
 }
+
+/// A padded decode can mistake the beginning of a neighboring word for a
+/// short particle. Only the words independently heard inside the turn survive.
+struct RecognitionTrailingFragment {
+    let prefix: String
+    let paddedWords: [String]
+
+    init?(source: String, acoustic: RecognitionAcousticResult, core: Range<Int>, sampleCount: Int) {
+        guard let match = Self.sourcePattern.firstMatch(in: source, range: NSRange(source.startIndex..., in: source)),
+              let prefixRange = Range(match.range(at: 1), in: source), let fragment = Range(match.range(at: 2), in: source),
+              let last = acoustic.words.last, core.upperBound <= sampleCount else { return nil }
+        let heard = RussianRecognition.words(acoustic.text)
+        let prefix = String(source[prefixRange]), end = Double(core.upperBound) / 16000
+        guard heard == acoustic.words.map({ $0.text.lowercased().replacingOccurrences(of: "ё", with: "е") }),
+              heard.dropLast().elementsEqual(RussianRecognition.words(prefix)), let word = heard.last,
+              word.count >= 4, word.first == source[fragment].lowercased().first,
+              word.unicodeScalars.allSatisfy({ (0x430...0x44F).contains($0.value) }), !AbbreviationFamilies.isRussianFunctionWord(word),
+              last.start.isFinite, last.end.isFinite,
+              last.start >= end - 0.16, last.start < end,
+              last.end >= end + 0.06, last.end <= Double(sampleCount) / 16000 + 0.001,
+              last.end - end >= (last.end - last.start) / 3 else { return nil }
+        self.prefix = prefix
+        paddedWords = heard
+    }
+
+    private static let sourcePattern = try! NSRegularExpression(pattern: #"(?i)^([а-яё]+(?: [а-яё]+){0,4}) ([а-яё]{1,2})$"#)
+
+    func matchesCore(_ text: String?) -> Bool {
+        text.map(RussianRecognition.words) == Array(paddedWords.dropLast())
+    }
+
+    func confirmedText(padded: String, paddedLanguage: String?, exact: String, exactLanguage: String?) -> String? {
+        guard paddedLanguage?.lowercased() == "russian", exactLanguage?.lowercased() == "russian",
+              RussianRecognition.words(padded) == paddedWords, matchesCore(exact) else { return nil }
+        return prefix
+    }
+}

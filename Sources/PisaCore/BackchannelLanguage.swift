@@ -79,7 +79,7 @@ enum BackchannelLanguage {
         let letters = text.unicodeScalars.filter(CharacterSet.letters.contains)
         guard letters.contains(where: { !$0.isASCII }) else { return false }
         let latin = latinLetter.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
-        guard latin * 2 > letters.count,
+        guard latin * 2 > letters.count || shortVocalizationBeforeRussianWord(text),
               !MeetingSpeechText.containsForeignLetters(text), !containsLiteralMarks(text),
               text.rangeOfCharacter(from: lexicalLiteralMarks.union(.decimalDigits)) == nil else { return false }
         let words = text.split(whereSeparator: { !$0.isLetter })
@@ -90,10 +90,75 @@ enum BackchannelLanguage {
             && RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary)
     }
 
+    private static func shortVocalizationBeforeRussianWord(_ text: String) -> Bool {
+        let words = RussianRecognition.words(text)
+        return words.count == 2 && latinVocalizations.contains(words[0]) && words[1].count >= 3
+            && TranscriptTerms.isCommonRussianWord(words[1])
+    }
+
     static func canRestoreLanguageAnchor(_ segment: TranscriptSegment) -> Bool {
         // Older live drafts have no provenance. Lexical substitutions in
         // those builds were restricted to at most six seconds.
         segment.independentRecognitionLanguage ?? (segment.end - segment.start > 6)
+    }
+
+    /// A single corrupted word can mix the two scripts even when the rest of
+    /// a short turn is entirely Russian. Inspect the primary before a glossary
+    /// homophone can replace one of its intact Russian context words.
+    static func mixedWordIndex(_ text: String, duration: Double, vocabulary: String) -> Int? {
+        guard (0...4).contains(duration), text.utf8.contains(where: { (97...122).contains($0) }),
+              text.allSatisfy({ $0.isLetter || $0.isWhitespace || ",.!?…".contains($0) }) else { return nil }
+        let raw = text.split(whereSeparator: { !$0.isLetter })
+        guard (2...5).contains(raw.count) else { return nil }
+        let positions = raw.indices.filter { i in
+            let word = raw[i]
+            return word == word.lowercased() && word.utf8.contains(where: { (97...122).contains($0) })
+                && word.unicodeScalars.filter { (0x430...0x44f).contains($0.value) || $0.value == 0x451 }.count >= 2
+        }
+        guard positions.count == 1, let damaged = positions.first else { return nil }
+        let words = RussianRecognition.words(text)
+        guard words.indices.allSatisfy({ i in
+            i == damaged || (i == 0 && leadingVocalization([words[i]]) != nil)
+                || ((i == 0 || raw[i].first?.isLowercase == true)
+                    && (AbbreviationFamilies.isRussianFunctionWord(words[i]) || TranscriptTerms.isCommonRussianWord(words[i])))
+        }), RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary) else { return nil }
+        return damaged
+    }
+
+    static func restoredMixedWord(_ original: String, index: Int, reread: String, corroboration: String,
+                                 isolatedCorroboration: String? = nil) -> String? {
+        let source = RussianRecognition.words(original), checked = RussianRecognition.words(reread)
+        var heard = RussianRecognition.words(corroboration)
+        let hasOnset = index > 0 && leadingVocalization(source) != nil
+        if hasOnset, let onset = leadingVocalization(heard) { heard.removeFirst(onset.count) }
+        let primary = Array(source.dropFirst(hasOnset ? 1 : 0)), position = index - (hasOnset ? 1 : 0)
+        guard primary.count == heard.count, heard.indices.contains(position),
+              primary.indices.allSatisfy({ $0 == position || primary[$0] == heard[$0] }) else { return nil }
+        let word = heard[position], damaged = primary[position]
+        if let isolatedCorroboration {
+            let isolated = RussianRecognition.words(isolatedCorroboration)
+            guard isolated.filter({ $0 == word }).count == 1,
+                  (isolated.count == primary.count && isolated[position] == word)
+                    || (position == 0 && isolated.first == word) || (position == primary.count - 1 && isolated.last == word) else { return nil }
+        }
+        let start = damaged.prefix(while: { !$0.isASCII }), end = String(damaged.reversed().prefix(while: { !$0.isASCII }).reversed())
+        guard TranscriptTerms.isCommonRussianWord(word),
+              (start.count >= 2 && word.hasPrefix(start)) || (end.count >= 2 && word.hasSuffix(end)),
+              checked.filter({ $0 == word }).count == 1,
+              (checked.count == primary.count && checked[position] == word)
+                || (position == 0 && checked.first == word) || (position == primary.count - 1 && checked.last == word) else { return nil }
+        let matches = fillerWords.matches(in: original, range: NSRange(original.startIndex..., in: original))
+        guard matches.indices.contains(index), let range = Range(matches[index].range, in: original) else { return nil }
+        if hasOnset, primary.count == 1 { return word + String(original[range.upperBound...]) }
+        return original.replacingCharacters(in: range, with: word)
+    }
+
+    static func confirmsOriginalMixedWordContext(original: String, rendered: String, index: Int, corroboration: String) -> Bool {
+        let words = RussianRecognition.words(original), displayed = RussianRecognition.words(rendered)
+        let heard = RussianRecognition.words(corroboration)
+        guard words != displayed, words.count == displayed.count, words.count == heard.count,
+              words.indices.contains(index), words[index] == displayed[index] else { return false }
+        return words.indices.allSatisfy { $0 == index || words[$0] == heard[$0] }
     }
 
     private static func isLexicalSource(_ text: String, vocabulary: String) -> Bool {
@@ -139,6 +204,89 @@ enum BackchannelLanguage {
               words.joined().unicodeScalars.allSatisfy({ (0x0430...0x044F).contains($0.value) }),
               words == RussianRecognition.words(corroboration) else { return nil }
         return russian.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// For a compact mixed-script source, the multilingual read is unprompted.
+    /// Disagreements about a boundary never authorize changes inside a clause.
+    static func mixedRussianAlternative(original: String, language: String?, reread: String, corroboration: String?) -> String? {
+        guard let corroboration else { return nil }
+        if shortVocalizationBeforeRussianWord(original), !containsLiteralMarks(corroboration) {
+            let source = RussianRecognition.words(original), heard = RussianRecognition.words(corroboration)
+            if let first = leadingVocalization(source), let onset = leadingVocalization(heard), first.spelling == onset.spelling,
+               heard.dropFirst(onset.count).elementsEqual(source.dropFirst(first.count)) {
+                return corroboration
+            }
+        }
+        if let fillers = mixedFillerAlternative(original: original, reread: reread, heard: corroboration) { return fillers }
+        guard language?.lowercased() == "russian", !containsLiteralMarks(reread), !containsLiteralMarks(corroboration) else { return nil }
+        if let full = agreedRussianText(reread, corroboration: corroboration) { return full }
+        let checked = RussianRecognition.words(reread), source = RussianRecognition.words(original)
+        let heard = RussianRecognition.words(corroboration)
+        guard !checked.isEmpty, checked.allSatisfy({ word in word.unicodeScalars.allSatisfy { (0x430...0x44f).contains($0.value) } }) else { return nil }
+        // Strip a hesitation from the acoustic comparison only when the
+        // primary heard the same onset. Keep agreed lexical acknowledgments.
+        var primary = source, body = heard
+        if let onset = leadingVocalization(source), let acousticOnset = leadingVocalization(heard),
+           onset.spelling == acousticOnset.spelling {
+            primary.removeFirst(onset.count)
+            body.removeFirst(acousticOnset.count)
+            if body == checked { return onset.spelling == "а" ? reread : corroboration }
+        }
+        if body.starts(with: checked), body.count == checked.count + 1, checked.count >= 2,
+           let last = body.last, last.count <= 3,
+           AbbreviationFamilies.isRussianFunctionWord(last) || corroboration.hasSuffix("…") || corroboration.hasSuffix("...") {
+            // A conjunction on the cut has no audible continuation here.
+            let joined = checked.last.map { ["и", "а", "но", "или"].contains($0) } == true ? checked.count - 1 : checked.count
+            let prefix = checked.prefix(joined)
+            guard prefix.count >= 2, prefix.contains(where: { $0.count >= 4 && TranscriptTerms.isCommonRussianWord($0) }) else { return nil }
+            let text = reread.trimmingCharacters(in: .whitespacesAndNewlines)
+            let matches = fillerWords.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            guard let end = matches.prefix(joined).last.flatMap({ Range($0.range, in: text)?.upperBound }) else { return nil }
+            return String(text[..<end]) + "…"
+        }
+        // The primary can spell one word in Cyrillic and its neighbor in
+        // Latin. Only change script when every word retains its pronunciation
+        // and the acoustic model confirms each changed position.
+        guard (2...4).contains(checked.count), primary.count == checked.count, body.count >= checked.count else { return nil }
+        var intact = false, respelled = false
+        for index in checked.indices {
+            if primary[index] == checked[index] { intact = true; continue }
+            guard AbbreviationFamilies.isRussianFunctionWord(checked[index]), primary[index].utf8.allSatisfy({ (97...122).contains($0) }),
+                  body[index] == checked[index],
+                  checked[index].applyingTransform(.toLatin, reverse: false) == primary[index] else { return nil }
+            respelled = true
+        }
+        return intact && respelled ? reread : nil
+    }
+
+    private static func leadingVocalization(_ words: [String]) -> (spelling: String, count: Int)? {
+        guard let first = words.first else { return nil }
+        let pair = words.prefix(2).joined(separator: " ")
+        if let spelling = fillerSpellings[pair], words.count >= 2, russianVocalizations.contains(spelling) { return (spelling, 2) }
+        if englishOpenVowels.contains(first) || isOpenVowel(first) {
+            return ("а", words.count >= 2 && isOpenVowel(first) && isOpenVowel(words[1]) ? 2 : 1)
+        }
+        let spelling = fillerSpellings[first] ?? first
+        return russianVocalizations.contains(spelling) ? (spelling, 1) : nil
+    }
+
+    private static func mixedFillerAlternative(original: String, reread: String, heard: String) -> String? {
+        guard let confirmed = fillerEvidence(reread), confirmed == fillerEvidence(heard) else { return nil }
+        let expected = confirmed.components(separatedBy: ", ")
+        guard expected.count >= 3 else { return nil }
+        var source = RussianRecognition.words(original)
+        let unknown = source.indices.filter { fillerSpelling([source[$0]]) == nil }
+        guard unknown.count == 1, let index = unknown.first, source[index].count <= 3,
+              latinLetter.numberOfMatches(in: source[index], range: NSRange(source[index].startIndex..., in: source[index])) == source[index].count else { return nil }
+        for spelling in Set(expected) {
+            source[index] = spelling
+            if fillerSpelling(source) == confirmed {
+                let native = heard.replacingOccurrences(of: #"(?i)(о)['’](кей)"#, with: "$1$2", options: .regularExpression)
+                guard latinLetter.firstMatch(in: native, range: NSRange(native.startIndex..., in: native)) == nil else { return nil }
+                return native.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
     }
 
     /// The Russian-only reread has no text prompt and cannot supply words on
@@ -196,15 +344,14 @@ enum BackchannelLanguage {
     /// before treating a short turn as independently confirmed.
     static func confirmsFillerSequence(original: String, reread: String, corroboration: String?) -> Bool {
         guard let corroboration, let source = russianSpelling(ofFiller: original) else { return false }
-        func evidence(_ text: String) -> String? {
-            let input = text.lowercased()
-                .replacingOccurrences(of: "о'кей", with: "окей")
-                .replacingOccurrences(of: "о’кей", with: "окей")
-            guard !containsLiteralMarks(input) else { return nil }
-            let words = RussianRecognition.words(input).map { ["okei", "okey"].contains($0) ? "okay" : $0 }
-            return fillerSpelling(words)
-        }
-        return source == evidence(reread) && source == evidence(corroboration)
+        return source == fillerEvidence(reread) && source == fillerEvidence(corroboration)
+    }
+
+    private static func fillerEvidence(_ text: String) -> String? {
+        let input = text.lowercased().replacingOccurrences(of: #"о['’]кей"#, with: "окей", options: .regularExpression)
+        guard !containsLiteralMarks(input) else { return nil }
+        let words = RussianRecognition.words(input).map { ["okei", "okey"].contains($0) ? "okay" : $0 }
+        return fillerSpelling(words)
     }
 
     /// A short lead-in can stabilize decoding without cutting or changing speech.
@@ -260,7 +407,8 @@ enum BackchannelLanguage {
         for segment in segments {
             let candidate = lexicalAlternatives[segment.id]
             let isUncertain = uncertain.contains(segment.id)
-            if let candidate, shouldVerifyMixedLatin(segment.text, duration: segment.end - segment.start, vocabulary: vocabulary) {
+            if let candidate, shouldVerifyMixedLatin(segment.text, duration: segment.end - segment.start, vocabulary: vocabulary)
+                || mixedWordIndex(segment.text, duration: segment.end - segment.start, vocabulary: vocabulary) != nil {
                 verifiedLexical[segment.id] = candidate
                 continue
             }
