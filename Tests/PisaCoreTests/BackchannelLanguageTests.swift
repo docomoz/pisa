@@ -557,6 +557,25 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertEqual(BackchannelLanguage.resolve(turns, alternatives: [:], preceding: []), turns)
     }
 
+    func testUncertainCyrillicAnchorUsesNearbyIndependentSpeechOnBothSides() {
+        let left = segment(18, "Давайте начнём с нового рисунка.")
+        let weak = segment(19, "Что тр.")
+        let reply = segment(20, "Oh, look.")
+        let right = segment(23, "Сейчас выберем подходящий цвет.")
+        func resolved(_ context: [TranscriptSegment], uncertain: Bool = false) -> String {
+            BackchannelLanguage.resolve([reply], alternatives: [:],
+                lexicalAlternatives: uncertain ? [:] : [reply.id: "Тут."],
+                uncertain: uncertain ? [reply.id] : [], preceding: context)[0].text
+        }
+        XCTAssertEqual(resolved([left, weak, right]), "Тут.")
+        XCTAssertEqual(resolved([left, weak, right], uncertain: true), "Неразборчиво")
+        for context in [[weak], [left, weak], [weak, right], [left, weak, segment(55, right.text)],
+                        [left, weak, segment(23, "We should move on.")], [left, segment(19, "Are we ready?"), right],
+                        [left, segment(19, "Ми сьогодні переглянемо зміни."), right]] {
+            XCTAssertEqual(resolved(context), reply.text)
+        }
+    }
+
     func testRepeatedRussianFillersDoNotEstablishLanguageInFollowingWindows() {
         let repeated = segment(25, "Да, да, да, да.")
         let short = segment(30, "Yeah.")

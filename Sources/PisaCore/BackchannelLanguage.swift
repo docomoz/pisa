@@ -279,7 +279,7 @@ enum BackchannelLanguage {
             }
         }
         guard !replacements.isEmpty else { return segments }
-        let anchors = (preceding + segments).compactMap { anchor -> (segment: TranscriptSegment, russian: Bool)? in
+        let anchors = (preceding + segments).compactMap { anchor -> (segment: TranscriptSegment, language: ConversationLanguage)? in
             // The proposed correction and quoted material cannot establish
             // the conversation language on which that correction depends.
             guard verifiedLexical[anchor.id] == nil, !unconfirmed.contains(anchor.id) else { return nil }
@@ -293,14 +293,14 @@ enum BackchannelLanguage {
                 && !containsLiteralMarks(text)
             guard words.count >= 4 || isShortSentence, fillerSpelling(words) == nil, !isStandaloneLatinTerm(text),
                   !words.allSatisfy({ russianFillers.contains($0) || isOpenVowel($0) }),
-                  let russian = russianConversationEvidence(text, words: words) else { return nil }
+                  let language = conversationLanguage(text, words: words) else { return nil }
             // In a run of acknowledgments, one stray syllable does not establish
             // a language switch. Nor does an unfinished subject/auxiliary pair.
             let nonFillers = words.filter { fillerSpellings[$0] == nil && !russianFillers.contains($0) }
             guard nonFillers.count >= 2 else { return nil }
-            if !russian, words.count == 2, questionAuxiliaries.contains(words[0]), questionSubjects.contains(words[1]),
+            if language == .other, words.count == 2, questionAuxiliaries.contains(words[0]), questionSubjects.contains(words[1]),
                text.last?.isLetter == true { return nil }
-            return (anchor, russian)
+            return (anchor, language)
         }
         return segments.map { segment in
             guard let alternative = replacements[segment.id] else { return segment }
@@ -308,8 +308,22 @@ enum BackchannelLanguage {
             let nearby = anchors.filter { $0.segment.id != segment.id && gap($0.segment) <= 60 }
             let sameTrack = nearby.filter { track($0.segment) == track(segment) }
             let relevant = sameTrack.isEmpty ? nearby : sameTrack
-            guard let nearest = relevant.map({ gap($0.segment) }).min(),
-                  relevant.filter({ gap($0.segment) == nearest }).allSatisfy(\.russian) else { return segment }
+            guard let nearest = relevant.map({ gap($0.segment) }).min() else { return segment }
+            let closest = relevant.filter { gap($0.segment) == nearest }
+            if !closest.allSatisfy({ $0.language == .russian }) {
+                // An unknown name or a clipped Cyrillic phrase does not
+                // establish a language switch. Require Russian speech on
+                // *both* sides nearby; audible foreign speech still vetoes it.
+                guard !closest.contains(where: { $0.language == .other }) else { return segment }
+                let decisive = relevant.filter { $0.language != .uncertain && gap($0.segment) <= 10 }
+                let left = decisive.filter { $0.segment.start <= segment.start }
+                let right = decisive.filter { $0.segment.start > segment.start }
+                func nearestIsRussian(_ side: [(segment: TranscriptSegment, language: ConversationLanguage)]) -> Bool {
+                    guard let best = side.map({ gap($0.segment) }).min() else { return false }
+                    return side.filter { gap($0.segment) == best }.allSatisfy { $0.language == .russian }
+                }
+                guard nearestIsRussian(left), nearestIsRussian(right) else { return segment }
+            }
             var revised = segment; revised.text = alternative; return revised
         }
     }
@@ -397,11 +411,13 @@ enum BackchannelLanguage {
         return segment.speaker
     }
 
-    private static func russianConversationEvidence(_ text: String, words: [String]) -> Bool? {
+    private enum ConversationLanguage { case russian, other, uncertain }
+
+    private static func conversationLanguage(_ text: String, words: [String]) -> ConversationLanguage? {
         let cyrillic = text.unicodeScalars.filter { (0x0400...0x052F).contains($0.value) }.count
         let latin = text.unicodeScalars.filter { (0x41...0x5A).contains($0.value) || (0x61...0x7A).contains($0.value) }.count
         if cyrillic > 0, cyrillic >= latin * 2 {
-            guard !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text) else { return false }
+            guard !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text) else { return .other }
             // Several Slavic languages share these letters. Look for actual
             // known words beyond the short particles shared by those languages.
             // Latin product names cannot be dictionary evidence against the
@@ -413,17 +429,18 @@ enum BackchannelLanguage {
             let content = cyrillicWords.filter { $0.count >= 4 }
             let evidence = content.isEmpty ? cyrillicWords : content
             let known = evidence.filter(TranscriptTerms.isCommonRussianWord)
-            if known.count * 2 > evidence.count { return true }
+            if known.count * 2 > evidence.count { return .russian }
             // Technical nouns and names are often missing from the common-form
             // dictionary. Count the surrounding Russian words too when the
             // content words alone are inconclusive.
-            guard !known.isEmpty, !content.isEmpty, words.contains(where: russianContextWords.contains) else { return false }
             let shortKnown = words.filter {
                 $0.count < 4 && (TranscriptTerms.isCommonRussianWord($0) || AbbreviationFamilies.isRussianFunctionWord($0))
             }.count
-            return shortKnown > 0 && (known.count * 2 == content.count || (known.count + shortKnown) * 3 >= cyrillicWords.count * 2)
+            if !known.isEmpty, !content.isEmpty, words.contains(where: russianContextWords.contains), shortKnown > 0,
+               known.count * 2 == content.count || (known.count + shortKnown) * 3 >= cyrillicWords.count * 2 { return .russian }
+            return .uncertain
         }
-        if latin > 0, latin >= cyrillic * 2 { return false }
+        if latin > 0, latin >= cyrillic * 2 { return .other }
         return nil
     }
 }
