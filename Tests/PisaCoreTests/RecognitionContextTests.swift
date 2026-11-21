@@ -53,6 +53,9 @@ final class RecognitionContextTests: XCTestCase {
         }
         let overlap = try plan("Сегодня мы решили проверить новую настройку.")
         let word = try XCTUnwrap(overlap.acousticWord(core: "Вечерняя.", padded: "Про вечернее?"))
+        XCTAssertEqual(overlap.acousticWord(core: "Архивная.", padded: "Архивное."), "архивное")
+        XCTAssertEqual(overlap.acousticWord(core: "Здание.", padded: "Здание."), "здание")
+        XCTAssertNil(overlap.acousticWord(core: "Учение.", padded: "Учёное."))
         XCTAssertEqual(overlap.confirmedText(word: word, core: "вечернее", padded: "Вечернее."), "Вечернее.")
         XCTAssertNil(overlap.confirmedText(word: word, core: "дневное", padded: "вечернее"))
         XCTAssertNil(overlap.confirmedText(word: word, core: "вечернее", padded: "Про вечернее?"))
@@ -61,6 +64,8 @@ final class RecognitionContextTests: XCTestCase {
         XCTAssertNil(overlap.acousticWord(core: "вечерняя", padded: "окно вечернее"))
         let background = try plan("Сегодня мы решили проверить вечерний выпуск.")
         XCTAssertNil(background.acousticWord(core: "вечерняя", padded: "вечернее"))
+        let oblique = try plan("Мы хотим посмотреть на фасад здания.")
+        XCTAssertNil(oblique.acousticWord(core: "Здание.", padded: "Здание."))
     }
 
     func testEstablishedPhraseNeedsContiguousWordsInTwoDistinctFrozenTurns() {

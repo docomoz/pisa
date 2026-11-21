@@ -1,5 +1,4 @@
 import Foundation
-import NaturalLanguage
 
 /// A first-pass snapshot. Re-decoded segments never become evidence for their neighbors.
 struct RecognitionContext {
@@ -120,17 +119,25 @@ struct RecognitionContext {
             return words.contains(source) || words.joined().difference(from: source).count <= 2
         }
 
-        private static func lemma(_ word: String) -> String? {
-            let tagger = NLTagger(tagSchemes: [.lemma])
-            tagger.string = word
-            tagger.setLanguage(.russian, range: word.startIndex..<word.endIndex)
-            return tagger.tag(at: word.startIndex, unit: .word, scheme: .lemma).0?.rawValue
+        /// Only accept different endings of the same attested adjective.
+        /// The bundled forms work offline without macOS language assets.
+        private static func agreesOnWord(_ left: String, _ right: String) -> Bool {
+            if left == right { return true }
+            let stem = left.dropLast(2)
+            guard stem.count >= 4, stem == right.dropLast(2) else { return false }
+            let leftEnding = String(left.suffix(2)), rightEnding = String(right.suffix(2))
+            let genderEndings = [["ий", "яя", "ее"], ["ый", "ая", "ое"], ["ой", "ая", "ое"]]
+            return genderEndings.contains { endings in
+                endings.contains(leftEnding) && endings.contains(rightEnding)
+                    && endings.allSatisfy { TranscriptTerms.isCommonRussianWord(String(stem) + $0) }
+            }
         }
 
-        private static func sameWord(_ left: String, _ right: String) -> Bool {
-            if left == right { return true }
-            guard left.prefix(4) == right.prefix(4), let lemma = lemma(left) else { return false }
-            return lemma == Self.lemma(right)
+        /// Treat other plausible case or number endings in the ongoing voice
+        /// as a veto. A shared stem alone never authorizes replacing a word.
+        private static func possibleBackgroundWord(_ left: String, _ right: String) -> Bool {
+            let shared = zip(left, right).prefix { $0 == $1 }.count
+            return shared >= 4 && max(left.count, right.count) - shared <= 4
         }
 
         /// The word has to be audible in isolation. The small margin may
@@ -141,8 +148,8 @@ struct RecognitionContext {
             guard exact.count == 1, let word = wide.last, word.count >= 5,
                   wide.count == 1 || (wide.count == 2 && AbbreviationFamilies.isRussianFunctionWord(wide[0])),
                   TranscriptTerms.isCommonRussianWord(exact[0]), TranscriptTerms.isCommonRussianWord(word),
-                  Self.sameWord(exact[0], word),
-                  !RussianRecognition.words(background).contains(where: { Self.sameWord($0, word) }) else { return nil }
+                  Self.agreesOnWord(exact[0], word),
+                  !RussianRecognition.words(background).contains(where: { Self.possibleBackgroundWord($0, word) }) else { return nil }
             return word
         }
 
