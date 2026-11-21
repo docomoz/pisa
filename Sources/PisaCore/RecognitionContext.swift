@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// A first-pass snapshot. Re-decoded segments never become evidence for their neighbors.
 struct RecognitionContext {
@@ -100,6 +101,84 @@ struct RecognitionContext {
 
     private func startingAtOrAfter(_ time: Double) -> ArraySlice<Turn> {
         byStart[partition(byStart) { $0.start < time }...]
+    }
+
+    struct OverlappingWord {
+        static let padding = 0.08
+        fileprivate let source: String
+        fileprivate let background: String
+
+        fileprivate static func folded(_ text: String) -> String {
+            text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        }
+
+        /// A multilingual reading can confirm a name or foreign word even if
+        /// the decoder changes its accents or makes a small spelling error.
+        func confirmsSource(_ text: String) -> Bool {
+            let source = Self.folded(source)
+            let words = RussianRecognition.words(Self.folded(text))
+            return words.contains(source) || words.joined().difference(from: source).count <= 2
+        }
+
+        private static func lemma(_ word: String) -> String? {
+            let tagger = NLTagger(tagSchemes: [.lemma])
+            tagger.string = word
+            tagger.setLanguage(.russian, range: word.startIndex..<word.endIndex)
+            return tagger.tag(at: word.startIndex, unit: .word, scheme: .lemma).0?.rawValue
+        }
+
+        private static func sameWord(_ left: String, _ right: String) -> Bool {
+            if left == right { return true }
+            guard left.prefix(4) == right.prefix(4), let lemma = lemma(left) else { return false }
+            return lemma == Self.lemma(right)
+        }
+
+        /// The word has to be audible in isolation. The small margin may
+        /// clarify an inflection or add one preposition from the ongoing turn.
+        /// That extra word never enters the transcript.
+        func acousticWord(core: String, padded: String) -> String? {
+            let exact = RussianRecognition.words(core), wide = RussianRecognition.words(padded)
+            guard exact.count == 1, let word = wide.last, word.count >= 5,
+                  wide.count == 1 || (wide.count == 2 && AbbreviationFamilies.isRussianFunctionWord(wide[0])),
+                  TranscriptTerms.isCommonRussianWord(exact[0]), TranscriptTerms.isCommonRussianWord(word),
+                  Self.sameWord(exact[0], word),
+                  !RussianRecognition.words(background).contains(where: { Self.sameWord($0, word) }) else { return nil }
+            return word
+        }
+
+        func confirmedText(word: String, core: String, padded: String) -> String? {
+            guard RussianRecognition.words(core) == [word], RussianRecognition.words(padded) == [word] else { return nil }
+            let text = padded.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let first = text.first, first.isLetter,
+                  text.allSatisfy({ $0.isLetter || ".!?…".contains($0) }) else { return nil }
+            let result = first.uppercased() + text.dropFirst()
+            return result.last?.isLetter == true ? result + "." : result
+        }
+    }
+
+    func overlappingWord(for target: TranscriptSegment, vocabulary: String) -> OverlappingWord? {
+        let duration = target.end - target.start
+        guard target.speakerEvidenceIsMixed == true, (0.35...1.5).contains(duration),
+              let track = target.audioFile, !track.contains("-mic."),
+              target.text.range(of: #"^\p{Latin}[\p{Latin}\p{M}]{4,24}[.!?…]?$"#, options: .regularExpression) != nil else { return nil }
+        let token = target.text.prefix(while: { $0.isLetter })
+        guard token.contains(where: { !$0.isASCII }), !token.dropFirst().contains(where: \.isUppercase) else { return nil }
+        let source = OverlappingWord.folded(String(token))
+        func containsSource(_ text: String) -> Bool {
+            text.range(of: source, options: [.diacriticInsensitive, .caseInsensitive]) != nil
+                && RussianRecognition.words(OverlappingWord.folded(text)).contains(source)
+        }
+        guard !containsSource(vocabulary) else { return nil }
+        let start = target.start - OverlappingWord.padding, end = target.end + OverlappingWord.padding
+        let overlapping = byEnd[partition(byEnd) { $0.end <= start }...].map(\.segment).filter {
+            $0.id != target.id && $0.audioFile == track && $0.start < end
+        }
+        guard overlapping.count == 1, let background = overlapping.first,
+              isAutomaticSpeakerName(target.speaker) || target.speaker.caseInsensitiveCompare(background.speaker) != .orderedSame,
+              background.start <= start, background.end >= end, BackchannelLanguage.isRussianContext(background.text),
+              !byEnd.contains(where: { $0.segment.id != target.id && (containsSource($0.segment.text) || containsSource($0.segment.speaker)) }),
+              !containsSource(target.speaker) else { return nil }
+        return OverlappingWord(source: source, background: background.text)
     }
 
     func neighbors(around target: TranscriptSegment) -> Neighbors {

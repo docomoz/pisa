@@ -561,6 +561,11 @@ enum BackchannelLanguage {
 
     private enum ConversationLanguage { case russian, other, uncertain }
 
+    static func isRussianContext(_ text: String) -> Bool {
+        let words = RussianRecognition.words(text)
+        return words.count >= 4 && conversationLanguage(text, words: words) == .russian
+    }
+
     private static func conversationLanguage(_ text: String, words: [String]) -> ConversationLanguage? {
         let cyrillic = text.unicodeScalars.filter { (0x0400...0x052F).contains($0.value) }.count
         let latin = text.unicodeScalars.filter { (0x41...0x5A).contains($0.value) || (0x61...0x7A).contains($0.value) }.count

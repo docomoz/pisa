@@ -773,6 +773,46 @@ actor Transcriber {
                   let audioRange = bounds[segment.id] else { continue }
             let duration = segment.end - segment.start
             guard duration <= 30 else { continue }
+            // A brief interruption can be wholly contained in another turn
+            // on the same track. In that case the original decode has no room
+            // for padding. Verify the word itself before using either margin.
+            if let overlap = snapshot.overlappingWord(for: segment, vocabulary: vocabulary) {
+                let start = segment.start - offset, end = segment.end - offset
+                let margin = RecognitionContext.OverlappingWord.padding
+                if start >= margin,
+                   let core = try? Self.contextSamples(url, start: start, end: end),
+                   let padded = try? Self.contextSamples(url, start: start - margin, end: end + margin),
+                   !core.isEmpty, padded.count >= core.count + Int(2 * margin * 16000) - 2,
+                   let exact = acousticRecognition(core, using: russian), let wide = acousticRecognition(padded, using: russian),
+                   let word = overlap.acousticWord(core: exact.text, padded: wide.text) {
+                    let began = ContinuousClock.now
+                    let verifier = try await verificationModel(model)
+                    func reread(_ samples: [Float]) throws -> String? {
+                        let audio = MLXArray(samples)
+                        func generate(_ language: String?) throws -> STTOutput {
+                            try Task.checkCancellation()
+                            return measureRecognition("qwen") {
+                                verifier.generate(audio: audio, maxTokens: 96, context: "", language: language,
+                                    chunkDuration: 30, repetitionPenalty: 1.1)
+                            }
+                        }
+                        let detected = try generate(nil)
+                        guard !overlap.confirmsSource(detected.text) else { return nil }
+                        if detected.language?.lowercased() == "russian" { return detected.text }
+                        return try generate("Russian").text
+                    }
+                    let narrow = try reread(core)
+                    let wider = narrow.map(RussianRecognition.words) == [word] ? try reread(padded) : nil
+                    let accepted = overlap.confirmedText(word: word, core: narrow ?? "", padded: wider ?? "")
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["kind": "overlapping-word", "start": String(segment.start),
+                            "source": segment.text, "coreAcoustic": exact.text, "paddedAcoustic": wide.text,
+                            "coreVerifier": narrow ?? "", "paddedVerifier": wider ?? "", "candidate": accepted ?? ""])
+                    }
+                    try await performance.pace(after: began)
+                    if let accepted { revised[index].text = accepted; continue }
+                }
+            }
             let (neighbors, vocabulary) = measureRecognition("contextVocabulary") {
                 let neighbors = snapshot.neighbors(around: segment)
                 let vocabulary = spokenVocabulary.contextualVocabulary(in:
