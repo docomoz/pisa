@@ -469,11 +469,21 @@ struct MeetingView: View {
                                 }
                             }
                             .id(segment.id)
-                            .background(state.sourceReveal?.meetingID == meeting.id && state.sourceReveal?.segmentID == segment.id ? Color.moss.opacity(0.12) : Color.clear)
+                            .background {
+                                if state.sourceReveal?.meetingID == meeting.id && state.sourceReveal?.segmentID == segment.id {
+                                    Rectangle()
+                                        .fill(Color.moss.opacity(0.12))
+                                        .padding(-PisaDesign.Spacing.inline)
+                                        .allowsHitTesting(false)
+                                }
+                            }
                         }
                     }.padding(.vertical, PisaDesign.Spacing.section).padding(.trailing, PisaDesign.Spacing.related)
+                        .padding(.leading, PisaDesign.Spacing.inline)
                         .opacity(isTranscribing && state.isReprocessing ? 0.6 : 1)
                 }
+                // Give the highlight room inside the scroll view while keeping rows aligned.
+                .padding(.leading, -PisaDesign.Spacing.inline)
                 .onAppear { revealSource(using: proxy) }
                 .onChange(of: state.sourceReveal) { _, _ in revealSource(using: proxy) }
                 }
