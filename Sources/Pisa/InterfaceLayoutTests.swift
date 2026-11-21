@@ -22,6 +22,12 @@ enum InterfaceLayoutElement: Hashable {
     case settingsLeftColumn, settingsRightColumn, settingsStorageAge, settingsStorageAction
     case settingsCheckbox(SettingsCheckbox), settingsCheckboxDetails(SettingsCheckbox)
     case settingsRecordingDisclosure, settingsRecordingDetails
+    case settingsHeading(String), settingsHeadingAccessory(String), settingsGridDivider, settingsHeader
+    case settingsCheckboxLabel(SettingsCheckbox), settingsDone
+    case settingsMCPClient(String), settingsLoginApproval, settingsLoginWarning
+    case settingsStorageScanning, settingsStorageEstimate, settingsStorageResult
+    case savedVoiceDisclosure(UUID), dictionaryMenu(Int), dictionaryRemovalNotice
+    case dictionaryAddNotice
     case exportPath, exportChooseFolder, exportUnavailableNotice, exportCloudNotice
     case mcpAccessNotice, mcpCopyConfiguration
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
@@ -42,23 +48,25 @@ private struct InterfaceFrames: PreferenceKey {
 
 extension EnvironmentValues {
     @Entry fileprivate var measuresInterfaceLayout = false
+    @Entry var settingsCheckboxLabel: SettingsCheckbox? = nil
+    @Entry var captureInterfaceTestConfirmation: ((@escaping @MainActor () -> Void) -> Void)? = nil
     // Only the website renderer supplies this; ordinary meetings keep their normal order.
     @Entry var websiteScreenshotParticipantOrder: [String]? = nil
 }
 
 extension View {
-    func measuredForInterfaceTest(_ element: InterfaceLayoutElement) -> some View {
+    func measuredForInterfaceTest(_ element: InterfaceLayoutElement?) -> some View {
         modifier(InterfaceMeasurement(element: element))
     }
 }
 
 private struct InterfaceMeasurement: ViewModifier {
     @Environment(\.measuresInterfaceLayout) private var enabled
-    let element: InterfaceLayoutElement
+    let element: InterfaceLayoutElement?
 
     func body(content: Content) -> some View {
         content.background {
-            if enabled {
+            if enabled, let element {
                 GeometryReader { geometry in
                     Color.clear.preference(key: InterfaceFrames.self,
                                            value: [element: geometry.frame(in: .named("interface-layout-test"))])
@@ -159,7 +167,8 @@ enum InterfaceLayoutTests {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Interface-Tests-" + UUID().uuidString)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
-            let state = AppState(rootURL: root, launchAtLogin: LaunchAtLogin(service: LayoutLoginItem()))
+            let loginItem = LayoutLoginItem()
+            let state = AppState(rootURL: root, launchAtLogin: LaunchAtLogin(service: loginItem))
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
             try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
@@ -168,7 +177,7 @@ enum InterfaceLayoutTests {
             if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
                 return 1
             }
-            try suite.checkScreens(state: state)
+            try suite.checkScreens(state: state, loginItem: loginItem)
             var result: Int32 = 1
             // Keep the focus probes outside a MainActor task. The model actions
             // suspend separately so the run loop can deliver their results.
@@ -359,10 +368,10 @@ private final class LayoutSuite {
         return ready ? elements.compactMap { host.frames[$0] } : nil
     }
 
-    private func saveScreenshot(_ name: String, in host: LayoutHost) throws {
+    private func saveScreenshot(_ name: String, in host: LayoutHost, sheet: Bool = false) throws {
         guard let path = ProcessInfo.processInfo.environment["PISA_LAYOUT_SCREENSHOTS"] else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true)
-        try host.savePNG(to: directory.appendingPathComponent(name + ".png"))
+        try host.savePNG(to: directory.appendingPathComponent(name + ".png"), sheet: sheet)
     }
 
     func checkActiveRecordingFolder(state: AppState) throws {
@@ -405,7 +414,7 @@ private final class LayoutSuite {
         }
     }
 
-    func checkScreens(state: AppState) throws {
+    func checkScreens(state: AppState, loginItem: LayoutLoginItem) throws {
         let file = "interface-fixture-mic.caf"
         guard let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000),
@@ -524,6 +533,168 @@ private final class LayoutSuite {
             try checkForms(state: state, meeting: ready, scale: scale)
             try checkIntegrationSettings(state: state, scale: scale)
             try checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
+            if scale != 1.1 {
+                try checkSettingsStates(state: state, loginItem: loginItem, meeting: ready, scale: scale)
+            }
+        }
+    }
+
+    private func checkSettingsStates(state: AppState, loginItem: LayoutLoginItem, meeting: Meeting,
+                                     scale: CGFloat) throws {
+        let size = CGSize(width: 900, height: 700)
+        let percent = Int(scale * 100)
+
+        scenario = "settings Escape, \(percent)%"
+        do {
+            let host = LayoutHost(SettingsSheetFixture().environmentObject(state), size: size, scale: scale)
+            defer { host.close() }
+            check(host.wait { host.hasSheet }, "settings open as a sheet")
+            host.pressKey("\u{1b}", keyCode: 53)
+            check(host.wait { !host.hasSheet }, "Escape dismisses settings through the Done action")
+        }
+
+        scenario = "recording availability, \(percent)%"
+        do {
+            let automatic = state.preferences.automaticRecording
+            state.preferences.automaticRecording = true
+            let host = LayoutHost(SettingsView().environmentObject(state), size: size, scale: scale)
+            defer {
+                host.close()
+                state.preferences.automaticRecording = automatic
+                loginItem.setStatus(.notRegistered)
+                state.launchAtLogin.refresh()
+            }
+            check(host.wait { host.frames[.settingsLoginWarning] != nil }, "auto-recording warns when login is disabled")
+            try saveScreenshot("settings-recording-login-off-\(percent)", in: host)
+            loginItem.setStatus(.requiresApproval)
+            state.launchAtLogin.refresh()
+            check(host.wait { host.frames[.settingsLoginApproval] != nil && host.frames[.settingsLoginWarning] == nil },
+                  "the approval state takes precedence over the auto-recording warning")
+            try saveScreenshot("settings-recording-login-approval-\(percent)", in: host)
+        }
+
+        scenario = "saved voice list, \(percent)%"
+        do {
+            let previous = state.voiceProfiles
+            var first = VoiceProfile(name: "Анна", samples: [[1, 0]])
+            first.examples = (1...3).map { _ in
+                VoiceExample(file: "fixture.caf", meetingID: meeting.id, segmentID: UUID(), embedding: [1, 0])
+            }
+            let long = VoiceProfile(name: "Екатерина Александровна Воскресенская-Тимофеева", samples: [[1, 0]])
+            let last = VoiceProfile(name: "Ярослав Последний", samples: [[1, 0]])
+            let others = (1...30).map { VoiceProfile(name: "Участник \($0)", samples: [[1, 0]]) }
+            state.voiceProfiles = [first, long] + others + [last]
+            let host = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state), size: size, scale: scale)
+            defer { host.close(); state.voiceProfiles = previous }
+            if let disclosure = frames([.savedVoiceDisclosure(first.id)], in: host)?.first,
+               let row = host.frames[.savedVoiceRow(first.id)] {
+                host.click(disclosure.center)
+                check(host.wait { (host.frames[.savedVoiceRow(first.id)]?.height ?? 0) > row.height },
+                      "the disclosure expands the same row to show its samples")
+                try saveScreenshot("settings-voices-expanded-\(percent)", in: host)
+            }
+            if let viewport = host.scrollToBottom(), let row = frames([.savedVoiceRow(last.id)], in: host)?.first {
+                check(viewport.contains(row), "the last voice is fully visible at the bottom of the list")
+                try saveScreenshot("settings-voices-bottom-\(percent)", in: host)
+            }
+            if let searchFrame = host.frames[.savedVoiceSearch], let search = host.field(in: searchFrame) {
+                check(host.type("Без совпадений", into: search), "the voice search accepts an unmatched query")
+                check(host.wait { host.frames[.savedVoiceRow(last.id)] == nil }, "the unmatched query hides all voice rows")
+                try saveScreenshot("settings-voices-no-results-\(percent)", in: host)
+            }
+        }
+
+        scenario = "dictionary list, \(percent)%"
+        do {
+            let previous = state.preferences.vocabulary
+            state.preferences.vocabulary = ""
+            let host = LayoutHost(SettingsView(initialSection: "Словарь").environmentObject(state), size: size, scale: scale)
+            defer { host.close(); state.preferences.vocabulary = previous; state.savePreferences() }
+            try saveScreenshot("settings-dictionary-empty-\(percent)", in: host)
+            state.preferences.vocabulary = (1...30).map { "Проект \($0)" }.joined(separator: "\n")
+            host.settle()
+            if let last = VocabularyDictionary.entries(in: state.preferences.vocabulary).last,
+               let viewport = host.scrollToBottom(), let frame = frames([.dictionaryRow(last.id)], in: host)?.first {
+                check(viewport.contains(frame), "the last dictionary entry is fully visible at the bottom of the list")
+                try saveScreenshot("settings-dictionary-bottom-\(percent)", in: host)
+            }
+            if let searchFrame = host.frames[.dictionarySearch], let search = host.field(in: searchFrame) {
+                check(host.type("Без совпадений", into: search), "the dictionary accepts an unmatched query")
+                check(host.wait { host.frames[.dictionaryResult] == nil }, "the unmatched query hides dictionary entries")
+                try saveScreenshot("settings-dictionary-no-results-\(percent)", in: host)
+                check(host.type("", into: search), "the query can be cleared")
+            }
+            if let addFrame = host.frames[.dictionaryEntry], let field = host.field(in: addFrame) {
+                if let searchFrame = host.frames[.dictionarySearch], let search = host.field(in: searchFrame),
+                   host.focus(search) {
+                    host.pressKey("\t", keyCode: 48)
+                    check(host.isEditing(field), "Tab moves from search to the add field")
+                    host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
+                    check(host.isEditing(search), "Shift+Tab returns to dictionary search")
+                }
+                let term = "Аврора"
+                check(host.type(term, into: field), "the new term can be entered")
+                host.pressReturn()
+                if let notice = frames([.dictionaryAddNotice], in: host)?.first {
+                    equal(notice.minY - addFrame.maxY, PisaDesign.Spacing.inline, "the add notice follows the toolbar")
+                    try saveScreenshot("settings-dictionary-added-\(percent)", in: host)
+                }
+                host.blur()
+                if let added = VocabularyDictionary.entries(in: state.preferences.vocabulary).first(where: { $0.text == term }),
+                   let viewport = host.scrollToTop(),
+                   let menu = frames([.dictionaryMenu(added.id)], in: host)?.first {
+                    check(viewport.contains(menu), "the added entry menu is visible")
+                    host.chooseMenuItem("Удалить", at: menu.center)
+                    if let notice = frames([.dictionaryRemovalNotice], in: host)?.first {
+                        check(host.bounds.contains(notice), "the removal notice is visible")
+                        try saveScreenshot("settings-dictionary-removed-\(percent)", in: host)
+                    }
+                }
+            }
+        }
+
+        scenario = "storage cleanup, \(percent)%"
+        do {
+            let root = state.library.root.appendingPathComponent("settings-cleanup-\(percent)")
+            let storage = AppState(rootURL: root)
+            storage.modelSetup.phase = .ready
+            if let audio = meeting.audioFiles.first {
+                try FileManager.default.copyItem(at: state.library.audioURL(audio), to: storage.library.audioURL(audio))
+            }
+            var old = meeting
+            old.date = Date(timeIntervalSinceNow: -30 * 24 * 3600)
+            storage.update(old)
+            let host = LayoutHost(SettingsView(initialSection: "Хранилище", scanStorage: { library in
+                Thread.sleep(forTimeInterval: 0.5)
+                return try library.storageUsage()
+            }).environmentObject(storage), size: size, scale: scale)
+            defer { host.close() }
+            if frames([.settingsStorageScanning], in: host) != nil {
+                try saveScreenshot("settings-storage-scanning-\(percent)", in: host)
+            }
+            if let action = frames([.settingsStorageAction, .settingsStorageEstimate], in: host)?.first {
+                try saveScreenshot("settings-storage-estimate-\(percent)", in: host)
+                host.click(action.center)
+                if host.wait(for: { host.hasSheet }) {
+                    try saveScreenshot("settings-storage-confirmation-\(percent)", in: host, sheet: true)
+                    check(host.confirmSheetAction(), "confirming cleanup dismisses the sheet")
+                    if frames([.settingsStorageResult], in: host) != nil {
+                        try saveScreenshot("settings-storage-result-\(percent)", in: host)
+                    }
+                } else {
+                    check(false, "audio cleanup asks for confirmation")
+                }
+            }
+        }
+
+        scenario = "available updates, \(percent)%"
+        do {
+            let updates = AppUpdates(isReady: true, canCheck: true)
+            let host = LayoutHost(SettingsView(initialSection: "Обновления", updates: updates)
+                .environmentObject(state), size: size, scale: scale)
+            defer { host.close() }
+            checkCheckbox(.automaticUpdates, in: host)
+            try saveScreenshot("settings-updates-ready-\(percent)", in: host)
         }
     }
 
@@ -568,7 +739,13 @@ private final class LayoutSuite {
         let size = CGSize(width: 900, height: 700)
         let exportFolder = state.library.root.appendingPathComponent("Расшифровки тестовых встреч", isDirectory: true)
         try FileManager.default.createDirectory(at: exportFolder, withIntermediateDirectories: true)
-        let host = LayoutHost(SettingsView(initialSection: "Экспорт").environmentObject(state), size: size, scale: scale)
+        let domain = "pisa-settings-test-\(UUID())"
+        guard let defaults = UserDefaults(suiteName: domain) else {
+            throw PisaError.message("Не удалось создать настройки для проверки MCP")
+        }
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let host = LayoutHost(SettingsView(initialSection: "Экспорт")
+            .environmentObject(state).defaultAppStorage(defaults), size: size, scale: scale)
         defer { host.close() }
 
         func checkExport(_ name: String, hasFolder: Bool, unavailable: Bool = false) throws {
@@ -577,14 +754,18 @@ private final class LayoutSuite {
             checkCheckbox(.autoExport, in: host)
             check(host.bounds.contains(toggle), "export checkbox fits in the window")
             if hasFolder {
-                guard let measured = frames([.exportPath, .exportChooseFolder, .exportCloudNotice], in: host) else { return }
-                let (path, choose, notice) = (measured[0], measured[1], measured[2])
-                check(measured.allSatisfy { host.bounds.contains($0) }, "folder controls and cloud notice fit in the window")
+                let noticeID: InterfaceLayoutElement = unavailable ? .exportUnavailableNotice : .exportCloudNotice
+                guard let measured = frames([.exportPath, .exportChooseFolder, noticeID, .settingsCheckboxDetails(.autoExport)],
+                                            in: host) else { return }
+                let (path, choose, notice, details) = (measured[0], measured[1], measured[2], measured[3])
+                check(measured.allSatisfy { host.bounds.contains($0) }, "folder controls and notice fit in the window")
                 equal(toggle.minX, path.minX, "checkbox and path share a left edge")
-                equal(path.minY - toggle.maxY, 20, "saved path starts after the standard checkbox gap")
-                check(path.maxY <= choose.minY, "saved path is shown before the folder action")
-                equal(choose.minX, notice.minX, "cloud sync notice is aligned below the folder action")
-                equal(notice.minY - choose.maxY, PisaDesign.Spacing.inline, "cloud sync notice is directly below the folder action")
+                equal(path.minY - details.maxY, PisaDesign.Spacing.related, "the path follows the checkbox and its hint")
+                equal(choose.minY - path.maxY, PisaDesign.Spacing.related, "saved path is shown before the folder action")
+                equal(choose.minX, notice.minX, "folder notice is aligned below the folder action")
+                equal(notice.minY - choose.maxY, PisaDesign.Spacing.inline, "folder notice is directly below the folder action")
+                check(host.frames[unavailable ? .exportCloudNotice : .exportUnavailableNotice] == nil,
+                      "only the relevant folder notice is visible")
             } else {
                 check(host.frames[.exportPath] == nil && host.frames[.exportChooseFolder] == nil && host.frames[.exportCloudNotice] == nil,
                       "folder controls are hidden when auto-export is off")
@@ -613,7 +794,8 @@ private final class LayoutSuite {
             check(state.preferences.exportBookmark == nil && host.frames[.exportPath] == nil,
                   "canceling the folder picker leaves auto-export off")
         }
-        state.preferences.exportDisplayPath = exportFolder.path
+        state.preferences.exportDisplayPath = "/Volumes/External Drive/" +
+            String(repeating: "Long folder name/", count: 5) + "Расшифровки"
         state.preferences.exportBookmark = Data("unavailable fixture bookmark".utf8)
         state.refreshExportFolderAccess()
         try checkExport("paused", hasFolder: true, unavailable: true)
@@ -633,19 +815,34 @@ private final class LayoutSuite {
         guard let tab = frames([.settingsTab("MCP")], in: host)?.first else { return }
         host.click(tab.center)
         guard let measured = frames([.settingsCheckbox(.mcpAccess), .mcpAccessNotice, .mcpCopyConfiguration], in: host) else { return }
-        let (toggle, notice, copy) = (measured[0], measured[1], measured[2])
+        let (toggle, notice, _) = (measured[0], measured[1], measured[2])
         check(measured.allSatisfy { host.bounds.contains($0) }, "MCP access checkbox, notice and configuration action fit in the window")
-        equal(notice.minY - toggle.maxY, 20, "MCP data access notice has a 20-point gap below the checkbox")
-        equal(notice.minX, toggle.minX, "MCP data access notice and checkbox share a left edge")
+        checkCheckbox(.mcpAccess, in: host)
+        if let label = host.frames[.settingsCheckboxLabel(.mcpAccess)] {
+            equal(notice.minX, label.minX, "the first MCP notice is aligned to the checkbox label")
+        }
+        equal(notice.minY - toggle.maxY, PisaDesign.Spacing.compact, "the first MCP notice sits directly below the checkbox")
         try saveScreenshot("mcp-off-\(Int(scale * 100))", in: host)
         host.click(toggle.center)
         let enabled = try state.library.preferences().mcpEnabled
         check(enabled, "MCP checkbox enables access in the saved library settings")
         check(host.frames[.mcpAccessNotice] == notice, "MCP data access notice stays visible when enabling access")
-        try saveScreenshot("mcp-on-\(Int(scale * 100))", in: host)
+        let clients = ["Codex", "Claude Code", "Claude Desktop", "Cursor"]
+        for (index, client) in clients.enumerated() {
+            if let choice = frames([.settingsMCPClient(client)], in: host)?.first {
+                check(host.bounds.contains(choice), "the client segment fits inside the settings window")
+                host.click(choice.center)
+                check(defaults.string(forKey: "settingsMCPClient") == client, "selecting a client persists its choice")
+                try saveScreenshot("mcp-client-\(index + 1)-\(Int(scale * 100))", in: host)
+            }
+        }
         host.click(toggle.center)
         let disabled = try !state.library.preferences().mcpEnabled
         check(disabled, "MCP checkbox disables access in the saved library settings")
+        if let choice = host.frames[.settingsMCPClient("Codex")] {
+            host.click(choice.center)
+            check(defaults.string(forKey: "settingsMCPClient") == "Cursor", "the client selector is inactive when access is disabled")
+        }
         check(host.frames[.mcpAccessNotice] == notice, "MCP data access notice stays visible when disabling access")
     }
 
@@ -699,9 +896,10 @@ private final class LayoutSuite {
         }
         host.click(collapsed[3].center)
         check(host.wait { host.frames[.waveform] == nil }, "second press closes the player")
-        if let restored = host.frames[.transcriptSearch] {
-            equal(restored.minY, collapsed[0].minY, "closing the player restores the transcript layout")
-        }
+        check(host.wait {
+            guard let restored = host.frames[.transcriptSearch] else { return false }
+            return abs(restored.minY - collapsed[0].minY) <= 0.5
+        }, "closing the player restores the transcript layout after the transition")
     }
 
     private func checkSavedAudioAlignment(in host: LayoutHost, state: String) {
@@ -747,10 +945,11 @@ private final class LayoutSuite {
     }
 
     private func checkCheckbox(_ id: SettingsCheckbox, in host: LayoutHost) {
-        guard let measured = frames([.settingsCheckbox(id), .settingsCheckboxDetails(id)], in: host) else { return }
-        let (checkbox, details) = (measured[0], measured[1])
-        equal(details.minY - checkbox.maxY, 20, "checkbox and details have a 20-point gap")
-        equal(details.minX, checkbox.minX, "checkbox and details share a left edge")
+        guard let measured = frames([.settingsCheckbox(id), .settingsCheckboxDetails(id), .settingsCheckboxLabel(id)], in: host)
+        else { return }
+        let (checkbox, details, label) = (measured[0], measured[1], measured[2])
+        equal(details.minY - checkbox.maxY, PisaDesign.Spacing.compact, "checkbox and details have a compact gap")
+        equal(details.minX, label.minX, "checkbox details start at the label's left edge")
         check(host.bounds.contains(checkbox), "checkbox fits in the window")
     }
 
@@ -766,6 +965,13 @@ private final class LayoutSuite {
                 check(zip(tabFrames, tabFrames.dropFirst()).allSatisfy { left, right in left.maxX <= right.minX },
                       "settings tabs appear in order without overlapping")
                 check(tabFrames.allSatisfy { host.bounds.contains($0) }, "all settings tabs fit in the window")
+                if let header = frames([.settingsHeader], in: host)?.first {
+                    let right = CGRect(x: host.bounds.midX, y: header.minY,
+                                       width: host.bounds.midX - PisaDesign.Spacing.sheetInset, height: header.height)
+                    check(host.textInk(in: right) == nil, "settings header has no close button")
+                }
+                check(host.frames[.settingsDone] != nil, "settings footer has a Done button")
+                var gridWidth: CGFloat?
                 for (index, tab) in tabs.enumerated() {
                     let percent = Int((scale * 100).rounded())
                     scenario = "settings \(tab), \(percent)%"
@@ -775,6 +981,13 @@ private final class LayoutSuite {
                           "settings content starts one section gap below the tabs")
                     equal(content.minX, tabBar.minX, "settings content and tabs share a left edge")
 
+                    if tab != "Голоса", tab != "Словарь" {
+                        if let gridWidth {
+                            equal(content.width, gridWidth, "all settings grids keep the same width, including when scrolling")
+                        } else {
+                            gridWidth = content.width
+                        }
+                    }
                     if ["Запись", "Модель", "Хранилище", "MCP"].contains(tab),
                        let columns = frames([.settingsLeftColumn, .settingsRightColumn], in: host) {
                         let (left, right) = (columns[0], columns[1])
@@ -783,8 +996,13 @@ private final class LayoutSuite {
                         equal(left.minY, content.minY, "left column starts at the content top")
                         equal(right.minY, content.minY, "right column starts at the content top")
                         equal(left.width, right.width, "settings columns have equal widths")
-                        equal(right.minX - left.maxX, 2 * PisaDesign.Spacing.section + 1,
+                        equal(right.minX - left.maxX, PisaDesign.Spacing.section,
                               "settings columns use the standard divider spacing")
+                        if let divider = frames([.settingsGridDivider], in: host)?.first {
+                            equal(divider.midX, content.midX, "one divider is centered between the columns")
+                            equal(divider.minY, content.minY, "the divider starts at the top of the grid")
+                            equal(divider.maxY, content.maxY, "the divider reaches the last row of the grid")
+                        }
                         if tab == "Хранилище",
                            let buttons = frames([.settingsStorageAge, .settingsStorageAction], in: host) {
                             check(buttons.allSatisfy { right.contains($0) }, "cleanup buttons fit the right column")
@@ -793,8 +1011,19 @@ private final class LayoutSuite {
                             }
                         }
                     }
+                    if ["Экспорт", "Обновления"].contains(tab),
+                       let left = frames([.settingsLeftColumn], in: host)?.first {
+                        equal(left.width, (content.width - PisaDesign.Spacing.section) / 2, "single blocks use the same column width")
+                        check(host.frames[.settingsRightColumn] == nil && host.frames[.settingsGridDivider] == nil,
+                              "single blocks leave the right column empty and do not have a divider")
+                    }
                     switch tab {
                     case "Запись":
+                        for (left, right) in [("Источники звука", "Разрешения macOS"), ("Автозапись", "Запуск Pisa")] {
+                            if let headings = frames([.settingsHeading(left), .settingsHeading(right)], in: host) {
+                                equal(headings[0].minY, headings[1].minY, "\(left) and \(right) start on the same row")
+                            }
+                        }
                         checkCheckbox(.automaticRecording, in: host)
                         checkCheckbox(.backgroundTranscription, in: host)
                         checkCheckbox(.launchAtLogin, in: host)
@@ -828,6 +1057,7 @@ private final class LayoutSuite {
                             continue
                         }
                         check(viewport.contains(disclosure), "the collapsed disclosure is fully visible after scrolling")
+                        try saveScreenshot("settings-recording-collapsed-bottom-\(percent)", in: host)
                         host.click(disclosure.center)
                         if let expanded = frames([.settingsRecordingDisclosure, .settingsRecordingDetails], in: host) {
                             equal(expanded[1].minY - expanded[0].maxY, PisaDesign.Spacing.inline,
@@ -835,6 +1065,9 @@ private final class LayoutSuite {
                             if let viewport = host.scrollToBottom(),
                                let details = frames([.settingsRecordingDetails], in: host)?.first {
                                 check(viewport.contains(details), "expanded auto-recording details fit after scrolling")
+                                if let grid = frames([.settingsGridDivider, .settingsContent(tab)], in: host) {
+                                    equal(grid[0].maxY, grid[1].maxY, "the divider reaches the expanded last row")
+                                }
                                 try saveScreenshot("settings-recording-expanded-\(percent)", in: host)
                             }
                         }
@@ -851,6 +1084,8 @@ private final class LayoutSuite {
             if let measured = frames([.dictionarySearch, .dictionaryEntry, .dictionaryAdd, .dictionaryResult], in: host) {
                 checkFormRow(measured.prefix(3))
                 let heading = frames([.dictionaryHeading], in: host)?.first
+                let countID = InterfaceLayoutElement.settingsHeadingAccessory("Словарь распознавания")
+                let count = frames([countID], in: host)?.first
                 if let heading {
                     equal(measured[0].minY - heading.maxY, PisaDesign.Spacing.content,
                           "dictionary search starts directly below the heading")
@@ -862,8 +1097,10 @@ private final class LayoutSuite {
                           "dictionary rows start one content gap below the search")
                     let expectedHeight = PisaDesign.Metrics.smallHeight + 2 * PisaDesign.Spacing.compact
                     equal(rowFrames[0].height, expectedHeight, "a short dictionary row uses compact vertical padding")
-                    equal(rowFrames[1].minY - rowFrames[0].maxY, PisaDesign.Spacing.compact,
-                          "dictionary rows have compact spacing")
+                    equal(rowFrames[1].minY, rowFrames[0].maxY, "dictionary rows share a boundary with no gap")
+                    equal(measured[1].minX - measured[0].maxX, PisaDesign.Spacing.content, "search is separated from the add group")
+                    equal(measured[2].minX - measured[1].maxX, PisaDesign.Spacing.inline, "add controls form one group")
+                    check(measured[0].width > measured[2].maxX - measured[1].minX, "dictionary search takes the remaining width")
                     equal(rowFrames[0].maxX - measured[3].maxX,
                           PisaDesign.Metrics.smallHeight + 2 * PisaDesign.Spacing.related,
                           "dictionary text leaves room for one compact action control")
@@ -873,7 +1110,12 @@ private final class LayoutSuite {
                         host.click(point)
                         check(host.wait { host.sheetContainsField(value: entry.text) },
                               "clicking dictionary row opens the editor with \(entry.text)")
-                        if host.hasSheet { host.pressKey("\u{1b}", keyCode: 53) }
+                        if host.hasSheet {
+                            if entry.id == entries[0].id {
+                                try saveScreenshot("dictionary-edit-\(Int(scale * 100))", in: host, sheet: true)
+                            }
+                            host.pressKey("\u{1b}", keyCode: 53)
+                        }
                         check(host.wait { !host.hasSheet }, "Escape closes the dictionary editor")
                     }
                 }
@@ -895,16 +1137,15 @@ private final class LayoutSuite {
                 if let entry = host.field(in: measured[1]) {
                     equal(entry.font?.pointSize ?? 0, 16 * scale, "dictionary entry uses the same body font")
                 } else { check(false, "dictionary entry exposes a native text field") }
-                if let heading {
-                    equal(host.frames[.dictionaryHeading]?.width ?? 0, heading.width,
-                          "search does not change the total dictionary count")
+                if let heading, let count {
+                    equal(host.frames[countID]?.width ?? 0, count.width, "search does not change the total dictionary count")
                     let vocabulary = state.preferences.vocabulary
                     defer { state.preferences.vocabulary = vocabulary }
                     state.preferences.vocabulary = vocabulary + (1...10).map { "\nТермин \($0)" }.joined()
-                    check(host.wait { (host.frames[.dictionaryHeading]?.width ?? 0) > heading.width },
-                          "dictionary heading widens when the total gains a digit")
+                    check(host.wait { (host.frames[countID]?.width ?? 0) > count.width },
+                          "the dictionary count updates when the total gains a digit")
                     equal(host.frames[.dictionaryHeading]?.height ?? 0, heading.height,
-                          "the total fits on the dictionary subtitle line")
+                          "the new count fits on the title line")
                 }
             }
         }
@@ -948,7 +1189,10 @@ private final class LayoutSuite {
         equal(heading.minY, content.minY, "model name and status start at the top")
         equal(action.minY - heading.maxY, PisaDesign.Spacing.content, "model action follows the status")
         check(host.frames[.settingsModelDownloadSize] == nil, "installed models have no download size")
-        equal(folder.minY - action.maxY, PisaDesign.Spacing.section, "the folder section follows the model action")
+        if let quietDetails = host.frames[.settingsCheckboxDetails(.quietProcessing)] {
+            equal(folder.minY - max(action.maxY, quietDetails.maxY), PisaDesign.Spacing.section,
+                  "the folder section follows both blocks in the first row")
+        }
         if let visibleFolder = frames([.settingsModelPath, .settingsModelChooseFolder], in: host) {
             equal(visibleFolder[0].minY - folder.maxY, PisaDesign.Spacing.related, "path is visible below the folder heading when settings open")
             equal(visibleFolder[1].minY - visibleFolder[0].maxY, PisaDesign.Spacing.related, "picker sits below the complete path")
@@ -958,12 +1202,16 @@ private final class LayoutSuite {
         try capture("ready")
 
         host.click(action.center)
+        if state.modelSetup.phase == .checking { try capture("checking") }
         let checked = try await waitForModelSettings { state.modelSetup.phase == .available }
         check(checked, "checking models detects missing files from settings")
         check(!state.modelSetup.presented, "checking models keeps the result in settings")
         if let missing = frames([.settingsModelAction, .settingsModelDownloadSize, .settingsModelFolder], in: host) {
             equal(missing[1].minY - missing[0].maxY, PisaDesign.Spacing.inline, "size sits below the download action")
-            equal(missing[2].minY - missing[1].maxY, PisaDesign.Spacing.section, "size stays grouped with the download action")
+            if let quietDetails = host.frames[.settingsCheckboxDetails(.quietProcessing)] {
+                equal(missing[2].minY - max(missing[1].maxY, quietDetails.maxY), PisaDesign.Spacing.section,
+                      "the download size stays in the first row")
+            }
         }
         state.preferences.parakeetModelDisplayPath = nil
         check(host.wait { host.frames[.settingsModelPath] == nil }, "there is no path when a model folder is unavailable")
@@ -972,6 +1220,12 @@ private final class LayoutSuite {
                   "the picker is visible below the heading without a selected model folder")
         }
         try capture("missing")
+        state.modelSetup.error = "Не удалось прочитать файл модели. Проверьте доступ к папке."
+        state.modelSetup.phase = .failed
+        try capture("error")
+        state.modelSetup.error = nil
+        state.modelSetup.phase = .available
+        host.settle()
         if let download = host.frames[.settingsModelAction] {
             host.click(download.center)
             let opened = try await waitForModelSettings { state.modelSetup.presented && !state.modelSetup.busy }
@@ -1125,22 +1379,22 @@ private final class LayoutSuite {
                       "saved voice search starts directly below the heading")
                 equal(measured[2].minY - measured[1].maxY, PisaDesign.Spacing.content,
                       "saved voice rows start one content gap below the search")
-                equal(measured[3].minY - measured[2].maxY, PisaDesign.Spacing.related,
-                      "saved voice rows have room between groups")
+                equal(measured[3].minY, measured[2].maxY, "voice rows share a boundary with no gap")
             }
-            let fullHeading = host.frames[.savedVoiceHeading]
+            let countID = InterfaceLayoutElement.settingsHeadingAccessory("Сохранённые голоса")
+            let fullHeading = host.frames[countID]
             try saveScreenshot("saved-people-full-\(percent)", in: host)
             checkField(.savedVoiceSearch, placeholder: true, value: "ПППППП", in: host)
             if let heading = fullHeading, let searchFrame = host.frames[.savedVoiceSearch],
                let search = host.field(in: searchFrame, placeholder: "Найти голос по имени") {
-                check(host.frames[.savedVoiceHeading] == heading, "the first search preserves the saved people count")
+                check(host.frames[countID] == heading, "the first search preserves the saved people count")
                 check(host.type(secondVoice.name, into: search), "search accepts a saved voice name")
                 check(host.wait { host.frames[.savedVoiceRow(savedVoice.id)] == nil && host.frames[.savedVoiceRow(secondVoice.id)] != nil },
                       "search leaves only the matching voice visible")
-                check(host.frames[.savedVoiceHeading] == heading, "search preserves the saved people count")
+                check(host.frames[countID] == heading, "search preserves the saved people count")
                 try saveScreenshot("saved-people-filtered-\(percent)", in: host)
                 state.voiceProfiles = [secondVoice]
-                check(host.wait { (host.frames[.savedVoiceHeading]?.width ?? heading.width) < heading.width },
+                check(host.wait { (host.frames[countID]?.width ?? heading.width) < heading.width },
                       "the heading updates from two people to one after a profile is removed")
                 try saveScreenshot("saved-people-one-\(percent)", in: host)
                 state.voiceProfiles = []
@@ -1251,9 +1505,21 @@ private final class LayoutSuite {
     }
 }
 
+private struct SettingsSheetFixture: View {
+    @State private var showingSettings = true
+
+    var body: some View {
+        Color.paper.sheet(isPresented: $showingSettings) { SettingsView() }
+    }
+}
+
 private final class LayoutLoginItem: LoginItemRegistration {
     private let registration = OSAllocatedUnfairLock(initialState: SMAppService.Status.notRegistered)
     var status: SMAppService.Status { registration.withLock { $0 } }
+
+    func setStatus(_ status: SMAppService.Status) {
+        registration.withLock { $0 = status }
+    }
 
     func register() throws {
         Thread.sleep(forTimeInterval: 0.4)
@@ -1271,6 +1537,7 @@ private final class LayoutHost {
     private let window: NSWindow
     private let view: NSHostingView<AnyView>
     private(set) var frames: [InterfaceLayoutElement: CGRect] = [:]
+    private var presentedConfirmationAction: (@MainActor () -> Void)?
     var bounds: CGRect { view.bounds }
     var hasSheet: Bool { window.attachedSheet != nil }
 
@@ -1286,6 +1553,7 @@ private final class LayoutHost {
                 .frame(width: size.width, height: size.height)
                 .coordinateSpace(name: "interface-layout-test")
                 .environment(\.measuresInterfaceLayout, true)
+                .environment(\.captureInterfaceTestConfirmation, { [weak self] in self?.presentedConfirmationAction = $0 })
                 .environment(\.appTextScale, scale)
                 .environment(\.locale, Locale(identifier: "ru_RU"))
                 .preferredColorScheme(.light)
@@ -1316,6 +1584,33 @@ private final class LayoutHost {
         return false
     }
 
+    func confirmSheetAction() -> Bool {
+        // Invoke the action from the presented button once the sheet is
+        // attached. Synthetic clicks on child windows race AppKit's animation.
+        guard wait(for: { hasSheet && presentedConfirmationAction != nil }),
+              let action = presentedConfirmationAction else { return false }
+        presentedConfirmationAction = nil
+        action()
+        return wait { !hasSheet }
+    }
+
+    func chooseMenuItem(_ title: String, at point: CGPoint) {
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { event in
+            MainActor.assumeIsolated {
+                guard let menu = event.object as? NSMenu,
+                      let item = menu.items.first(where: { $0.title == title }) else { return }
+                let selection = LayoutMenuSelection(menu: menu, item: item)
+                let timer = Timer(timeInterval: 0.05, repeats: false) { _ in
+                    MainActor.assumeIsolated { selection.activate() }
+                }
+                RunLoop.main.add(timer, forMode: .eventTracking)
+            }
+        }
+        defer { center.removeObserver(observer) }
+        click(point)
+    }
+
     func click(_ point: CGPoint) {
         let local = CGPoint(x: point.x, y: view.isFlipped ? point.y : view.bounds.height - point.y)
         let location = view.convert(local, to: nil)
@@ -1330,16 +1625,20 @@ private final class LayoutHost {
     }
 
     // Used on settings pages with a single vertical scroll view.
-    func scrollToBottom() -> CGRect? {
+    func scrollToBottom() -> CGRect? { scroll(toBottom: true) }
+    func scrollToTop() -> CGRect? { scroll(toBottom: false) }
+
+    private func scroll(toBottom: Bool) -> CGRect? {
         func findScrollView(in node: NSView) -> NSScrollView? {
             if let scroll = node as? NSScrollView { return scroll }
             return node.subviews.lazy.compactMap { findScrollView(in: $0) }.first
         }
         guard let scroll = findScrollView(in: view), let document = scroll.documentView else { return nil }
         let clip = scroll.contentView
-        let bottom = document.isFlipped ? max(document.frame.minY, document.frame.maxY - clip.bounds.height)
-                                        : document.frame.minY
-        clip.scroll(to: CGPoint(x: clip.bounds.minX, y: bottom))
+        let minY = document.frame.minY
+        let maxY = max(minY, document.frame.maxY - clip.bounds.height)
+        let scrollY = document.isFlipped == toBottom ? maxY : minY
+        clip.scroll(to: CGPoint(x: clip.bounds.minX, y: scrollY))
         scroll.reflectScrolledClipView(clip)
         settle()
         let rect = view.convert(clip.bounds, from: clip)
@@ -1457,18 +1756,21 @@ private final class LayoutHost {
         return (CGPoint(x: CGFloat(minX) / sx, y: CGFloat(minY) / sy), min(0.5, 1 / max(sx, sy)))
     }
 
-    func savePNG(to url: URL) throws {
+    func savePNG(to url: URL, sheet: Bool = false) throws {
         settle()
-        guard let image = renderedHost(), let data = image.representation(using: .png, properties: [:]) else {
+        let target: NSView? = sheet ? window.attachedSheet?.contentView : view
+        guard let target, let image = rendered(target), let data = image.representation(using: .png, properties: [:]) else {
             throw PisaError.message("Не удалось создать изображение интерфейса")
         }
         try data.write(to: url, options: .atomic)
     }
 
     // Read only pixels from the synthetic host, in memory. No desktop capture.
-    private func renderedHost() -> NSBitmapImageRep? {
-        guard let image = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
-        view.cacheDisplay(in: view.bounds, to: image)
+    private func renderedHost() -> NSBitmapImageRep? { rendered(view) }
+
+    private func rendered(_ target: NSView) -> NSBitmapImageRep? {
+        guard let image = target.bitmapImageRepForCachingDisplay(in: target.bounds) else { return nil }
+        target.cacheDisplay(in: target.bounds, to: image)
         return image
     }
 
@@ -1519,6 +1821,17 @@ private final class LayoutHost {
             }
         }
         return false
+    }
+}
+
+@MainActor
+private struct LayoutMenuSelection {
+    let menu: NSMenu
+    let item: NSMenuItem
+
+    func activate() {
+        menu.cancelTracking()
+        if let action = item.action { NSApp.sendAction(action, to: item.target, from: item) }
     }
 }
 

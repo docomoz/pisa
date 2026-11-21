@@ -45,48 +45,58 @@ struct VocabularyDictionaryView: View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
             SectionHeading(
                 "Словарь распознавания",
-                subtitle: "Нужное написание имён, названий и специальных слов · \(dictionaryCountCaption(entries.count))"
+                subtitle: "Нужное написание имён, названий и специальных слов",
+                style: .settings,
+                accessory: .init(dictionaryCountCaption(entries.count))
             )
                 .monospacedDigit()
                 .measuredForInterfaceTest(.dictionaryHeading)
-            HStack(spacing: PisaDesign.Spacing.related) {
-                SearchField(title: typographicText("Поиск по словарю"), text: $search)
-                    .measuredForInterfaceTest(.dictionarySearch)
-                FormTextField(title: "Слово или название", text: $input, isFocused: $inputFocused, onSubmit: { add() })
-                    .measuredForInterfaceTest(.dictionaryEntry)
-                screenButton("Добавить") { add() }
-                    .actionButton(.primary)
-                    .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .measuredForInterfaceTest(.dictionaryAdd)
-            }
-            if let error { SupportingText(error).foregroundStyle(.red) }
-            if let notice {
-                HStack(spacing: PisaDesign.Spacing.related) {
-                    SupportingText(notice)
-                    if let revealText {
-                        screenButton("Показать запись") { reveal(revealText) }.actionButton()
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                HStack(spacing: PisaDesign.Spacing.content) {
+                    SearchField(title: "Поиск по словарю", text: $search)
+                        .measuredForInterfaceTest(.dictionarySearch)
+                    HStack(spacing: PisaDesign.Spacing.inline) {
+                        FormTextField(title: "Слово или название", text: $input, isFocused: $inputFocused, onSubmit: { add() })
+                            .measuredForInterfaceTest(.dictionaryEntry)
+                        screenButton("Добавить") { add() }
+                            .actionButton()
+                            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .measuredForInterfaceTest(.dictionaryAdd)
+                    }
+                    .frame(maxWidth: PisaDesign.Metrics.dictionaryEntryGroupWidth)
+                }
+                if let error { SettingsHint(error, warning: true) }
+                if let notice {
+                    HStack(spacing: PisaDesign.Spacing.inline) {
+                        SettingsHint(notice).measuredForInterfaceTest(.dictionaryAddNotice)
+                        if let revealText {
+                            screenButton("Показать запись") { reveal(revealText) }.actionButton()
+                        }
                     }
                 }
-            }
-            if removal != nil {
-                HStack(spacing: PisaDesign.Spacing.related) {
-                    SupportingText("Запись удалена")
-                    screenButton("Отменить удаление", action: undo).actionButton()
+                if removal != nil {
+                    HStack(spacing: PisaDesign.Spacing.inline) {
+                        SettingsHint("Запись удалена").measuredForInterfaceTest(.dictionaryRemovalNotice)
+                        screenButton("Отменить удаление", action: undo).actionButton()
+                    }
                 }
             }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                    let results = filtered
+                    LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
                         if entries.isEmpty {
-                            SupportingText("Добавьте имена и названия, которые Pisa записывает неточно")
-                        } else if filtered.isEmpty {
+                            SettingsHint("Добавьте имена и названия, которые Pisa записывает неточно")
+                                .padding(PisaDesign.Spacing.content)
+                        } else if results.isEmpty {
                             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                                 SectionHeading("Ничего не найдено")
                                 screenButton("Очистить поиск") { search = "" }.actionButton()
                             }
+                            .padding(PisaDesign.Spacing.content)
                         }
-                        ForEach(filtered) { entry in
+                        ForEach(results) { entry in
                             HStack(spacing: PisaDesign.Spacing.none) {
                                 Button { editing = entry } label: {
                                     screenText(entry.text, highlighting: search)
@@ -108,14 +118,17 @@ struct VocabularyDictionaryView: View {
                                     ]
                                 }
                                 .focused($focusedRowControl, equals: .menu(entry.id))
+                                .measuredForInterfaceTest(.dictionaryMenu(entry.id))
                                 .padding(.trailing, PisaDesign.Spacing.related)
                             }
                             .settingsRowHighlight(highlighted == entry.id)
+                            .settingsListSeparator(visible: entry.id != results.last?.id)
                             .measuredForInterfaceTest(.dictionaryRow(entry.id))
                             .id(entry.id)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .settingsListSurface()
                 .onChange(of: focusedRowControl) { _, control in
                     if let control { proxy.scrollTo(control.entryID) }
                 }
@@ -206,7 +219,7 @@ private func dictionaryCountCaption(_ count: Int) -> String {
     case (_, 2...4): noun = "термина"
     default: noun = "терминов"
     }
-    return "Всего \(count)\u{00a0}\(noun)"
+    return "\(count) \(noun)"
 }
 
 struct VocabularyEditForm: View {

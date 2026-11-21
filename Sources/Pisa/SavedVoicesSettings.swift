@@ -35,16 +35,19 @@ struct SavedVoicesSettings: View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
             SectionHeading(
                 "Сохранённые голоса",
-                subtitle: "Pisa узнаёт людей по этим образцам на новых встречах · Всего \(savedPeopleCount)"
+                subtitle: "Pisa узнаёт людей по этим образцам на новых встречах",
+                style: .settings,
+                accessory: .init(savedPeopleCount)
             )
                 .measuredForInterfaceTest(.savedVoiceHeading)
             if state.voiceProfiles.isEmpty {
-                emptyState
+                emptyState.settingsListSurface()
             } else {
                 SearchField(title: "Найти голос по имени", text: $query)
                     .measuredForInterfaceTest(.savedVoiceSearch)
                 ScrollViewReader { proxy in
                     ScrollView { voiceList }
+                        .settingsListSurface()
                         .onChange(of: focusedControl) { _, control in
                             if let control { proxy.scrollTo(control.scrollID) }
                         }
@@ -85,7 +88,7 @@ struct SavedVoicesSettings: View {
     private var savedPeopleCount: String {
         let count = state.voiceProfiles.count
         let noun = (2...4).contains(count % 10) && !(12...14).contains(count % 100) ? "человека" : "человек"
-        return "\(count)\u{00a0}\(noun)"
+        return "\(count) \(noun)"
     }
 
     private func revealMergedVoice() {
@@ -100,19 +103,16 @@ struct SavedVoicesSettings: View {
 
     private var voiceList: some View {
         let profiles = filteredVoices(state.voiceProfiles, query: query)
-        return Group {
+        return VStack(spacing: PisaDesign.Spacing.none) {
             if profiles.isEmpty {
-                SupportingText("Голоса с таким именем не найдены")
+                SettingsHint("Голоса с таким именем не найдены")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(PisaDesign.Spacing.content)
-                    .plainSurface()
-            } else {
-                VStack(spacing: PisaDesign.Spacing.related) {
-                    ForEach(profiles) { profile in
-                        voiceRow(profile)
-                            .measuredForInterfaceTest(.savedVoiceRow(profile.id))
-                    }
-                }
+            }
+            ForEach(profiles) { profile in
+                voiceRow(profile)
+                    .measuredForInterfaceTest(.savedVoiceRow(profile.id))
+                    .settingsListSeparator(visible: profile.id != profiles.last?.id)
             }
         }
     }
@@ -125,11 +125,12 @@ struct SavedVoicesSettings: View {
                 .frame(width: PisaDesign.Metrics.regularHeight, height: PisaDesign.Metrics.regularHeight)
                 .background(Color.paper, in: Circle())
                 .accessibilityHidden(true)
-            SectionHeading("Пока нет сохранённых голосов", subtitle: "В записи откройте «Разметить голоса», назначьте имя и включите «Запомнить голос для будущих встреч»")
+            SectionHeading("Пока нет сохранённых голосов",
+                           subtitle: "В записи откройте «Разметить голоса», назначьте имя и включите «Запомнить голос для будущих встреч»",
+                           style: .settings)
         }
         .padding(PisaDesign.Spacing.content)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .plainSurface()
     }
 
     private func voiceRow(_ profile: VoiceProfile) -> some View {
@@ -139,6 +140,8 @@ struct SavedVoicesSettings: View {
             HStack(spacing: PisaDesign.Spacing.related) {
                 if examples.isEmpty {
                     voiceIdentity(profile, sampleCount: 0)
+                    Color.clear.frame(width: PisaDesign.Metrics.smallHeight, height: PisaDesign.Metrics.smallHeight)
+                        .accessibilityHidden(true)
                 } else {
                     Button {
                         if expanded {
@@ -162,11 +165,12 @@ struct SavedVoicesSettings: View {
                     .focused($focusedControl, equals: .disclosure(profile.id))
                     .accessibilityLabel(typographicText("\(profile.name), \(voiceSampleCount(examples.count))"))
                     .accessibilityValue(expanded ? "Образцы показаны" : "Образцы свёрнуты")
+                    .measuredForInterfaceTest(.savedVoiceDisclosure(profile.id))
                 }
                 voiceActions(profile)
             }
             .padding(.horizontal, PisaDesign.Spacing.related)
-            .padding(.vertical, PisaDesign.Spacing.compact)
+            .padding(.vertical, PisaDesign.Spacing.inline)
             .settingsRowHighlight()
             .id(profile.id)
             if expanded {
@@ -176,10 +180,9 @@ struct SavedVoicesSettings: View {
                             .id(example.id)
                     }
                 }
-                .padding(PisaDesign.Spacing.inline)
-                .plainSurface()
-                .padding(.horizontal, PisaDesign.Spacing.related)
-                .padding(.bottom, PisaDesign.Spacing.compact)
+                .padding(.leading, PisaDesign.Metrics.regularHeight + 2 * PisaDesign.Spacing.related)
+                .padding(.trailing, PisaDesign.Metrics.smallHeight + 2 * PisaDesign.Spacing.related)
+                .padding(.bottom, PisaDesign.Spacing.inline)
             }
         }
     }
@@ -228,19 +231,17 @@ struct SavedVoicesSettings: View {
                         .font(PisaDesign.Typography.Icon.featured)
                         .foregroundStyle(state.recording ? Color.disabledInk : Color.moss)
                         .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.hairline) {
-                        screenText("Образец \(number)")
+                    screenText("Образец \(number)")
+                        .textStyle(PisaDesign.Typography.detail)
+                        .fixedSize()
+                    if let meetingTitle, !meetingTitle.isEmpty {
+                        screenText(meetingTitle)
                             .textStyle(PisaDesign.Typography.detail)
-                        if let meetingTitle, !meetingTitle.isEmpty {
-                            screenText(meetingTitle)
-                                .textStyle(PisaDesign.Typography.caption)
-                                .foregroundStyle(Color.mutedInk)
-                                .lineLimit(1)
-                        }
+                            .foregroundStyle(Color.mutedInk)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                 }
-                .padding(.horizontal, PisaDesign.Spacing.inline)
-                .padding(.vertical, PisaDesign.Spacing.compact)
                 .frame(maxWidth: .infinity, minHeight: PisaDesign.Metrics.smallHeight, alignment: .leading)
                 .contentShape(Rectangle())
             }
@@ -263,6 +264,9 @@ struct SavedVoicesSettings: View {
                 .focused($focusedControl, equals: .remove(example.id))
                 .screenHelp("Удалить образец")
                 .accessibilityLabel(typographicText("Удалить образец \(number), \(profile.name)"))
+            } else {
+                Color.clear.frame(width: PisaDesign.Metrics.smallHeight, height: PisaDesign.Metrics.smallHeight)
+                    .accessibilityHidden(true)
             }
         }
     }

@@ -2,6 +2,20 @@ import Foundation
 import CoreFoundation
 
 public enum MCPClientConfiguration {
+    public static func claudeCode(commandPath: String) -> String {
+        let quoted = commandPath.replacingOccurrences(of: "'", with: "'\\''")
+        return "claude mcp add --transport stdio pisa -- '\(quoted)'"
+    }
+
+    public static func json(commandPath: String, explicitStdio: Bool = false) -> String {
+        var server = ["command": commandPath]
+        if explicitStdio { server["type"] = "stdio" }
+        let object = ["mcpServers": ["pisa": server]]
+        // The object contains only string-keyed dictionaries and strings.
+        let data = try! JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        return String(decoding: data, as: UTF8.self)
+    }
+
     public static func toml(commandPath: String) -> String {
         let escaped = commandPath.unicodeScalars.map { scalar -> String in
             switch scalar.value {

@@ -199,8 +199,10 @@ public func sidebarDuration(_ seconds: Double) -> String {
 /// Signal debouncing is independent of the UI, so muted/reconnect cases can be tested.
 public struct CallDetector: Sendable {
     public enum Action: Equatable, Sendable { case start, stop, none }
-    public var startDelay: TimeInterval = 3
-    public var stopDelay: TimeInterval = 45
+    public static let defaultStartDelay: TimeInterval = 3
+    public static let defaultStopDelay: TimeInterval = 45
+    public var startDelay = Self.defaultStartDelay
+    public var stopDelay = Self.defaultStopDelay
     private var activeSince: Date?
     private var inactiveSince: Date?
     private var recording = false
@@ -407,12 +409,15 @@ public func fragmentCount(_ n: Int) -> String {
 /// Presentation-only spacing; original transcript remains editable without substitutions.
 private let typographyRegex = try? NSRegularExpression(pattern: "(?i)(?<![\\p{L}\\p{N}])([а-яё]{1,2}|без|для|при|под|над|или|что|как|чем|про|из-за|из-под)[ \\t]+")
 private let typographyNumberRegex = try? NSRegularExpression(pattern: "(?i)(?<![\\p{L}\\p{N}])([0-9]+(?:[.,][0-9]+)?)[ \\t\\u00a0]+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|секунд[а-яё]*|минут[а-яё]*|час[а-яё]*|дн[а-яё]*|дней|месяц[а-яё]*|год[а-яё]*|года|лет|мс|КБ|МБ|ГБ|кГц|Гц|г\\.)(?![\\p{L}\\p{N}])")
+// In “3 с после звонка”, с is the unit. Keep it with the number instead of the next word.
+private let typographySecondsRegex = try? NSRegularExpression(pattern: #"(?i)(?<![\p{L}\p{N}])([0-9]+(?:[.,][0-9]+)?)[ \t\u00a0]+(с)[ \t\u00a0]+(?=после\b)"#)
 private let typographyPercentRegex = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}/=])([0-9]+(?:[.,][0-9]+)?)[ \t\u00a0\u202f]+%(?![0-9A-Fa-f]{2})"#)
 private let typographyCurrencyRegex = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}/=])([0-9]+(?:[.,][0-9]+)?)[ \t\u00a0]*₽(?![0-9A-Fa-f]{2})"#)
 private let typographyDollarRegex = try? NSRegularExpression(pattern: #"(?i)(`+)[\s\S]*?\1|(?<![^\s«(])(?:за|от|до|по)(?=\$[0-9]+(?:[.,][0-9]+)?[.,!?;:»)]*(?!\S))"#)
 public func typographicText(_ value: String) -> String {
     var text = value
     for (regex, template) in [(typographyRegex, "$1\u{00a0}"), (typographyNumberRegex, "$1\u{00a0}$2"),
+                              (typographySecondsRegex, "$1\u{00a0}$2 "),
                               (typographyPercentRegex, "$1%"), (typographyCurrencyRegex, "$1\u{00a0}₽")] {
         if let regex { text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: template) }
     }

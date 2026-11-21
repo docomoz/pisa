@@ -2,10 +2,10 @@ import SwiftUI
 
 struct SectionHeading: View {
     enum Style {
-        case section, dialog, window, page, feature
+        case section, settings, dialog, window, page, feature
         var textStyle: PisaDesign.Typography.Style {
             switch self {
-            case .section: return PisaDesign.Typography.sectionTitle
+            case .section, .settings: return PisaDesign.Typography.sectionTitle
             case .dialog: return PisaDesign.Typography.dialogTitle
             case .window: return PisaDesign.Typography.windowTitle
             case .page: return PisaDesign.Typography.pageTitle
@@ -13,19 +13,92 @@ struct SectionHeading: View {
             }
         }
     }
-    let title: String
-    var subtitle: String?
-    var style: Style
-    init(_ title: String, subtitle: String? = nil, style: Style = .section) {
-        self.title = title; self.subtitle = subtitle; self.style = style
+    struct Accessory {
+        let text: String
+        let color: Color
+
+        init(_ text: String, color: Color = .mutedInk) {
+            self.text = text
+            self.color = color
+        }
     }
+
+    let title: String
+    let subtitle: String?
+    let style: Style
+    let accessory: Accessory?
+
+    init(_ title: String, subtitle: String? = nil, style: Style = .section, accessory: Accessory? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+        self.style = style
+        self.accessory = accessory
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: style == .feature ? PisaDesign.Spacing.textLine : PisaDesign.Spacing.inline) {
-            screenText(title).textStyle(style.textStyle)
+            if let accessory {
+                HStack(alignment: .firstTextBaseline, spacing: PisaDesign.Spacing.related) {
+                    screenText(title).textStyle(style.textStyle)
+                    screenText(accessory.text)
+                        .textStyle(PisaDesign.Typography.detail)
+                        .foregroundStyle(accessory.color)
+                        .fixedSize(horizontal: true, vertical: false)
+#if !PISA_CONTROLS_PROBE
+                        .measuredForInterfaceTest(.settingsHeadingAccessory(title))
+#endif
+                }
+                .accessibilityElement(children: .combine)
+            } else {
+                screenText(title).textStyle(style.textStyle)
+            }
             if let subtitle {
-                SupportingText(subtitle, style: style == .feature ? PisaDesign.Typography.micro : PisaDesign.Typography.body)
+                switch style {
+                case .settings: SettingsHint(subtitle)
+                case .feature: SupportingText(subtitle, style: PisaDesign.Typography.micro)
+                default: SupportingText(subtitle)
+                }
             }
         }.fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct SettingsHint: View {
+    let text: String
+    var warning: Bool = false
+
+    init(_ text: String, warning: Bool = false) {
+        self.text = text
+        self.warning = warning
+    }
+
+    var body: some View {
+        screenText(text)
+            .textStyle(PisaDesign.Typography.detail)
+            .foregroundStyle(warning ? Color.recordingRed : Color.mutedInk)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+extension View {
+    func settingsListSurface() -> some View {
+        let outline = RoundedRectangle(cornerRadius: PisaDesign.Metrics.surfaceRadius)
+        return clipShape(outline)
+            .overlay {
+                outline.strokeBorder(PisaDesign.Colors.listSeparator, lineWidth: PisaDesign.Metrics.separatorWidth)
+                    .allowsHitTesting(false)
+            }
+    }
+
+    func settingsListSeparator(visible: Bool) -> some View {
+        overlay(alignment: .bottom) {
+            if visible {
+                Rectangle().fill(PisaDesign.Colors.listSeparator)
+                    .frame(height: PisaDesign.Metrics.separatorWidth)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 }
 
@@ -49,6 +122,9 @@ struct ConfirmationSheet: View {
     let confirm: () -> Void
     @Environment(\.dismiss) private var dismiss
     @FocusState private var cancelFocused: Bool
+#if !PISA_CONTROLS_PROBE
+    @Environment(\.captureInterfaceTestConfirmation) private var captureConfirmation
+#endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
@@ -59,13 +135,19 @@ struct ConfirmationSheet: View {
                     .keyboardShortcut(.cancelAction)
                     .onKeyPress(.return) { dismiss(); return .handled }
                 Spacer(minLength: PisaDesign.Spacing.none)
-                screenButton(actionTitle, role: role) {
-                    dismiss()
-                    confirm()
-                }.actionButton(role == .destructive ? .recording : .primary)
+                screenButton(actionTitle, role: role, action: accept)
+                    .actionButton(role == .destructive ? .recording : .primary)
             }
         }.dialogContent().frame(width: 480)
             .defaultFocus($cancelFocused, true)
+#if !PISA_CONTROLS_PROBE
+            .onAppear { captureConfirmation?(accept) }
+#endif
+    }
+
+    private func accept() {
+        dismiss()
+        confirm()
     }
 }
 

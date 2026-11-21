@@ -46,6 +46,9 @@ private struct FocusFillToggle: View {
     @Binding var isOn: Bool
     @FocusState private var focused: Bool
     @Environment(\.isEnabled) private var enabled
+#if !PISA_CONTROLS_PROBE
+    @Environment(\.settingsCheckboxLabel) private var measuredLabel
+#endif
     var body: some View {
         Button { isOn.toggle() } label: {
             HStack(spacing: PisaDesign.Spacing.inline) {
@@ -62,10 +65,13 @@ private struct FocusFillToggle: View {
                                 .strokeBorder(Color.mutedInk.opacity(0.65), lineWidth: 1.5)
                         }
                     }
-                    .frame(width: 18, height: 18)
+                    .frame(width: PisaDesign.Metrics.checkboxSide, height: PisaDesign.Metrics.checkboxSide)
                     .opacity(enabled ? 1 : 0.45)
                 screenText(title)
                     .foregroundStyle(enabled ? Color.ink : Color.disabledInk)
+#if !PISA_CONTROLS_PROBE
+                    .measuredForInterfaceTest(measuredLabel.map(InterfaceLayoutElement.settingsCheckboxLabel))
+#endif
             }.contentShape(Rectangle())
         }
             .buttonStyle(.plain)

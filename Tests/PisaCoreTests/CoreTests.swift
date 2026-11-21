@@ -245,6 +245,11 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(typographicText("команда\nи результат"), "команда\nи\u{00a0}результат")
         XCTAssertEqual(typographicText("https://example.com/a/b?x=1"), "https://example.com/a/b?x=1")
         XCTAssertEqual(typographicText("https://example.com/a?x=25%20"), "https://example.com/a?x=25%20")
+        let seconds = "Старт через 3 с после звонка. Стоп через 45 с после разговора."
+        let spaced = "Старт через 3\u{00a0}с после звонка. Стоп через 45\u{00a0}с после разговора."
+        XCTAssertEqual(typographicText(seconds), spaced)
+        XCTAssertEqual(typographicText(spaced), spaced)
+        XCTAssertEqual(typographicText("Встреча 3 с командой"), "Встреча 3 с\u{00a0}командой")
         let text = "А в папку для записи — через 45 секунд"
         XCTAssertEqual(typographicText(typographicText(text)), typographicText(text))
     }

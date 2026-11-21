@@ -23,10 +23,14 @@ enum PisaDesign {
         static let mutedInk = Color(red: 0.25091, green: 0.26128, blue: 0.27245)
         static let sidebar = Color(red: 0.93417, green: 0.94068, blue: 0.94773)
         static let selection = Color(white: 0.84)
+        static let listSeparator = ink.opacity(0.10)
         static let searchMatch = Color(red: 1, green: 0.90, blue: 0.50)
     }
     enum Metrics {
         static let cornerRadius: CGFloat = 8
+        static let separatorWidth: CGFloat = 1
+        static let checkboxSide: CGFloat = 18
+        static let dictionaryEntryGroupWidth: CGFloat = 360
         static let regularHeight: CGFloat = 36
         static let smallHeight: CGFloat = 32
         static let surfaceRadius: CGFloat = 12
@@ -48,7 +52,6 @@ enum PisaDesign {
         static let inline: CGFloat = 8
         static let related: CGFloat = 12
         static let content: CGFloat = 16
-        static let checkboxContent: CGFloat = 20
         static let section: CGFloat = 24
         static let sheetInset: CGFloat = 28
         static let page: CGFloat = 32

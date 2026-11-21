@@ -8,15 +8,23 @@ enum SettingsCheckbox: Hashable {
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) var dismiss
-    @ObservedObject private var updates = AppUpdates.shared
+    @ObservedObject private var updates: AppUpdates
+    @AppStorage("settingsMCPClient") private var mcpClient = SettingsMCPClient.codex
     @State private var section = "Запись"
     @State private var showRecordingDetails = false
-    init(initialSection: String = "Запись") {
+    private let storageScanner: SettingsStorageScanner
+
+    init(initialSection: String = "Запись", updates: AppUpdates? = nil,
+         scanStorage: @escaping @Sendable (MeetingLibrary) throws -> LibraryStorageUsage = { try $0.storageUsage() }) {
         _section = State(initialValue: initialSection)
+        _updates = ObservedObject(wrappedValue: updates ?? .shared)
+        storageScanner = SettingsStorageScanner(scan: scanStorage)
     }
+
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-            HStack(spacing: PisaDesign.Spacing.inline) { SectionHeading("Настройки", style: .window); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(PisaDesign.Typography.Icon.close).foregroundStyle(Color.mutedInk) }.shapeAwarePlainButton(Circle()).screenHelp("Закрыть настройки").accessibilityLabel("Закрыть настройки") }
+            SectionHeading("Настройки", style: .window)
+                .measuredForInterfaceTest(.settingsHeader)
             SettingsSectionPicker(selection: $section)
                 .measuredForInterfaceTest(.settingsTabBar)
             if section == "Голоса" {
@@ -26,39 +34,7 @@ struct SettingsView: View {
                 VocabularyDictionaryView()
                     .measuredForInterfaceTest(.settingsContent(section))
             } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-                    switch section {
-                    case "Запись":
-                        recordingSettings
-                    case "Модель":
-                        modelSettings
-                    case "Экспорт":
-                        exportSettings
-                    case "Хранилище":
-                        StorageSettings()
-                    case "MCP":
-                        mcpSettings
-                    default:
-                        block("Обновления Pisa", "Новые версии загружаются с GitHub") {
-                            settingsCheckboxGroup(.automaticUpdates) {
-                                screenToggle("Устанавливать обновления автоматически", isOn: Binding(
-                                    get: { updates.installsAutomatically },
-                                    set: { updates.setAutomaticInstallation($0) }
-                                )).disabled(!updates.isReady)
-                            } details: {
-                                SupportingText("Если выключить, Pisa сообщит о новой версии и предложит установить её вручную")
-                                screenButton("Проверить обновления…") { updates.check() }
-                                    .actionButton().disabled(!updates.canCheck)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    }
-                }
-                .measuredForInterfaceTest(.settingsContent(section))
-                .padding(.bottom, PisaDesign.Spacing.compact)
-            }.id(section)
+                settingsScroll
             }
             HStack(spacing: PisaDesign.Spacing.inline) {
                 Image(nsImage: BrandMark.headerIcon)
@@ -70,159 +46,220 @@ struct SettingsView: View {
                     .textStyle(PisaDesign.Typography.footnote)
                     .foregroundStyle(Color.mutedInk)
                 Spacer()
-                screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
+                screenButton("Готово") { dismiss() }
+                    .actionButton(.primary)
+                    .keyboardShortcut(.cancelAction)
+                    .measuredForInterfaceTest(.settingsDone)
             }
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
     }
 
+    private var settingsScroll: some View {
+        GeometryReader { geometry in
+            // A legacy scrollbar uses space only on overflowing pages. Keep
+            // that gutter available on every grid so columns never shift.
+            let style = NSScroller.preferredScrollerStyle
+            let gutter = style == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: style) : 0
+            ScrollView {
+                sectionGrid
+                    .frame(width: max(0, geometry.size.width - gutter), alignment: .leading)
+                    .measuredForInterfaceTest(.settingsContent(section))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, PisaDesign.Spacing.compact)
+            }
+            .id(section)
+        }
+    }
+
+    @ViewBuilder private var sectionGrid: some View {
+        switch section {
+        case "Запись": recordingSettings
+        case "Модель": modelSettings
+        case "Экспорт": exportSettings
+        case "Хранилище": StorageSettings(scanner: storageScanner)
+        case "MCP": mcpSettings
+        default: updateSettings
+        }
+    }
+
+    private var updateSettings: some View {
+        SettingsGrid(singleColumn: true) {
+            SettingsSection("Обновления Pisa", subtitle: "Новые версии загружаются с GitHub") {
+                settingsCheckboxGroup(.automaticUpdates) {
+                    screenToggle("Устанавливать обновления автоматически", isOn: Binding(
+                        get: { updates.installsAutomatically },
+                        set: { updates.setAutomaticInstallation($0) }
+                    )).disabled(!updates.isReady)
+                } details: {
+                    if updates.isReady {
+                        SettingsHint("Если выключить, Pisa сообщит о новой версии и предложит установить её вручную")
+                    } else {
+                        SettingsHint(updates.startError ?? "Недоступно в этой сборке", warning: true)
+                    }
+                }
+                screenButton("Проверить обновления") { updates.check() }
+                    .actionButton().disabled(!updates.canCheck)
+            }
+            .settingsColumn(.settingsLeftColumn)
+        }
+    }
+
     private var exportSettings: some View {
         let hasFolder = state.preferences.exportBookmark != nil
-        return settingsCheckboxGroup(.autoExport) {
-            screenToggle("Автоэкспорт расшифровок", isOn: Binding(
-                get: { state.preferences.exportBookmark != nil },
-                set: { enabled in
-                    if enabled {
-                        state.chooseExportFolder()
-                    } else {
-                        state.disableExportFolder()
+        let unavailable = hasFolder && state.exportFolderUnavailable
+        let status = SectionHeading.Accessory(
+            unavailable ? "папка недоступна" : hasFolder ? "включён" : "выключен",
+            color: unavailable ? .recordingRed : hasFolder ? .moss : .mutedInk
+        )
+        return SettingsGrid(singleColumn: true) {
+            SettingsSection("Экспорт в Markdown", accessory: status) {
+                settingsCheckboxGroup(.autoExport) {
+                    screenToggle("Автоэкспорт расшифровок", isOn: Binding(
+                        get: { state.preferences.exportBookmark != nil },
+                        set: { enabled in
+                            if enabled {
+                                state.chooseExportFolder()
+                            } else {
+                                state.disableExportFolder()
+                            }
+                        }
+                    ))
+                } details: {
+                    SettingsHint("Когда расшифровка готова, Pisa сохраняет текст, имена участников и временные метки. После правок файл обновляется автоматически, аудио остаётся в библиотеке.")
+                }
+                if hasFolder {
+                    if let path = state.preferences.exportDisplayPath {
+                        settingsPath(path).measuredForInterfaceTest(.exportPath)
                     }
-                }
-            ))
-        } details: {
-            if hasFolder {
-                if let path = state.preferences.exportDisplayPath {
-                    screenText(verbatim: path)
-                        .textStyle(PisaDesign.Typography.code)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                        .measuredForInterfaceTest(.exportPath)
-                }
-                if state.exportFolderUnavailable {
-                    SupportingText("Папка недоступна. Выберите её заново, чтобы возобновить экспорт.")
-                        .measuredForInterfaceTest(.exportUnavailableNotice)
-                }
-                VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                    screenButton(state.exportFolderUnavailable ? "Выбрать папку…" : "Выбрать другую папку…") {
-                        state.chooseExportFolder()
+                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                        screenButton(unavailable ? "Выбрать папку…" : "Выбрать другую папку…") {
+                            state.chooseExportFolder()
+                        }
+                        .actionButton()
+                        .measuredForInterfaceTest(.exportChooseFolder)
+                        if unavailable {
+                            SettingsHint("Папка недоступна. Выберите её заново, чтобы возобновить экспорт.", warning: true)
+                                .measuredForInterfaceTest(.exportUnavailableNotice)
+                        } else {
+                            SettingsHint("Если папка синхронизируется с облаком, расшифровки могут попасть туда", warning: true)
+                                .measuredForInterfaceTest(.exportCloudNotice)
+                        }
                     }
-                    .actionButton()
-                    .measuredForInterfaceTest(.exportChooseFolder)
-                    SupportingText("Если папка синхронизируется с облаком, расшифровки могут попасть туда")
-                        .measuredForInterfaceTest(.exportCloudNotice)
                 }
             }
-            SupportingText("Когда расшифровка готова, Pisa сохраняет текст, имена участников и временные метки в Markdown. После правок файл обновляется автоматически. Аудио остаётся в библиотеке.")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear { state.refreshExportFolderAccess() }
+            .settingsColumn(.settingsLeftColumn)
+        }.onAppear { state.refreshExportFolderAccess() }
     }
 
     private var mcpSettings: some View {
-        let configuration = MCPClientConfiguration.toml(commandPath: state.mcpPath)
-        return settingsColumns {
-            FormSection("Доступ к встречам через MCP") {
+        let configuration = mcpClient.configuration(commandPath: state.mcpPath)
+        return SettingsGrid {
+            SettingsSection("Доступ к встречам через MCP") {
                 settingsCheckboxGroup(.mcpAccess) {
                     screenToggle("Разрешить MCP читать библиотеку", isOn: $state.preferences.mcpEnabled)
                         .onChange(of: state.preferences.mcpEnabled) { state.saveMCPSetting() }
                 } details: {
-                    SupportingText("Подключённый клиент может искать реплики и читать расшифровки. Облачная модель клиента может получить прочитанный текст.")
+                    SettingsHint("Клиент ищет реплики, читает расшифровки и видит папки. Ссылки открывают нужные фрагменты в Pisa. Аудио и изменение библиотеки недоступны.")
                         .measuredForInterfaceTest(.mcpAccessNotice)
-                    SupportingText("Клиент также видит папки и сведения о полноте расшифровки. Ссылки открывают нужные фрагменты в Pisa. Аудиофайлы и изменение библиотеки через MCP недоступны.")
-                    SupportingText("Выключатель отзывает доступ и у уже запущенного клиента")
+                    SettingsHint("Облачная модель клиента может получить прочитанный текст", warning: true)
+                    SettingsHint("Выключатель отзывает доступ и у уже запущенного клиента")
                 }
             }
-        } right: {
-            FormSection("Подключение", subtitle: "Добавьте локальный сервер в настройки клиента") {
-                screenText(verbatim: configuration)
-                    .textStyle(PisaDesign.Typography.code)
-                    .foregroundStyle(PisaDesign.Colors.paper)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .padding(PisaDesign.Spacing.content)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(PisaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
-                screenButton("Скопировать конфигурацию") {
+            .settingsColumn(.settingsLeftColumn)
+            SettingsSection("Подключение") {
+                SettingsMCPClientPicker(selection: $mcpClient)
+                SettingsHint(mcpClient.instructions)
+                ScrollView(.horizontal) {
+                    screenText(verbatim: configuration)
+                        .textStyle(PisaDesign.Typography.code)
+                        .foregroundStyle(PisaDesign.Colors.paper)
+                        .fixedSize()
+                        .textSelection(.enabled)
+                        .padding(PisaDesign.Spacing.content)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(PisaDesign.Colors.ink, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
+                screenButton("Скопировать") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(configuration, forType: .string)
-                }.actionButton()
-                    .measuredForInterfaceTest(.mcpCopyConfiguration)
-                SupportingText("Сервер работает на этом Mac без сетевого порта")
+                }
+                .actionButton()
+                .measuredForInterfaceTest(.mcpCopyConfiguration)
+                SettingsHint("Сервер работает на этом Mac без сетевого порта")
             }
             .disabled(!state.preferences.mcpEnabled)
+            .opacity(state.preferences.mcpEnabled ? 1 : 0.55)
+            .settingsColumn(.settingsRightColumn)
         }
     }
 
     private var modelSettings: some View {
         let setup = state.modelSetup
         let checksModels = setup.ready || setup.phase == .checking
-        return settingsColumns {
-            VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-                VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
-                    SectionHeading("Parakeet v3 · \(modelStatus)", subtitle: "Локальное распознавание с перепроверкой терминов")
-                        .measuredForInterfaceTest(.settingsModelHeading)
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                        screenButton(checksModels ? "Проверить модели" : "Скачать модели") {
-                            if checksModels {
+        return SettingsGrid {
+            SettingsSection("Parakeet v3", subtitle: "Локальное распознавание с перепроверкой терминов",
+                            accessory: modelStatus, headingElement: .settingsModelHeading) {
+                VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                    screenButton(checksModels ? "Проверить модели" : "Скачать модели") {
+                        if checksModels {
+                            setup.check(presentWhenNeeded: false)
+                        } else {
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                 setup.check(presentWhenNeeded: false)
-                            } else {
-                                dismiss()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                    setup.check(presentWhenNeeded: false)
-                                    setup.presented = true
-                                }
+                                setup.presented = true
                             }
                         }
-                        .actionButton()
-                        .disabled(setup.busy)
-                        .measuredForInterfaceTest(.settingsModelAction)
-                        if setup.phase == .failed, let error = setup.error {
-                            SupportingText(error)
-                        }
-                        if !checksModels, !setup.busy, let bytes = setup.missingDownloadBytes, bytes > 0 {
-                            SupportingText("Размер загрузки — около \(modelDownloadSize(bytes))")
-                                .measuredForInterfaceTest(.settingsModelDownloadSize)
-                        }
+                    }
+                    .actionButton()
+                    .disabled(setup.busy)
+                    .measuredForInterfaceTest(.settingsModelAction)
+                    if setup.phase == .failed, let error = setup.error {
+                        SettingsHint(error, warning: true)
+                    }
+                    if !checksModels, !setup.busy, let bytes = setup.missingDownloadBytes, bytes > 0 {
+                        SettingsHint("Размер загрузки — около \(modelDownloadSize(bytes))")
+                            .measuredForInterfaceTest(.settingsModelDownloadSize)
                     }
                 }
-                modelFolder
             }
-        } right: {
-            FormSection("Производительность") {
+            .settingsColumn(.settingsLeftColumn)
+            SettingsSection("Производительность") {
                 settingsCheckboxGroup(.quietProcessing) {
                     screenToggle("Тихая обработка", isOn: Binding(
                         get: { state.preferences.usesQuietProcessing },
                         set: { state.preferences.quietProcessing = $0; state.savePreferences() }
                     ))
                 } details: {
-                    SupportingText("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
+                    SettingsHint("Меньше параллельной нагрузки и паузы между фрагментами. Расшифровка займёт больше времени.")
                 }
             }
+            .settingsColumn(.settingsRightColumn)
+            modelFolder
         }.onAppear {
             if !setup.busy, !setup.ready, setup.missingDownloadBytes == nil {
                 setup.check(presentWhenNeeded: false)
             }
         }
     }
-    private var modelStatus: String {
+
+    private var modelStatus: SectionHeading.Accessory {
         switch state.modelSetup.phase {
-        case .checking: return "Проверяем…"
-        case .available: return "Нужны модели"
-        case .downloading: return "Скачиваем…"
-        case .ready: return "Готова"
-        case .failed: return "Ошибка"
+        case .checking: return .init("Проверяем…")
+        case .available: return .init("Нужны модели", color: .recordingRed)
+        case .downloading: return .init("Скачиваем…")
+        case .ready: return .init("✓ Готова", color: .moss)
+        case .failed: return .init("Ошибка", color: .recordingRed)
         }
     }
+
     private var modelFolder: some View {
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-            SectionHeading("Папка модели")
-                .measuredForInterfaceTest(.settingsModelFolder)
+        SettingsSection("Папка модели", headingElement: .settingsModelFolder) {
             if let path = state.modelURL()?.path ?? state.preferences.parakeetModelDisplayPath {
-                screenText(verbatim: path).textStyle(PisaDesign.Typography.code)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(Color.mutedInk).textSelection(.enabled)
-                    .measuredForInterfaceTest(.settingsModelPath)
+                settingsPath(path).measuredForInterfaceTest(.settingsModelPath)
             }
             screenButton("Выбрать папку модели…") { state.chooseModel() }
                 .actionButton()
@@ -230,74 +267,82 @@ struct SettingsView: View {
                 .measuredForInterfaceTest(.settingsModelChooseFolder)
         }
     }
+
     private var recordingSettings: some View {
-        settingsColumns {
-            VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-                block("Источники звука", "Микрофон и системный звук") {
-                    SupportingText("Начните запись заранее, затем откройте встречу в любом приложении или браузере. Записываются и другие звуки Mac.")
-                }
-                block("Автозапись", "Экспериментальная функция") {
-                    settingsCheckboxGroup(.automaticRecording) {
-                        screenToggle("Автоматический старт и стоп", isOn: Binding(
-                            get: { state.preferences.automaticRecording },
-                            set: { state.setAutomatic($0) }
-                        ))
-                    } details: {
-                        VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                            screenLabel("Старт — через 3 секунды", systemImage: "record.circle")
-                            screenLabel("Стоп — через 45 секунд без микрофона", systemImage: "stop.circle").fixedSize(horizontal: false, vertical: true)
-                        }.textStyle(PisaDesign.Typography.body).fixedSize(horizontal: false, vertical: true)
-                        SupportingText("Ориентируется на использование микрофона другими приложениями, а не на громкость звука")
-                        // Keep the disclosure and its text together so the block's row spacing
-                        // cannot add a second gap between the heading and its content.
-                        VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                            Button { showRecordingDetails.toggle() } label: {
-                                HStack(spacing: PisaDesign.Spacing.inline) {
-                                    Image(systemName: showRecordingDetails ? "chevron.down" : "chevron.right").font(PisaDesign.Typography.Icon.disclosure).frame(width: 12)
-                                    screenText("Как работает и ограничения")
-                                    Spacer(minLength: 0)
-                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.shapeAwarePlainButton().foregroundStyle(Color.moss)
-                                .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
-                                .measuredForInterfaceTest(.settingsRecordingDisclosure)
-                            if showRecordingDetails {
-                                SupportingText("Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если вы начали запись вручную до встречи, автостоп включится только после обнаружения звонка.")
-                                    .measuredForInterfaceTest(.settingsRecordingDetails)
-                            }
-                        }
-                    }
-                }
-            }
-        } right: {
-            VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
-                block("Разрешения macOS", "Нужны для записи вашего голоса и собеседников") {
-                    Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: { screenLabel("Микрофон", systemImage: "mic") }.actionButton()
-                    Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: { screenLabel("Системный звук", systemImage: "speaker.wave.2") }.actionButton()
+        SettingsGrid {
+            SectionHeading("Источники звука",
+                           subtitle: "Микрофон и системный звук Mac. Начните запись заранее и откройте встречу в любом приложении или браузере.",
+                           style: .settings)
+                .measuredForInterfaceTest(.settingsHeading("Источники звука"))
+                .settingsColumn(.settingsLeftColumn)
+            SettingsSection("Разрешения macOS", subtitle: "Откроют нужный раздел Системных настроек") {
+                SettingsActionGroup {
+                    Button { NSWorkspace.shared.open(CapturePermission.microphone.settingsURL) } label: {
+                        screenLabel("Микрофон", systemImage: "mic")
+                    }.actionButton()
+                    Button { NSWorkspace.shared.open(CapturePermission.systemAudio.settingsURL) } label: {
+                        screenLabel("Системный звук", systemImage: "speaker.wave.2")
+                    }.actionButton()
                 }.labelStyle(AlignedIconLabelStyle())
-                LaunchAtLoginSettings(launchAtLogin: state.launchAtLogin)
-                block("Фоновая расшифровка", "Черновик во время звонка") {
-                    settingsCheckboxGroup(.backgroundTranscription) {
-                        screenToggle("Расшифровывать во время записи", isOn: Binding(
-                            get: { state.preferences.usesBackgroundTranscription },
-                            set: { state.setBackgroundTranscription($0) }
-                        ))
-                    } details: {
-                        SupportingText("После остановки обрабатывается оставшийся хвост. Пауза распознавания не останавливает запись.")
-                    }
+            }
+            .settingsColumn(.settingsRightColumn)
+            SettingsSection("Автозапись", accessory: .init("эксперимент")) {
+                settingsCheckboxGroup(.automaticRecording) {
+                    screenToggle("Автоматический старт и стоп", isOn: Binding(
+                        get: { state.preferences.automaticRecording },
+                        set: { state.setAutomatic($0) }
+                    ))
+                } details: {
+                    let start = Int(CallDetector.defaultStartDelay)
+                    let stop = Int(CallDetector.defaultStopDelay)
+                    SettingsHint("Старт через \(start) с после того, как звонок займёт микрофон. Стоп через \(stop) с после того, как микрофон освободится.")
+                }
+                recordingDisclosure
+            }
+            LaunchAtLoginSettings(launchAtLogin: state.launchAtLogin, automaticRecording: state.preferences.automaticRecording)
+            SettingsSection("Фоновая расшифровка") {
+                settingsCheckboxGroup(.backgroundTranscription) {
+                    screenToggle("Расшифровывать во время записи", isOn: Binding(
+                        get: { state.preferences.usesBackgroundTranscription },
+                        set: { state.setBackgroundTranscription($0) }
+                    ))
+                } details: {
+                    SettingsHint("Черновик появляется во время звонка, после остановки дорабатывается остаток. Пауза распознавания не останавливает запись.")
                 }
             }
         }
     }
-    private func block<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
-        FormSection(title, subtitle: subtitle, content: content)
+
+    private var recordingDisclosure: some View {
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+            Button { showRecordingDetails.toggle() } label: {
+                HStack(spacing: PisaDesign.Spacing.inline) {
+                    Image(systemName: showRecordingDetails ? "chevron.down" : "chevron.right")
+                        .font(PisaDesign.Typography.Icon.disclosure)
+                        .frame(width: PisaDesign.Spacing.related)
+                    screenText("Как работает и ограничения")
+                    Spacer(minLength: PisaDesign.Spacing.none)
+                }
+                .contentShape(Rectangle())
+            }
+            .shapeAwarePlainButton()
+            .foregroundStyle(Color.moss)
+            .accessibilityValue(showRecordingDetails ? "Развёрнуто" : "Свёрнуто")
+            .measuredForInterfaceTest(.settingsRecordingDisclosure)
+            if showRecordingDetails {
+                SettingsHint("Pisa следит за использованием микрофона другими приложениями, а не за громкостью звука. Диктовка и тест микрофона тоже могут запустить запись. Звонки без доступа к микрофону не определяются. Отключение микрофона в приложении может вызвать автостоп. Если начать запись вручную до встречи, автостоп включится только после обнаружения звонка.")
+                    .measuredForInterfaceTest(.settingsRecordingDetails)
+            }
+        }
     }
 }
 
 private struct LaunchAtLoginSettings: View {
     @ObservedObject var launchAtLogin: LaunchAtLogin
+    let automaticRecording: Bool
 
     var body: some View {
-        FormSection("Запуск Pisa") {
+        SettingsSection("Запуск Pisa") {
             settingsCheckboxGroup(.launchAtLogin) {
                 screenToggle(LaunchAtLogin.title, isOn: Binding(
                     get: { launchAtLogin.isEnabled },
@@ -305,11 +350,15 @@ private struct LaunchAtLoginSettings: View {
                 ))
             } details: {
                 if let error = launchAtLogin.error {
-                    SupportingText(error)
+                    SettingsHint(error, warning: true)
                 } else if launchAtLogin.status == .requiresApproval {
-                    SupportingText("Разрешите запуск Pisa в системных настройках macOS")
+                    SettingsHint("Разрешите запуск Pisa в системных настройках macOS", warning: true)
+                        .measuredForInterfaceTest(.settingsLoginApproval)
+                } else if automaticRecording && !launchAtLogin.isEnabled {
+                    SettingsHint("Без этого автозапись не сработает после перезагрузки Mac", warning: true)
+                        .measuredForInterfaceTest(.settingsLoginWarning)
                 } else {
-                    SupportingText("Pisa откроется автоматически при входе в macOS")
+                    SettingsHint("Pisa откроется автоматически при входе в macOS")
                 }
             }
         }
@@ -325,27 +374,208 @@ private func settingsCheckboxGroup<Checkbox: View, Details: View>(
     @ViewBuilder checkbox: () -> Checkbox,
     @ViewBuilder details: () -> Details
 ) -> some View {
-    VStack(alignment: .leading, spacing: PisaDesign.Spacing.checkboxContent) {
-        checkbox().measuredForInterfaceTest(.settingsCheckbox(id))
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.related, content: details)
+    VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+        checkbox().environment(\.settingsCheckboxLabel, id).measuredForInterfaceTest(.settingsCheckbox(id))
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact, content: details)
             .measuredForInterfaceTest(.settingsCheckboxDetails(id))
+            .padding(.leading, PisaDesign.Metrics.checkboxSide + PisaDesign.Spacing.inline)
     }
 }
 
-private func settingsColumns<Left: View, Right: View>(
-    @ViewBuilder left: () -> Left, @ViewBuilder right: () -> Right
-) -> some View {
-    HStack(alignment: .top, spacing: PisaDesign.Spacing.section) {
-        left().frame(maxWidth: .infinity, alignment: .leading)
-            .measuredForInterfaceTest(.settingsLeftColumn)
-        Rectangle().fill(Color.black.opacity(0.08)).frame(width: 1)
-        right().frame(maxWidth: .infinity, alignment: .leading)
-            .measuredForInterfaceTest(.settingsRightColumn)
-    }.fixedSize(horizontal: false, vertical: true)
+private func settingsPath(_ path: String) -> some View {
+    screenText(verbatim: path)
+        .textStyle(PisaDesign.Typography.code)
+        .foregroundStyle(Color.mutedInk)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .textSelection(.enabled)
+        .screenHelp(path)
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    let subtitle: String?
+    let accessory: SectionHeading.Accessory?
+    let headingElement: InterfaceLayoutElement
+    let content: Content
+
+    init(_ title: String, subtitle: String? = nil, accessory: SectionHeading.Accessory? = nil,
+         headingElement: InterfaceLayoutElement? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.accessory = accessory
+        self.headingElement = headingElement ?? .settingsHeading(title)
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: subtitle == nil ? PisaDesign.Spacing.related : PisaDesign.Spacing.content) {
+            SectionHeading(title, subtitle: subtitle, style: .settings, accessory: accessory)
+                .measuredForInterfaceTest(headingElement)
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) { content }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsActionGroup<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: PisaDesign.Spacing.inline, content: content)
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline, content: content)
+        }
+    }
+}
+
+private struct SettingsGrid<Content: View>: View {
+    var singleColumn = false
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        SettingsGridLayout() { content() }
+            .overlay {
+                if !singleColumn {
+                    Rectangle().fill(Color.black.opacity(0.08))
+                        .frame(width: PisaDesign.Metrics.separatorWidth)
+                        .measuredForInterfaceTest(.settingsGridDivider)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+private extension View {
+    func settingsColumn(_ element: InterfaceLayoutElement) -> some View {
+        frame(maxWidth: .infinity, alignment: .leading).measuredForInterfaceTest(element)
+    }
+}
+
+// Measure each row at the same two fixed column widths. A tall cell grows
+// its own row and moves the next pair together.
+private struct SettingsGridLayout: Layout {
+    private let gap = PisaDesign.Spacing.section
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width: CGFloat
+        if let proposed = proposal.width, proposed.isFinite {
+            width = proposed
+        } else {
+            let ideal = subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+            width = 2 * ideal + gap
+        }
+        let heights = rowHeights(width: columnWidth(total: width), subviews: subviews)
+        return CGSize(width: width, height: heights.reduce(0, +) + CGFloat(max(0, heights.count - 1)) * gap)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let width = columnWidth(total: bounds.width)
+        let rows = rowHeights(width: width, subviews: subviews)
+        var y = bounds.minY
+        for (row, height) in rows.enumerated() {
+            let left = row * 2
+            let cell = ProposedViewSize(width: width, height: nil)
+            subviews[left].place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading, proposal: cell)
+            if left + 1 < subviews.count {
+                subviews[left + 1].place(at: CGPoint(x: bounds.minX + width + gap, y: y), anchor: .topLeading, proposal: cell)
+            }
+            y += height + gap
+        }
+    }
+
+    private func columnWidth(total: CGFloat) -> CGFloat {
+        max(0, (total - gap) / 2)
+    }
+
+    private func rowHeights(width: CGFloat, subviews: Subviews) -> [CGFloat] {
+        let cell = ProposedViewSize(width: width, height: nil)
+        return stride(from: 0, to: subviews.count, by: 2).map { left in
+            subviews[left..<min(left + 2, subviews.count)].map { $0.sizeThatFits(cell).height }.max() ?? 0
+        }
+    }
+}
+
+private enum SettingsMCPClient: String, CaseIterable {
+    case codex = "Codex"
+    case claudeCode = "Claude Code"
+    case claudeDesktop = "Claude Desktop"
+    case cursor = "Cursor"
+
+    var instructions: String {
+        switch self {
+        case .codex: "Добавьте в ~/.codex/config.toml"
+        case .claudeCode: "Выполните команду в Терминале"
+        case .claudeDesktop: "Добавьте в claude_desktop_config.json и перезапустите Claude"
+        case .cursor: "Добавьте в ~/.cursor/mcp.json"
+        }
+    }
+
+    func configuration(commandPath: String) -> String {
+        switch self {
+        case .codex: MCPClientConfiguration.toml(commandPath: commandPath)
+        case .claudeCode: MCPClientConfiguration.claudeCode(commandPath: commandPath)
+        case .claudeDesktop: MCPClientConfiguration.json(commandPath: commandPath)
+        case .cursor: MCPClientConfiguration.json(commandPath: commandPath, explicitStdio: true)
+        }
+    }
+}
+
+private struct SettingsMCPClientPicker: View {
+    @Binding var selection: SettingsMCPClient
+    @FocusState private var focused: SettingsMCPClient?
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            clientRow(SettingsMCPClient.allCases)
+            VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                clientRow([.codex, .claudeCode])
+                clientRow([.claudeDesktop, .cursor])
+            }
+        }
+        .padding(PisaDesign.Spacing.compact)
+        .plainSurface()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Клиент MCP")
+    }
+
+    private func clientRow(_ clients: [SettingsMCPClient]) -> some View {
+        HStack(spacing: PisaDesign.Spacing.compact) {
+            ForEach(clients, id: \.self) { client in
+                Button { selection = client } label: {
+                    screenText(client.rawValue)
+                        .textStyle(PisaDesign.Typography.detailMedium)
+                        .fixedSize()
+                        .padding(.horizontal, PisaDesign.Spacing.inline)
+                        .frame(height: PisaDesign.Metrics.smallHeight)
+                        .background(selection == client ? Color.paper : .clear,
+                                    in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
+                        .contentShape(Rectangle())
+                }
+                .shapeAwarePlainButton()
+                .focused($focused, equals: client)
+                .accessibilityAddTraits(selection == client ? .isSelected : [])
+                .measuredForInterfaceTest(.settingsMCPClient(client.rawValue))
+                .onMoveCommand { direction in
+                    let all = SettingsMCPClient.allCases
+                    guard direction == .left || direction == .right, let index = all.firstIndex(of: client) else { return }
+                    let next = min(all.count - 1, max(0, index + (direction == .right ? 1 : -1)))
+                    selection = all[next]
+                    focused = all[next]
+                }
+            }
+        }
+    }
+}
+
+private struct SettingsStorageScanner: Sendable {
+    let scan: @Sendable (MeetingLibrary) throws -> LibraryStorageUsage
 }
 
 private struct StorageSettings: View {
     @EnvironmentObject private var state: AppState
+    let scanner: SettingsStorageScanner
     @State private var weeks = 2
     @State private var usage: LibraryStorageUsage?
     @State private var scanFailed = false
@@ -359,8 +589,8 @@ private struct StorageSettings: View {
     }
 
     var body: some View {
-        settingsColumns {
-            FormSection("Место на Mac") {
+        SettingsGrid {
+            SettingsSection("Место на Mac") {
                 if let usage {
                     let recordings = state.meetings.count { meeting in
                         meeting.audioFiles.contains { usage.audioFiles[$0] != nil }
@@ -369,38 +599,39 @@ private struct StorageSettings: View {
                     storageRow("Расшифровки и данные встреч", bytes: usage.meetingBytes)
                     storageRow("Модели и другие файлы Pisa", bytes: usage.otherBytes)
                     Divider()
-                    storageRow("Всего", bytes: usage.totalBytes)
+                    storageRow("Всего", bytes: usage.totalBytes, total: true)
                 } else if scanFailed {
-                    SupportingText("Не удалось посчитать размер файлов")
+                    SettingsHint("Не удалось посчитать размер файлов")
                     screenButton("Повторить") { refreshID += 1 }.actionButton()
                 } else {
-                    SupportingText("Считаем размер файлов…")
+                    SettingsHint("Считаем размер файлов…")
+                        .measuredForInterfaceTest(.settingsStorageScanning)
                 }
             }
-        } right: {
-            FormSection("Очистка аудиозаписей", subtitle: "Удаляется звук обработанных встреч. Расшифровки и заметки остаются.") {
+            .settingsColumn(.settingsLeftColumn)
+            SettingsSection("Очистка аудиозаписей", subtitle: "Удаляется звук обработанных встреч. Расшифровки и заметки остаются.") {
                 let plan = cleanupPlan
                 let canCleanUp = plan?.filesByMeeting.isEmpty == false
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: PisaDesign.Spacing.related) { cleanupActions(canCleanUp: canCleanUp) }
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) { cleanupActions(canCleanUp: canCleanUp) }
-                }
+                SettingsActionGroup { cleanupActions(canCleanUp: canCleanUp) }
                 if let result {
                     if result.failedMeetings > 0 {
-                        SupportingText("Не удалось полностью очистить аудио. Встреч с ошибками: \(result.failedMeetings). Освобождено \(storageSize(result.bytes)).")
+                        SettingsHint("Не удалось полностью очистить аудио. Встреч с ошибками: \(result.failedMeetings). Освобождено \(storageSize(result.bytes)).")
                     } else if result.meetings > 0 {
-                        SupportingText("Освобождено \(storageSize(result.bytes)). Встреч очищено: \(result.meetings).")
+                        SettingsHint("Освобождено \(storageSize(result.bytes)). Встреч очищено: \(result.meetings).")
+                            .measuredForInterfaceTest(.settingsStorageResult)
                     } else {
-                        SupportingText("Подходящих аудиозаписей больше нет")
+                        SettingsHint("Подходящих аудиозаписей больше нет")
                     }
                 } else if let plan {
                     if plan.filesByMeeting.isEmpty {
-                        SupportingText("Подходящих аудиозаписей нет")
+                        SettingsHint("Подходящих аудиозаписей нет")
                     } else {
-                        SupportingText("К удалению: \(meetingCount(plan.filesByMeeting.count)) · \(storageSize(plan.bytes))")
+                        SettingsHint("К удалению: \(meetingCount(plan.filesByMeeting.count)) · \(storageSize(plan.bytes))")
+                            .measuredForInterfaceTest(.settingsStorageEstimate)
                     }
                 }
             }
+            .settingsColumn(.settingsRightColumn)
         }
         .sheet(item: $confirmation) { plan in
             ConfirmationSheet(
@@ -439,25 +670,26 @@ private struct StorageSettings: View {
         .measuredForInterfaceTest(.settingsStorageAge)
 
         screenButton("Освободить место") { confirmation = cleanupPlan }
-            .actionButton(.primary)
+            .actionButton()
             .fixedSize(horizontal: true, vertical: false)
             .disabled(!canCleanUp)
             .measuredForInterfaceTest(.settingsStorageAction)
     }
 
-    private func storageRow(_ label: String, bytes: Int64) -> some View {
+    private func storageRow(_ label: String, bytes: Int64, total: Bool = false) -> some View {
         HStack(spacing: PisaDesign.Spacing.related) {
             screenText(label)
             Spacer()
-            screenText(storageSize(bytes)).fixedSize()
-        }.textStyle(PisaDesign.Typography.body)
+            screenText(storageSize(bytes)).monospacedDigit().fixedSize()
+        }.textStyle(total ? PisaDesign.Typography.bodyStrong : PisaDesign.Typography.body)
     }
 
     private func refreshStorage() async {
         usage = nil
         scanFailed = false
         let library = state.library
-        let scan = Task.detached(priority: .utility) { try library.storageUsage() }
+        let scanner = scanner
+        let scan = Task.detached(priority: .utility) { try scanner.scan(library) }
         let scanned = try? await withTaskCancellationHandler(operation: { try await scan.value }, onCancel: { scan.cancel() })
         guard !Task.isCancelled else { return }
         usage = scanned
@@ -465,7 +697,7 @@ private struct StorageSettings: View {
     }
 
     private func ageLabel(_ weeks: Int) -> String {
-        "Старше \(weeks)\u{00a0}\(weeks == 1 ? "недели" : "недель")"
+        "Старше \(weeks) \(weeks == 1 ? "недели" : "недель")"
     }
 
     private func meetingCount(_ count: Int) -> String {
@@ -476,7 +708,7 @@ private struct StorageSettings: View {
         case (2...4, _): noun = "встречи"
         default: noun = "встреч"
         }
-        return "\(count)\u{00a0}\(noun)"
+        return "\(count) \(noun)"
     }
 
     private func storageSize(_ bytes: Int64) -> String {
@@ -485,7 +717,7 @@ private struct StorageSettings: View {
             : bytes >= 1_000_000 ? (1_000_000.0, "МБ") : (1_000.0, "КБ")
         let amount = max(0.1, Double(bytes) / unit.0)
         let formatted = amount.formatted(.number.precision(.fractionLength(0...1)).locale(Locale(identifier: "ru_RU")))
-        return "\(formatted)\u{00a0}\(unit.1)"
+        return "\(formatted) \(unit.1)"
     }
 }
 
