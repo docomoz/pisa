@@ -26,6 +26,9 @@ public struct TranscriptSegment: Codable, Identifiable, Equatable, Sendable {
     public var embeddingDuration: Double?
     /// Evidence of sustained competing voices in the transcript turn, even if its embedding used clean audio.
     public var speakerEvidenceIsMixed: Bool?
+    /// Set on saved live turns. A context-dependent language repair must not
+    /// become independent evidence when the next window resumes after restart.
+    public var independentRecognitionLanguage: Bool?
     public var audioFile: String?
     public var text: String
     public var displayText: String {

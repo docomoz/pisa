@@ -1086,3 +1086,88 @@ enum RussianRecognition {
         return (0...(text.count - phrase.count)).contains { Array(text[$0..<($0 + phrase.count)]) == phrase }
     }
 }
+
+extension RussianRecognition {
+    // Only whole, uninterrupted Latin phrases framed by Russian words can be
+    // compared locally. Leave code, quotations, acronyms and glossary terms alone.
+    private static let embeddedLatin = try! NSRegularExpression(pattern:
+        #"(?i)(?<![\p{L}\p{N}_])([а-яё]+)\h+((?:\p{Latin}+(?:[-'’]\p{Latin}+)*\h+){3,}\p{Latin}+(?:[-'’]\p{Latin}+)*)\h+(?=([а-яё]+)(?![\p{L}\p{N}_]))"#)
+
+    struct EmbeddedLatinRepair {
+        fileprivate var original: String
+        fileprivate var span: Range<String.Index>
+        fileprivate var left: String
+        fileprivate var right: String
+        fileprivate var heard: [String]
+
+        func confirmedText(language: String?, reread: String) -> String? {
+            guard language?.lowercased() == "russian",
+                  let phrase = anchoredRussianPhrase(in: reread, left: left, right: right) else { return nil }
+            let candidate = tokens(in: phrase)
+            guard candidate.count == heard.count else { return nil }
+
+            var exactContentWords = Set<String>()
+            for (word, evidence) in zip(candidate, heard) {
+                if word.key == evidence {
+                    if word.key.count >= 4 && TranscriptTerms.isCommonRussianWord(word.key) {
+                        exactContentWords.insert(word.key)
+                    }
+                    continue
+                }
+                // A compound can have two phonetic spellings. Allow a single
+                // vowel difference only on a hyphenated part, never in the
+                // surrounding facts or in standalone verbs, numbers or names.
+                let hyphens = "-‐‑"
+                let isCompound = phrase[..<word.range.lowerBound].last.map(hyphens.contains) == true
+                    || phrase[word.range.upperBound...].first.map(hyphens.contains) == true
+                let vowels = "аеёиоуыэюя"
+                guard isCompound, word.key.count >= 3, evidence.count >= 3,
+                      !RecognitionConsensus.isNumberWord(word.key), !RecognitionConsensus.isNumberWord(evidence),
+                      word.key.filter({ !vowels.contains($0) }) == evidence.filter({ !vowels.contains($0) }),
+                      withinOneEdit(word.key, evidence) else { return nil }
+            }
+            guard exactContentWords.count >= 2 else { return nil }
+            return original.replacingCharacters(in: span, with: phrase)
+        }
+    }
+
+    static func embeddedLatinRepair(original: String, heard: String, vocabulary: String) -> EmbeddedLatinRepair? {
+        let full = NSRange(original.startIndex..., in: original)
+        let matches = embeddedLatin.matches(in: original, range: full)
+        guard matches.count == 1, let match = matches.first,
+              let span = Range(match.range(at: 2), in: original),
+              let leftRange = Range(match.range(at: 1), in: original),
+              let rightRange = Range(match.range(at: 3), in: original) else { return nil }
+        let left = words(String(original[leftRange])).joined(), right = words(String(original[rightRange])).joined()
+        let latin = original[span].split(whereSeparator: \.isWhitespace)
+        guard (4...14).contains(latin.count), max(left.count, right.count) >= 4,
+              words(original).filter(isCyrillic).count >= 4,
+              !latin.contains(where: { word in
+                  word.split(whereSeparator: { "'’-".contains($0) }).contains { $0.dropFirst().contains(where: \.isUppercase) }
+              }),
+              let phrase = anchoredRussianPhrase(in: heard, left: left, right: right) else { return nil }
+        let protected = TranscriptOrthography.literalRanges(in: original)
+            + TranscriptOrthography.glossaryRanges(in: original, vocabulary: vocabulary, range: full)
+        guard !protected.contains(where: { NSIntersectionRange($0, match.range(at: 2)).length > 0 }) else { return nil }
+        // An independent Russian ASR may render a hesitation as “э-э”.
+        // Exclude only these isolated sounds, keeping particles and negation.
+        let evidence = words(phrase).filter { !["э", "ээ", "эм", "м"].contains($0) }
+        guard (4...24).contains(evidence.count) else { return nil }
+        return EmbeddedLatinRepair(original: original, span: span, left: left, right: right, heard: evidence)
+    }
+
+    private static func anchoredRussianPhrase(in text: String, left: String, right: String) -> String? {
+        let reading = tokens(in: text)
+        let starts = reading.indices.filter { reading[$0].key == left }
+        let ends = reading.indices.filter { reading[$0].key == right }
+        guard starts.count == 1, ends.count == 1, let start = starts.first, let end = ends.first,
+              (4...28).contains(end - start - 1),
+              reading[(start + 1)..<end].allSatisfy({ isCyrillic($0.key) }) else { return nil }
+        let context = reading[start].range.upperBound..<reading[end].range.lowerBound
+        guard text[context].allSatisfy({ $0.isLetter || $0 == " " || ",-‐‑".contains($0) }),
+              !TranscriptOrthography.literalRanges(in: text).contains(where: {
+                  NSIntersectionRange($0, NSRange(context, in: text)).length > 0
+              }) else { return nil }
+        return String(text[reading[start + 1].range.lowerBound..<reading[end - 1].range.upperBound])
+    }
+}

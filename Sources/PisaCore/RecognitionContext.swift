@@ -102,6 +102,92 @@ struct RecognitionContext {
         byStart[partition(byStart) { $0.start < time }...]
     }
 
+    struct OverlappingWord {
+        static let padding = 0.08
+        fileprivate let source: String
+        fileprivate let background: String
+
+        fileprivate static func folded(_ text: String) -> String {
+            text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        }
+
+        /// A multilingual reading can confirm a name or foreign word even if
+        /// the decoder changes its accents or makes a small spelling error.
+        func confirmsSource(_ text: String) -> Bool {
+            let source = Self.folded(source)
+            let words = RussianRecognition.words(Self.folded(text))
+            return words.contains(source) || words.joined().difference(from: source).count <= 2
+        }
+
+        /// Only accept different endings of the same attested adjective.
+        /// The bundled forms work offline without macOS language assets.
+        private static func agreesOnWord(_ left: String, _ right: String) -> Bool {
+            if left == right { return true }
+            let stem = left.dropLast(2)
+            guard stem.count >= 4, stem == right.dropLast(2) else { return false }
+            let leftEnding = String(left.suffix(2)), rightEnding = String(right.suffix(2))
+            let genderEndings = [["ий", "яя", "ее"], ["ый", "ая", "ое"], ["ой", "ая", "ое"]]
+            return genderEndings.contains { endings in
+                endings.contains(leftEnding) && endings.contains(rightEnding)
+                    && endings.allSatisfy { TranscriptTerms.isCommonRussianWord(String(stem) + $0) }
+            }
+        }
+
+        /// Treat other plausible case or number endings in the ongoing voice
+        /// as a veto. A shared stem alone never authorizes replacing a word.
+        private static func possibleBackgroundWord(_ left: String, _ right: String) -> Bool {
+            let shared = zip(left, right).prefix { $0 == $1 }.count
+            return shared >= 4 && max(left.count, right.count) - shared <= 4
+        }
+
+        /// The word has to be audible in isolation. The small margin may
+        /// clarify an inflection or add one preposition from the ongoing turn.
+        /// That extra word never enters the transcript.
+        func acousticWord(core: String, padded: String) -> String? {
+            let exact = RussianRecognition.words(core), wide = RussianRecognition.words(padded)
+            guard exact.count == 1, let word = wide.last, word.count >= 5,
+                  wide.count == 1 || (wide.count == 2 && AbbreviationFamilies.isRussianFunctionWord(wide[0])),
+                  TranscriptTerms.isCommonRussianWord(exact[0]), TranscriptTerms.isCommonRussianWord(word),
+                  Self.agreesOnWord(exact[0], word),
+                  !RussianRecognition.words(background).contains(where: { Self.possibleBackgroundWord($0, word) }) else { return nil }
+            return word
+        }
+
+        func confirmedText(word: String, core: String, padded: String) -> String? {
+            guard RussianRecognition.words(core) == [word], RussianRecognition.words(padded) == [word] else { return nil }
+            let text = padded.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let first = text.first, first.isLetter,
+                  text.allSatisfy({ $0.isLetter || ".!?…".contains($0) }) else { return nil }
+            let result = first.uppercased() + text.dropFirst()
+            return result.last?.isLetter == true ? result + "." : result
+        }
+    }
+
+    func overlappingWord(for target: TranscriptSegment, vocabulary: String) -> OverlappingWord? {
+        let duration = target.end - target.start
+        guard target.speakerEvidenceIsMixed == true, (0.35...1.5).contains(duration),
+              let track = target.audioFile, !track.contains("-mic."),
+              target.text.range(of: #"^\p{Latin}[\p{Latin}\p{M}]{4,24}[.!?…]?$"#, options: .regularExpression) != nil else { return nil }
+        let token = target.text.prefix(while: { $0.isLetter })
+        guard token.contains(where: { !$0.isASCII }), !token.dropFirst().contains(where: \.isUppercase) else { return nil }
+        let source = OverlappingWord.folded(String(token))
+        func containsSource(_ text: String) -> Bool {
+            text.range(of: source, options: [.diacriticInsensitive, .caseInsensitive]) != nil
+                && RussianRecognition.words(OverlappingWord.folded(text)).contains(source)
+        }
+        guard !containsSource(vocabulary) else { return nil }
+        let start = target.start - OverlappingWord.padding, end = target.end + OverlappingWord.padding
+        let overlapping = byEnd[partition(byEnd) { $0.end <= start }...].map(\.segment).filter {
+            $0.id != target.id && $0.audioFile == track && $0.start < end
+        }
+        guard overlapping.count == 1, let background = overlapping.first,
+              isAutomaticSpeakerName(target.speaker) || target.speaker.caseInsensitiveCompare(background.speaker) != .orderedSame,
+              background.start <= start, background.end >= end, BackchannelLanguage.isRussianContext(background.text),
+              !byEnd.contains(where: { $0.segment.id != target.id && (containsSource($0.segment.text) || containsSource($0.segment.speaker)) }),
+              !containsSource(target.speaker) else { return nil }
+        return OverlappingWord(source: source, background: background.text)
+    }
+
     func neighbors(around target: TranscriptSegment) -> Neighbors {
         let previous = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 60 })
             .filter { $0.segment.id != target.id }

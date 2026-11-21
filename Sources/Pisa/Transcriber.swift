@@ -463,7 +463,8 @@ actor Transcriber {
                                 expandedSamples = expanded.map { Array(samples[$0]) }
                             } else { expandedSamples = nil }
                             let inferenceStarted = ContinuousClock.now
-                            let recognized = try await recognize(regionSamples, expandedSamples: expandedSamples, model: model,
+                            let recognized = try await recognize(regionSamples, speechStart: region.start - Double(lower) / 16000,
+                                expandedSamples: expandedSamples, model: model,
                                 russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic,
                                 diagnostic: collectDiagnostics ? (speech.lowerBound, url.lastPathComponent) : nil)
                             try await performance.pace(after: inferenceStarted)
@@ -482,10 +483,7 @@ actor Transcriber {
                                 segment.embedding = evidence?.vector
                                 segment.embeddingDuration = evidence?.duration
                             }
-                            firstPass.backchannels[segment.id] = recognized.russianBackchannel
-                            firstPass.lexicalBackchannels[segment.id] = recognized.russianLexical
-                            if recognized.uncertainLanguage { firstPass.uncertainShortLanguage.insert(segment.id) }
-                            firstPass.hypotheses[segment.id] = recognized.acoustic
+                            recognized.recordEvidence(for: segment.id, in: firstPass)
                             firstPass.bounds[segment.id] = (start + Double(lower) / 16000)..<(start + Double(upper) / 16000)
                             if let gap = region.recoveryRange {
                                 firstPass.recoveredAudio[segment.id] = .init(
@@ -538,9 +536,16 @@ actor Transcriber {
         let finalizationTiming = beginPerformanceInterval()
         defer { endPerformanceInterval(finalizationTiming, kind: "finalizationTotal") }
         if let first = sorted.first, let previous = recentLanguageSegments.first, first.start <= previous.start { recentLanguageSegments = [] }
-        var localized = BackchannelLanguage.resolve(sorted, alternatives: firstPass.backchannels,
-            lexicalAlternatives: firstPass.lexicalBackchannels, uncertain: firstPass.uncertainShortLanguage, preceding: live ? recentLanguageSegments : [], vocabulary: context).map { segment in
+        if live, recentLanguageSegments.isEmpty {
+            recentLanguageSegments = preceding.filter(BackchannelLanguage.canRestoreLanguageAnchor)
+        }
+        let languageResolved = resolveLanguage(sorted, evidence: firstPass, preceding: live ? recentLanguageSegments : [], vocabulary: context)
+        var localized = zip(sorted, languageResolved).map { original, segment in
                 var revised = segment
+                if live {
+                    revised.independentRecognitionLanguage = original.text == segment.text && firstPass.lexicalBackchannels[segment.id] == nil
+                        && !firstPass.uncertainShortLanguage.contains(segment.id)
+                }
                 revised.text = TranscriptOrthography.normalize(segment.text, vocabulary: context)
                 if !retainProcessedMicrophone, let generated, revised.audioFile == generated.lastPathComponent {
                     revised.audioFile = sourceMicrophone?.lastPathComponent
@@ -624,9 +629,7 @@ actor Transcriber {
         if live, let end = localized.map(\.end).max() {
             // A context-dependent correction must not establish the language of
             // later windows, and its disproven Latin source is not an anchor.
-            let independent = sorted.filter {
-                firstPass.lexicalBackchannels[$0.id] == nil && !firstPass.uncertainShortLanguage.contains($0.id)
-            }
+            let independent = localized.filter(BackchannelLanguage.canRestoreLanguageAnchor)
             recentLanguageSegments = (recentLanguageSegments + independent).filter { $0.end >= end - 60 }
         }
         try Task.checkCancellation()
@@ -669,7 +672,7 @@ actor Transcriber {
         }
         var segments = frozen.sorted { $0.start < $1.start }
         var bounds = suppliedBounds
-        var hypotheses: [UUID: RecognitionAcousticResult] = [:]
+        let firstPass = BatchTranscriptionCheckpoint.FirstPass()
         for (url, offset) in files {
             let name = url.lastPathComponent
             let track = segments.indices.filter { segments[$0].audioFile == name }
@@ -684,19 +687,29 @@ actor Transcriber {
                 guard selected.contains(segment.id) else { continue }
                 let samples = try Self.contextSamples(url, start: interval.lowerBound, end: interval.upperBound)
                 if repeatFirstPass,
-                   let recognized = try await recognize(samples, expandedSamples: nil, model: model, russian: russian,
+                   let recognized = try await recognize(samples, speechStart: segment.start - offset - interval.lowerBound,
+                                                  expandedSamples: nil, model: model, russian: russian,
                                                   vocabulary: vocabulary, duration: segment.end - segment.start,
                                                   isMic: name.contains("-mic."), diagnostic: (segment.start, name)) {
                     segments[index].text = recognized.text
-                    hypotheses[segment.id] = recognized.acoustic
+                    recognized.recordEvidence(for: segment.id, in: firstPass)
                 } else {
-                    hypotheses[segment.id] = acousticRecognition(samples, using: russian)
+                    firstPass.hypotheses[segment.id] = acousticRecognition(samples, using: russian)
                 }
             }
         }
-        return try await contextualRevision(segments, preceding: [], files: files, bounds: bounds,
-            hypotheses: hypotheses, model: model, russian: russian, vocabulary: vocabulary,
+        let revised = try await contextualRevision(segments, preceding: [], files: files, bounds: bounds,
+            hypotheses: firstPass.hypotheses, model: model, russian: russian, vocabulary: vocabulary,
             performance: TranscriptionPerformance(), collectDiagnostics: true, selected: selected) { _, _ in }
+        guard repeatFirstPass else { return revised }
+        return resolveLanguage(revised, evidence: firstPass, preceding: [], vocabulary: vocabulary)
+    }
+
+    private func resolveLanguage(_ segments: [TranscriptSegment], evidence: BatchTranscriptionCheckpoint.FirstPass,
+                                 preceding: [TranscriptSegment], vocabulary: String) -> [TranscriptSegment] {
+        BackchannelLanguage.resolve(segments, alternatives: evidence.backchannels,
+            lexicalAlternatives: evidence.lexicalBackchannels, uncertain: evidence.uncertainShortLanguage,
+            preceding: preceding, vocabulary: vocabulary)
     }
 
     private struct RecognizedSpeech {
@@ -705,6 +718,13 @@ actor Transcriber {
         var russianLexical: String?
         var uncertainLanguage = false
         var acoustic: RecognitionAcousticResult?
+
+        func recordEvidence(for id: UUID, in firstPass: BatchTranscriptionCheckpoint.FirstPass) {
+            firstPass.backchannels[id] = russianBackchannel
+            firstPass.lexicalBackchannels[id] = russianLexical
+            if uncertainLanguage { firstPass.uncertainShortLanguage.insert(id) }
+            firstPass.hypotheses[id] = acoustic
+        }
     }
 
     /// Use a frozen, chronological first pass from both tracks. A proposed
@@ -753,6 +773,46 @@ actor Transcriber {
                   let audioRange = bounds[segment.id] else { continue }
             let duration = segment.end - segment.start
             guard duration <= 30 else { continue }
+            // A brief interruption can be wholly contained in another turn
+            // on the same track. In that case the original decode has no room
+            // for padding. Verify the word itself before using either margin.
+            if let overlap = snapshot.overlappingWord(for: segment, vocabulary: vocabulary) {
+                let start = segment.start - offset, end = segment.end - offset
+                let margin = RecognitionContext.OverlappingWord.padding
+                if start >= margin,
+                   let core = try? Self.contextSamples(url, start: start, end: end),
+                   let padded = try? Self.contextSamples(url, start: start - margin, end: end + margin),
+                   !core.isEmpty, padded.count >= core.count + Int(2 * margin * 16000) - 2,
+                   let exact = acousticRecognition(core, using: russian), let wide = acousticRecognition(padded, using: russian),
+                   let word = overlap.acousticWord(core: exact.text, padded: wide.text) {
+                    let began = ContinuousClock.now
+                    let verifier = try await verificationModel(model)
+                    func reread(_ samples: [Float]) throws -> String? {
+                        let audio = MLXArray(samples)
+                        func generate(_ language: String?) throws -> STTOutput {
+                            try Task.checkCancellation()
+                            return measureRecognition("qwen") {
+                                verifier.generate(audio: audio, maxTokens: 96, context: "", language: language,
+                                    chunkDuration: 30, repetitionPenalty: 1.1)
+                            }
+                        }
+                        let detected = try generate(nil)
+                        guard !overlap.confirmsSource(detected.text) else { return nil }
+                        if detected.language?.lowercased() == "russian" { return detected.text }
+                        return try generate("Russian").text
+                    }
+                    let narrow = try reread(core)
+                    let wider = narrow.map(RussianRecognition.words) == [word] ? try reread(padded) : nil
+                    let accepted = overlap.confirmedText(word: word, core: narrow ?? "", padded: wider ?? "")
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["kind": "overlapping-word", "start": String(segment.start),
+                            "source": segment.text, "coreAcoustic": exact.text, "paddedAcoustic": wide.text,
+                            "coreVerifier": narrow ?? "", "paddedVerifier": wider ?? "", "candidate": accepted ?? ""])
+                    }
+                    try await performance.pace(after: began)
+                    if let accepted { revised[index].text = accepted; continue }
+                }
+            }
             let (neighbors, vocabulary) = measureRecognition("contextVocabulary") {
                 let neighbors = snapshot.neighbors(around: segment)
                 let vocabulary = spokenVocabulary.contextualVocabulary(in:
@@ -1130,7 +1190,7 @@ actor Transcriber {
         return Array(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
     }
 
-    private func recognize(_ samples: [Float], expandedSamples: [Float]?, model: ParakeetRecognitionSession, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool,
+    private func recognize(_ samples: [Float], speechStart: Double, expandedSamples: [Float]?, model: ParakeetRecognitionSession, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool,
                            diagnostic: (start: Double, track: String)? = nil) async throws -> RecognizedSpeech? {
         let recognitionTiming = beginPerformanceInterval()
         defer { endPerformanceInterval(recognitionTiming, kind: "recognizeTotal") }
@@ -1209,41 +1269,136 @@ actor Transcriber {
                 ? acousticRecognition(samples, using: russian) : nil))
         }
         do {
-        // Parakeet can turn brief Russian speech into complete-looking English.
-        // An unprompted multilingual reread must independently hear Russian;
-        // the acoustic recognizer then has to agree before context can use it.
-        if BackchannelLanguage.shouldRecheckLexical(text, duration: duration, vocabulary: vocabulary) {
+        // Parakeet can turn Russian speech into complete-looking English.
+        // First protect independently heard foreign speech, then re-listen
+        // with a Russian language preference and no text or vocabulary prompt.
+        if let index = BackchannelLanguage.mixedWordIndex(primaryText, duration: duration, vocabulary: vocabulary),
+           let heard = acoustic ?? acousticRecognition(samples, using: russian) {
+            let reread = try await generate(language: "Russian", context: "")
+            let candidate = BackchannelLanguage.restoredMixedWord(primaryText, index: index,
+                reread: reread.text, corroboration: heard.text)
+            if let diagnostic {
+                contextDiagnostics.append(["kind": "mixed-word", "start": String(diagnostic.start),
+                    "track": diagnostic.track, "source": primaryText, "reread": reread.text,
+                    "independent": heard.text, "candidate": candidate ?? ""])
+            }
+            if let candidate { return RecognizedSpeech(text: primaryText, russianLexical: candidate, acoustic: heard) }
+            if let range = SpeechCoverage.unpaddedShortTurn(start: speechStart, duration: duration, sampleCount: samples.count) {
+                let core = Array(samples[range])
+                if let isolated = acousticRecognition(core, using: russian) {
+                    let checked = try await generate(language: "Russian", context: "", audioSamples: core)
+                    let recovered = BackchannelLanguage.restoredMixedWord(primaryText, index: index, reread: checked.text,
+                        corroboration: heard.text, isolatedCorroboration: isolated.text)
+                    if let diagnostic {
+                        contextDiagnostics.append(["kind": "isolated-mixed-word", "start": String(diagnostic.start),
+                            "source": primaryText, "reread": checked.text, "independent": isolated.text,
+                            "candidate": recovered ?? ""])
+                    }
+                    if let recovered { return RecognizedSpeech(text: primaryText, russianLexical: recovered, acoustic: heard) }
+                }
+            }
+            if BackchannelLanguage.confirmsOriginalMixedWordContext(original: primaryText, rendered: text,
+                    index: index, corroboration: heard.text) { text = primaryText }
+        }
+        let mixedLatin = BackchannelLanguage.shouldVerifyMixedLatin(text, duration: duration, vocabulary: vocabulary)
+        if mixedLatin || BackchannelLanguage.shouldRecheckLexical(text, duration: duration, vocabulary: vocabulary) {
             let decoded = try await generate(language: nil, context: "")
+            let words = RussianRecognition.words(text)
+            let shortLatinWord = words.count == 1 && words[0].count <= 3 && words[0].utf8.allSatisfy { (97...122).contains($0) }
+            // Padding helps the initial decode, but on a short reply it can
+            // contribute more sound than the speaker's actual words.
+            func unpaddedRussianReading(paddedEvidence: RecognitionAcousticResult? = nil) async throws -> RecognizedSpeech? {
+                guard let russian,
+                      let range = SpeechCoverage.unpaddedShortTurn(start: speechStart, duration: duration,
+                          sampleCount: samples.count, includeAlreadyIsolated: shortLatinWord) else { return nil }
+                let sameAudio = range.count == samples.count
+                let core = sameAudio ? samples : Array(samples[range])
+                let existing = sameAudio ? paddedEvidence : nil
+                guard let evidence = existing ?? acousticRecognition(core, using: russian),
+                      ParakeetRecognitionPolicy.hasRussianTextEvidence(evidence.text) else { return nil }
+                let reread = sameAudio ? decoded : try await generate(language: nil, context: "", audioSamples: core)
+                var candidate = reread.language?.lowercased() == "russian"
+                    ? BackchannelLanguage.lexicalAlternative(original: text, russian: reread.text,
+                        corroboration: evidence.text, vocabulary: vocabulary) : nil
+                var primary: String?
+                if candidate == nil, shortLatinWord, RussianRecognition.words(evidence.text).count == 1,
+                   !BackchannelLanguage.confirmsLatinSource(original: text, reread: reread.text) {
+                    // A single syllable can flip the language label. Ask the
+                    // multilingual primary for the same isolated sound. Silence
+                    // supplies a word boundary without introducing another voice.
+                    func confirms(_ audio: [Float]) -> Bool {
+                        primary = measureRecognition("parakeet") { model.generate(audio) }.text
+                        return BackchannelLanguage.lexicalAlternative(original: text, russian: evidence.text,
+                            corroboration: primary, vocabulary: vocabulary) != nil
+                    }
+                    let silence = [Float](repeating: 0, count: 2_880)
+                    if (!sameAudio && confirms(core)) || confirms(silence + core + silence) { candidate = evidence.text }
+                }
+                if let diagnostic {
+                    contextDiagnostics.append(["kind": "isolated-language", "start": String(diagnostic.start),
+                        "track": diagnostic.track, "source": text, "independent": evidence.text,
+                        "reread": reread.text, "language": reread.language ?? "", "primary": primary ?? "",
+                        "candidate": candidate ?? ""])
+                }
+                guard let candidate else { return nil }
+                return RecognizedSpeech(text: text, russianLexical: candidate, acoustic: evidence)
+            }
             // A foreign language label can come from a different hallucination
             // on the same short turn. Require the actual words to agree.
             if BackchannelLanguage.confirmsLatinSource(original: text, reread: decoded.text) {
+                if shortLatinWord, let reading = try await unpaddedRussianReading() {
+                    return reading
+                }
                 return RecognizedSpeech(text: text)
             }
             let independent = acousticRecognition(samples, using: russian)
             acoustic = independent
+            if mixedLatin {
+                let alternative = BackchannelLanguage.mixedRussianAlternative(original: text, language: decoded.language,
+                    reread: decoded.text, corroboration: independent?.text)
+                if let diagnostic {
+                    contextDiagnostics.append(["kind": "mixed-language", "start": String(diagnostic.start),
+                        "track": diagnostic.track, "source": text, "reread": decoded.text, "language": decoded.language ?? "",
+                        "independent": independent?.text ?? "", "candidate": alternative ?? ""])
+                }
+                return RecognizedSpeech(text: text, russianLexical: alternative, acoustic: independent)
+            }
             if BackchannelLanguage.confirmsFillerSequence(original: text, reread: decoded.text, corroboration: independent?.text) {
                 return RecognizedSpeech(text: text, acoustic: independent)
             }
-            let alternative = decoded.language?.lowercased() == "russian"
+            var alternative = decoded.language?.lowercased() == "russian"
                 ? BackchannelLanguage.lexicalAlternative(original: text,
                     russian: spokenVocabulary.apply(to: decoded.text),
                     corroboration: independent?.text, vocabulary: vocabulary) : nil
+            var russianReread: String?
+            if alternative == nil, !BackchannelLanguage.isBriefCyrillicSource(text, vocabulary: vocabulary),
+               let heard = independent?.text, ParakeetRecognitionPolicy.hasRussianTextEvidence(heard) {
+                let checked = try await generate(language: "Russian", context: "")
+                russianReread = checked.text
+                alternative = BackchannelLanguage.russianRereadAlternative(original: text,
+                    russian: spokenVocabulary.apply(to: checked.text), corroboration: heard, vocabulary: vocabulary)
+            }
             if let diagnostic {
                 contextDiagnostics.append(["kind": "short-language", "start": String(diagnostic.start),
                     "track": diagnostic.track, "source": text, "reread": decoded.text,
                     "language": decoded.language ?? "", "independent": independent?.text ?? "",
-                    "candidate": alternative ?? ""])
+                    "russianReread": russianReread ?? "", "candidate": alternative ?? ""])
             }
             if let alternative {
                 return RecognizedSpeech(text: text, russianLexical: alternative, acoustic: independent)
             }
+            if let reading = try await unpaddedRussianReading(paddedEvidence: independent) { return reading }
             if BackchannelLanguage.isBriefCyrillicSource(text, vocabulary: vocabulary) {
                 return RecognizedSpeech(text: text, acoustic: independent)
             }
             // Keep a disputed Latin reading tentative until conversation
             // context is available. Use padded microphone audio when both
             // models abstain to give faint overlapping replies another chance.
-            uncertainLanguage = independent != nil
+            // A valid empty GigaAM result is evidence. If the optional model
+            // is unavailable, a multilingual decoder explicitly hearing a
+            // different language is still a reason to question a whole clause.
+            let otherLanguage = decoded.language.map { $0.lowercased() != "english" } ?? false
+            uncertainLanguage = independent != nil || (otherLanguage && RussianRecognition.words(text).count >= 2)
             if isMic, BackchannelLanguage.hasNoSpeechEvidence(language: decoded.language,
                 text: decoded.text, corroboration: independent?.text) {
                 let retry = expandedSamples ?? BackchannelLanguage.retryAudio(samples)
@@ -1291,6 +1446,20 @@ actor Transcriber {
             && (2...6).contains(RussianRecognition.words(text).count)
         if shortRussian || (isRussian && duration >= 2) {
             acoustic = acoustic ?? acousticRecognition(samples, using: russian)
+            if duration <= 30, let heard = acoustic?.text,
+               let repair = RussianRecognition.embeddedLatinRepair(original: text, heard: heard, vocabulary: vocabulary) {
+                // Cross-check the actual turn without neighboring voices or a
+                // Russian prompt that might translate a genuine code switch.
+                let core = SpeechCoverage.unpaddedTurn(start: speechStart, duration: duration, sampleCount: samples.count)
+                let checked = try await generate(language: nil, context: "", audioSamples: core.map { Array(samples[$0]) })
+                let confirmed = repair.confirmedText(language: checked.language, reread: checked.text)
+                if let diagnostic {
+                    contextDiagnostics.append(["kind": "embedded-latin", "start": String(diagnostic.start),
+                        "track": diagnostic.track, "source": text, "independent": heard, "reread": checked.text,
+                        "language": checked.language ?? "", "candidate": confirmed ?? ""])
+                }
+                return RecognizedSpeech(text: confirmed ?? text, acoustic: acoustic)
+            }
             if let heard = acoustic?.text,
                let repair = RussianRecognition.sharedAlphabetSpelling(original: primaryText, heard: heard, vocabulary: vocabulary) {
                 performanceDiagnostics?["qwenSharedAlphabetChecks", default: 0] += 1
@@ -1309,6 +1478,30 @@ actor Transcriber {
         }
         if shortRussian, let russian, let independent = acoustic?.text,
            RussianRecognition.words(independent) != RussianRecognition.words(text) {
+            if let evidence = acoustic, let core = SpeechCoverage.unpaddedShortTurn(start: speechStart,
+                duration: duration, sampleCount: samples.count),
+               let fragment = RecognitionTrailingFragment(source: text, acoustic: evidence, core: core, sampleCount: samples.count),
+               RussianRecognition.preservesVocabulary(candidate: fragment.prefix, original: text, vocabulary: vocabulary) {
+                let exact = Array(samples[core])
+                let coreReading = acousticRecognition(exact, using: russian)
+                // Change only the right edge to verify that the neighboring
+                // word disappeared because its audio was actually removed.
+                let leftReading = core.lowerBound == 0 ? coreReading
+                    : acousticRecognition(Array(samples[..<core.upperBound]), using: russian)
+                if fragment.matchesCore(coreReading?.text), fragment.matchesCore(leftReading?.text) {
+                    let padded = try await generate(language: nil, context: "")
+                    let reread = try await generate(language: nil, context: "", audioSamples: exact)
+                    if let verified = fragment.confirmedText(padded: padded.text, paddedLanguage: padded.language,
+                                                            exact: reread.text, exactLanguage: reread.language) {
+                        if let diagnostic {
+                            contextDiagnostics.append(["kind": "trailing-fragment", "start": String(diagnostic.start),
+                                "track": diagnostic.track, "source": text, "padded": padded.text, "reread": reread.text,
+                                "independent": independent, "core": coreReading?.text ?? "", "candidate": verified])
+                        }
+                        return RecognizedSpeech(text: verified, acoustic: acoustic)
+                    }
+                }
+            }
             let hints = spokenVocabulary.relevantTerms(in: [text, independent])
             if !hints.isEmpty {
                 let checked = try await generate(language: "Russian", context: hints, promptVocabulary: hints)

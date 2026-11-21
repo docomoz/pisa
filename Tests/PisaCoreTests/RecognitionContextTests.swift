@@ -8,6 +8,66 @@ final class RecognitionContextTests: XCTestCase {
         return segment
     }
 
+    func testOverlappingWordNeedsOneRussianBackgroundAndUnprotectedSpelling() throws {
+        var target = segment(5, 5.8, "Blänke.")
+        target.speaker = TranscriptSegment.unidentifiedSpeaker
+        target.speakerEvidenceIsMixed = true
+        let background = segment(1, 12, "Сегодня мы решили проверить новую настройку.")
+        let context = RecognitionContext(segments: [target, background])
+        let plan = try XCTUnwrap(context.overlappingWord(for: target, vocabulary: ""))
+        XCTAssertTrue(plan.confirmsSource("Blanke!"))
+        XCTAssertTrue(plan.confirmsSource("Wie bitte, Blänke?"))
+        XCTAssertFalse(plan.confirmsSource("anderes Wort"))
+        XCTAssertNil(context.overlappingWord(for: target, vocabulary: "Blänke Studio"))
+        for spelling in ["«Blänke».", "BlÄnke.", "Widget.", "deux mots"] {
+            var literal = target
+            literal.text = spelling
+            XCTAssertNil(context.overlappingWord(for: literal, vocabulary: ""))
+        }
+        var duplicate = target
+        duplicate.speaker = background.speaker
+        XCTAssertNil(context.overlappingWord(for: duplicate, vocabulary: ""))
+        duplicate.speaker = TranscriptSegment.unidentifiedSpeaker
+        for mixed in [false, nil] as [Bool?] {
+            duplicate.speakerEvidenceIsMixed = mixed
+            XCTAssertNil(context.overlappingWord(for: duplicate, vocabulary: ""))
+        }
+        var speaker = background
+        speaker.speaker = "Blänke"
+        let sourceMention = segment(15, 20, "Название сервиса — Blänke.")
+        let third = segment(5.84, 7, "Начало следующей реплики.")
+        for others in [[speaker], [background, sourceMention], [background, third],
+                       [segment(1, 12, "They finished their report.")],
+                       [segment(1, 12, background.text, track: "mic")], [segment(1, 5.81, background.text)]] {
+            XCTAssertNil(RecognitionContext(segments: [target] + others).overlappingWord(for: target, vocabulary: ""))
+        }
+    }
+
+    func testOverlappingWordRequiresIndependentAgreementOnCoreAndMargin() throws {
+        var target = segment(5, 5.8, "Blänke.")
+        target.speaker = TranscriptSegment.unidentifiedSpeaker
+        target.speakerEvidenceIsMixed = true
+        func plan(_ background: String) throws -> RecognitionContext.OverlappingWord {
+            try XCTUnwrap(RecognitionContext(segments: [target, segment(1, 12, background)])
+                .overlappingWord(for: target, vocabulary: ""))
+        }
+        let overlap = try plan("Сегодня мы решили проверить новую настройку.")
+        let word = try XCTUnwrap(overlap.acousticWord(core: "Вечерняя.", padded: "Про вечернее?"))
+        XCTAssertEqual(overlap.acousticWord(core: "Архивная.", padded: "Архивное."), "архивное")
+        XCTAssertEqual(overlap.acousticWord(core: "Здание.", padded: "Здание."), "здание")
+        XCTAssertNil(overlap.acousticWord(core: "Учение.", padded: "Учёное."))
+        XCTAssertEqual(overlap.confirmedText(word: word, core: "вечернее", padded: "Вечернее."), "Вечернее.")
+        XCTAssertNil(overlap.confirmedText(word: word, core: "дневное", padded: "вечернее"))
+        XCTAssertNil(overlap.confirmedText(word: word, core: "вечернее", padded: "Про вечернее?"))
+        XCTAssertNil(overlap.acousticWord(core: "", padded: "вечернее"))
+        XCTAssertNil(overlap.acousticWord(core: "летнее", padded: "вечернее"))
+        XCTAssertNil(overlap.acousticWord(core: "вечерняя", padded: "окно вечернее"))
+        let background = try plan("Сегодня мы решили проверить вечерний выпуск.")
+        XCTAssertNil(background.acousticWord(core: "вечерняя", padded: "вечернее"))
+        let oblique = try plan("Мы хотим посмотреть на фасад здания.")
+        XCTAssertNil(oblique.acousticWord(core: "Здание.", padded: "Здание."))
+    }
+
     func testEstablishedPhraseNeedsContiguousWordsInTwoDistinctFrozenTurns() {
         let target = segment(100, 110, "Мы обсуждали совсем другую тему.")
         let first = segment(70, 80, "Нам нужен умный город, именно умный город.")

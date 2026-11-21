@@ -2,6 +2,18 @@ import XCTest
 @testable import PisaCore
 
 final class SpeechCoverageTests: XCTestCase {
+    func testShortLanguageRereadUsesOnlyTheDiarizedFramesInsideThePaddedInput() {
+        XCTAssertEqual(SpeechCoverage.unpaddedShortTurn(start: 0.125, duration: 0.75, sampleCount: 16_000), 2000..<14_000)
+        XCTAssertNil(SpeechCoverage.unpaddedShortTurn(start: 0, duration: 1, sampleCount: 16_000))
+        XCTAssertEqual(SpeechCoverage.unpaddedShortTurn(start: 0, duration: 1, sampleCount: 16_000,
+                                                       includeAlreadyIsolated: true), 0..<16_000)
+        XCTAssertNil(SpeechCoverage.unpaddedShortTurn(start: -0.1, duration: 1, sampleCount: 16_000,
+                                                      includeAlreadyIsolated: true))
+        XCTAssertNil(SpeechCoverage.unpaddedShortTurn(start: -0.1, duration: 0.75, sampleCount: 16_000))
+        XCTAssertNil(SpeechCoverage.unpaddedShortTurn(start: 0.5, duration: 0.75, sampleCount: 16_000))
+        XCTAssertNil(SpeechCoverage.unpaddedShortTurn(start: 0, duration: 3, sampleCount: 64_000))
+    }
+
     func testRecoversMiddleOfContinuousSpeechWithDiarizedEdges() {
         XCTAssertEqual(SpeechCoverage.uncovered(speech: [0..<480_000], covered: [0..<80_000, 240_000..<480_000],
                                                 sampleCount: 480_000, minimumPartialLength: 4_800), [80_000..<240_000])
