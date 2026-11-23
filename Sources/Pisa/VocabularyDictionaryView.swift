@@ -206,7 +206,7 @@ private func dictionaryCountCaption(_ count: Int) -> String {
     case (_, 2...4): noun = "термина"
     default: noun = "терминов"
     }
-    return "Всего \(count)\u{00a0}\(noun)"
+    return "\(count)\u{00a0}\(noun)"
 }
 
 struct VocabularyEditForm: View {

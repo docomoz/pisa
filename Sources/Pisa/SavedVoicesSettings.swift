@@ -35,7 +35,7 @@ struct SavedVoicesSettings: View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
             SectionHeading(
                 "Сохранённые голоса",
-                subtitle: "Pisa узнаёт людей по этим образцам на новых встречах · Всего \(savedPeopleCount)"
+                subtitle: "Pisa узнаёт людей по этим образцам на новых встречах · \(savedPeopleCount)"
             )
                 .measuredForInterfaceTest(.savedVoiceHeading)
             if state.voiceProfiles.isEmpty {
