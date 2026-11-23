@@ -10,6 +10,7 @@ enum InterfaceLayoutElement: Hashable {
     case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
     case recognitionFooterLabel, recognitionFooterIcon, updateFooterLink, updateFooterIcon
     case transcriptionStatusHeading, transcriptionStatusAction, transcriptionProgressCaption, transcriptionProgressRow
+    case savedAudioTranscriptionAction(String)
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
     case sidebarRecording(UUID), sidebarTranscriptionStatus(UUID, String)
@@ -514,6 +515,7 @@ private final class LayoutSuite {
                 try host.savePNG(to: URL(fileURLWithPath: output, isDirectory: true).appendingPathComponent(name))
             }
         }
+        try checkSavedAudioModelReadiness(state: state, saved: saved)
         var voiceMeeting = ready
         voiceMeeting.id = UUID()
         voiceMeeting.audioFiles = []
@@ -528,6 +530,60 @@ private final class LayoutSuite {
             try checkForms(state: state, meeting: ready, scale: scale)
             try checkIntegrationSettings(state: state, scale: scale)
             try checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
+        }
+    }
+
+    private func checkSavedAudioModelReadiness(state: AppState, saved: Meeting) throws {
+        var meeting = saved
+        meeting.id = UUID()
+        meeting.title = "Прерванная расшифровка"
+        meeting.status = .failed
+        meeting.error = TranscriptionStatus.interruptedMessage
+        meeting.interruptedBatchProgress = 0.4
+        state.update(meeting)
+        defer {
+            state.modelSetup.phase = .ready
+            state.modelSetup.presented = false
+        }
+
+        for (size, scale) in [(CGSize(width: 680, height: 610), 1.2), (CGSize(width: 900, height: 750), 1.0)] {
+            scenario = "saved audio model readiness \(Int(size.width)) pt at \(Int(scale * 100))%"
+            state.modelSetup.phase = .checking
+            let host = LayoutHost(MeetingView(meeting: meeting, dateReference: .now).environmentObject(state),
+                                  size: size, scale: scale)
+            defer { host.close() }
+
+            for (phase, name, title) in [(ModelSetup.Phase.checking, "checking", "Проверяем модели…"),
+                                         (.downloading, "downloading", "Загружаем модели…"),
+                                         (.ready, "ready", "Продолжить расшифровку"),
+                                         (.available, "missing", "Добавить модель")] {
+                state.modelSetup.phase = phase
+                guard let action = frames([.savedAudioTranscriptionAction(title)], in: host)?.first else { continue }
+                try saveScreenshot("saved-audio-model-\(Int(size.width))-\(name)", in: host)
+                host.click(action.center)
+                switch phase {
+                case .checking, .downloading:
+                    check(!state.modelSetup.presented && !state.isQueued(meeting.id),
+                          "\(name): the card action should wait for model readiness")
+                    state.modelSetup.presented = false
+                    check(!MeetingActionSet(state: state, meeting: meeting).transcribe.enabled,
+                          "\(name): the meeting menu should disable transcription while models are busy")
+                    state.enqueue(meeting.id)
+                    check(!state.modelSetup.presented && !state.isQueued(meeting.id),
+                          "\(name): an existing transcription command should wait for model readiness")
+                    state.modelSetup.presented = false
+                case .ready:
+                    check(state.isQueued(meeting.id) && !state.modelSetup.presented,
+                          "verified models let the interrupted recording resume")
+                    state.cancelQueued(meeting.id)
+                case .available:
+                    check(state.modelSetup.presented && !state.isQueued(meeting.id),
+                          "missing models still open the setup flow")
+                    state.modelSetup.dismiss()
+                case .failed:
+                    break
+                }
+            }
         }
     }
 

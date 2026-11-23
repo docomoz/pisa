@@ -399,6 +399,16 @@ struct MeetingView: View {
         }
     }
 
+    private var savedAudioTranscriptionTitle: String {
+        switch state.modelSetup.phase {
+        case .checking: return "Проверяем модели…"
+        case .downloading: return "Загружаем модели…"
+        case .available, .failed: return "Добавить модель"
+        case .ready:
+            return meeting.status == .failed || meeting.liveCommittedUntil != nil ? "Продолжить расшифровку" : "Расшифровать"
+        }
+    }
+
     private func transcriptColumn(showsDetailsButton: Bool, audioSources: [RecordingAudioSource], hasAudio: Bool) -> some View {
         let interruptedProgress = hasAudio && !isQueued ? meeting.interruptedTranscriptionProgress : nil
         return VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
@@ -443,7 +453,13 @@ struct MeetingView: View {
                         if let interruptedProgress {
                             interruptedProgressBar(interruptedProgress).frame(maxWidth: 320)
                         }
-                        if hasAudio { screenButton(state.modelReady ? (meeting.status == .failed || meeting.liveCommittedUntil != nil ? "Продолжить расшифровку" : "Расшифровать") : "Добавить модель") { state.enqueue(meeting.id) }.actionButton(.primary).controlSize(.large) }
+                        if hasAudio {
+                            let title = savedAudioTranscriptionTitle
+                            screenButton(title) { state.enqueue(meeting.id) }
+                                .actionButton(.primary).controlSize(.large)
+                                .disabled(state.modelSetup.busy)
+                                .measuredForInterfaceTest(.savedAudioTranscriptionAction(title))
+                        }
                     }
                     Spacer()
                 }.frame(maxWidth: .infinity)
@@ -593,7 +609,7 @@ struct MeetingView: View {
             Spacer(minLength: PisaDesign.Spacing.none)
             if meeting.status == .failed && meeting.deletedAt == nil && hasAudio && !isQueued {
                 screenButton("Продолжить расшифровку") { state.enqueue(meeting.id) }.actionButton(.primary)
-                    .disabled(!state.canModify(meeting))
+                    .disabled(!state.canModify(meeting) || state.modelSetup.busy)
                     .measuredForInterfaceTest(.transcriptionStatusAction)
             }
             if isRecording && isTranscribing {

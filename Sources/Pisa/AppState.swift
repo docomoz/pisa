@@ -832,7 +832,8 @@ final class AppState: ObservableObject {
     }
     func enqueue(_ id: UUID, reprocess: Bool = false) {
         guard !demo, id != processingID, !isQueued(id),
-              let saved = meetings.first(where: { $0.id == id }), saved.deletedAt == nil else { return }
+              let saved = meetings.first(where: { $0.id == id }), saved.deletedAt == nil,
+              !modelSetup.busy else { return }
         guard modelReady else { modelSetup.presented = true; return }
         if id == recordingMeetingID {
             // An open recording can only be read through the capture boundaries.

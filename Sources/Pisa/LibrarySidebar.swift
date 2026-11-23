@@ -423,7 +423,8 @@ struct MeetingActionSet {
     var rename: Item { Item(title: "Переименовать…", enabled: state.canRename(meeting)) { state.renameTarget = meeting } }
     var transcribe: Item {
         let isFinalized = meeting.status == .ready
-        return Item(title: isFinalized ? "Расшифровать заново" : meeting.status == .failed ? "Продолжить расшифровку" : "Расшифровать", enabled: state.hasAudio(meeting)) {
+        let title = isFinalized ? "Расшифровать заново" : meeting.status == .failed ? "Продолжить расшифровку" : "Расшифровать"
+        return Item(title: title, enabled: !state.modelSetup.busy && state.hasAudio(meeting)) {
             if isFinalized {
                 state.reprocessTarget = meeting
             } else {
