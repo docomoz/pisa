@@ -18,6 +18,17 @@ final class SpokenVocabularyTests: XCTestCase {
         XCTAssertEqual(vocabulary.relevantTerms(in: ["Уточни и-ти-эй."]), "ETA")
     }
 
+    func testMixedETAAndRTAKeepNearbyRussianDemonstratives() {
+        let vocabulary = SpokenVocabulary("ETA, RTA")
+        let spoken = "На этой схеме это ETA. Сравни и-ти-эй и RTA для этих рейсов, запиши эту разницу."
+        let expected = "На этой схеме это ETA. Сравни ETA и RTA для этих рейсов, запиши эту разницу."
+
+        XCTAssertEqual(vocabulary.apply(to: spoken), expected)
+        XCTAssertEqual(vocabulary.promptHypothesis(spoken), expected)
+        XCTAssertEqual(vocabulary.apply(to: expected), expected)
+        XCTAssertEqual(vocabulary.relevantTerms(in: [spoken]), "ETA, RTA")
+    }
+
     func testDictionaryInitialismsDoNotConsumeAdjacentRussianWords() {
         let vocabulary = SpokenVocabulary("ETA")
         let text = "Это её дело. Эту я и выбрал. Это ей уже знакомо."
