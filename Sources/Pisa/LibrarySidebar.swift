@@ -3,6 +3,7 @@ import AppKit
 
 struct LibrarySidebar: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.appTextScale) private var textScale
     let dateReference: Date
     @State private var folderEditor = false
     @State private var editingFolder: MeetingFolder?
@@ -206,7 +207,8 @@ struct LibrarySidebar: View {
     }
 
     private func recordingFolder(_ folder: MeetingFolder, meetingID: UUID, iconOnly: Bool = false) -> some View {
-        let icon = Image(systemName: folder.iconName).imageScale(.small)
+        let icon = FolderIcon.image(folder.iconName, size: PisaDesign.Typography.micro.size * textScale)
+            .imageScale(.small)
         return ViewThatFits(in: .horizontal) {
             if !iconOnly {
                 HStack(spacing: PisaDesign.Spacing.inline) {
@@ -354,7 +356,8 @@ struct LibrarySidebar: View {
 
     private func navigationLabel(_ name: String, icon: String) -> some View {
         HStack(spacing: PisaDesign.Spacing.related) {
-            Image(systemName: icon).frame(width: 20, height: 18)
+            FolderIcon.image(icon, size: PisaDesign.Typography.footnote.size * textScale)
+                .frame(width: 20, height: 18)
             screenText(name).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -401,7 +404,7 @@ struct MeetingActionSet {
     func folderMenuItems(beforeNewFolder: @escaping () -> Void) -> [NSMenuItem] {
         func folderItem(_ title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> NSMenuItem {
             let item = NativeActionMenuItem(title, perform: action)
-            item.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+            item.image = FolderIcon.menuImage(icon)
             item.state = selected ? .on : .off
             return item
         }
@@ -453,10 +456,76 @@ struct NameEditor: View {
     private func submit() { guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; save(name); dismiss() }
 }
 
+enum FolderIcon {
+    static let necktie = "pisa.necktie"
+    static let gavel = "pisa.gavel"
+
+    static func image(_ name: String, size: CGFloat) -> Image {
+        if let artwork = drawings[name] {
+            return Image(nsImage: template(artwork, size: size)).renderingMode(.template)
+        }
+        return Image(systemName: name)
+    }
+
+    static func menuImage(_ name: String) -> NSImage? {
+        if let artwork = drawings[name] {
+            return template(artwork, size: 16)
+        }
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    private static let drawings: [String: CGPath] = [
+        necktie: {
+            let path = CGMutablePath()
+            trace([(-5, 14), (5, 14), (3, 7), (-3, 7)], in: path, closed: true)
+            trace([(-3, 7), (-7, -9), (0, -15), (7, -9), (3, 7)], in: path)
+            return path
+        }(),
+        gavel: {
+            let path = CGMutablePath()
+            let head = CGAffineTransform(rotationAngle: -.pi / 4)
+                .concatenating(CGAffineTransform(translationX: -4, y: 6))
+            trace([(-4, -9), (4, -9), (4, 9), (-4, 9)], in: path, closed: true, transform: head)
+            trace([(-4, -5), (4, -5)], in: path, transform: head)
+            trace([(-4, 5), (4, 5)], in: path, transform: head)
+            trace([(4, -1.8), (19, -1.8), (19, 1.8), (4, 1.8)], in: path, transform: head)
+            trace([(-13, -14), (2, -14)], in: path)
+            return path
+        }()
+    ]
+
+    private static func trace(_ points: [(CGFloat, CGFloat)], in path: CGMutablePath,
+                              closed: Bool = false, transform: CGAffineTransform = .identity) {
+        path.addLines(between: points.map { CGPoint(x: $0.0, y: $0.1) }, transform: transform)
+        if closed { path.closeSubpath() }
+    }
+
+    // The 32-point drawings are shared by SwiftUI and the native folder menu.
+    private static func template(_ path: CGPath, size: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.saveGState()
+            defer { context.restoreGState() }
+            context.translateBy(x: rect.midX, y: rect.midY)
+            context.scaleBy(x: rect.width / 32, y: rect.height / 32)
+            context.setStrokeColor(NSColor.black.cgColor)
+            context.setLineWidth(2.05)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.addPath(path)
+            context.strokePath()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+}
+
 struct FolderEditor: View {
     let folder: MeetingFolder?
     var save: (String, String) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTextScale) private var textScale
     @State private var name = ""
     @State private var symbol = "folder"
     @State private var nameFocused = false
@@ -468,13 +537,18 @@ struct FolderEditor: View {
         ("building.2", "Компания"), ("globe", "Международные проекты"), ("map", "География"), ("chart.bar", "Аналитика"),
         ("chevron.left.forwardslash.chevron.right", "Разработка"), ("shippingbox", "Продукт"), ("megaphone", "Маркетинг"), ("creditcard", "Финансы"),
         ("cart", "Продажи"), ("person.crop.rectangle", "Найм"), ("headphones", "Поддержка"), ("paintpalette", "Дизайн"),
-        ("exclamationmark.triangle", "Риски"), ("lock.shield", "Безопасность"), ("ladybug", "Тестирование"), ("arrow.triangle.branch", "Процессы")
+        ("exclamationmark.triangle", "Риски"), ("lock.shield", "Безопасность"), ("ladybug", "Тестирование"), ("arrow.triangle.branch", "Процессы"),
+        (FolderIcon.necktie, "Планёрки и встречи с руководством"), (FolderIcon.gavel, "Обратная связь"),
+        ("waveform.path.ecg", "MBR и обзоры результатов"), ("safari", "Стратегия"),
+        ("heart", "HR-встречи"), ("arrow.triangle.2.circlepath", "Регулярные синки"),
+        ("link", "Партнёрства"), ("mappin.and.ellipse", "Городские проекты и GR")
     ]
     var body: some View {
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             SectionHeading(folder == nil ? "Новая папка" : "Изменить папку", style: .dialog)
             HStack(spacing: PisaDesign.Spacing.related) {
-                Image(systemName: symbol).font(PisaDesign.Typography.Icon.medium).foregroundStyle(Color.ink).frame(width: 32, height: 32)
+                FolderIcon.image(symbol, size: 18)
+                    .font(PisaDesign.Typography.Icon.medium).foregroundStyle(Color.ink).frame(width: 32, height: 32)
                 FormTextField(title: "Название папки", text: $name, isFocused: $nameFocused, onSubmit: submit)
                     .measuredForInterfaceTest(.folderName)
             }
@@ -483,12 +557,15 @@ struct FolderEditor: View {
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(32), spacing: PisaDesign.Spacing.inline), count: 8), spacing: PisaDesign.Spacing.inline) {
                 ForEach(icons, id: \.0) { item in
                     Button { symbol = item.0 } label: {
-                        Image(systemName: item.0).textStyle(PisaDesign.Typography.detail).symbolRenderingMode(.monochrome)
+                        FolderIcon.image(item.0, size: PisaDesign.Typography.detail.size * textScale)
+                            .textStyle(PisaDesign.Typography.detail).symbolRenderingMode(.monochrome)
                             .frame(width: 32, height: 32)
                             .background(symbol == item.0 ? PisaDesign.Colors.selection : PisaDesign.Colors.secondary, in: RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius))
                             .contentShape(Rectangle())
-                    }.shapeAwarePlainButton().frame(width: 32, height: 32).foregroundStyle(Color.ink).screenHelp(item.1).accessibilityLabel(item.1)
+                    }.shapeAwarePlainButton().frame(width: 32, height: 32).foregroundStyle(Color.ink)
+                        .screenHelp(item.1).accessibilityLabel(screenText(item.1))
                         .accessibilityAddTraits(symbol == item.0 ? .isSelected : [])
+                        .measuredForInterfaceTest(.folderIcon(item.0))
                 }
             }
             }
@@ -497,6 +574,7 @@ struct FolderEditor: View {
                 Spacer()
                 screenButton(folder == nil ? "Создать папку" : "Сохранить") { submit() }
                     .actionButton(.primary).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .measuredForInterfaceTest(.folderSave)
             }
         }.dialogContent().frame(width: 384)
             .onAppear { name = folder?.name ?? ""; symbol = folder?.iconName ?? "folder"; nameFocused = true }

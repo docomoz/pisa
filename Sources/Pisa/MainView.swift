@@ -682,7 +682,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         state.voiceMeeting = meeting
                     } label: {
-                        detailsActionLabel("Разметить голоса", systemImage: "person.wave.2")
+                        detailsActionLabel("Разметить голоса", iconName: "person.wave.2")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(participants.isEmpty || !state.canModify(meeting))
@@ -693,7 +693,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         reviewingTerms = true
                     } label: {
-                        detailsActionLabel("Разметить термины", systemImage: "text.magnifyingglass")
+                        detailsActionLabel("Разметить термины", iconName: "text.magnifyingglass")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(!state.canReviewTerms(meeting))
@@ -701,7 +701,7 @@ struct MeetingView: View {
                     NativeActionMenu {
                         MeetingActionSet(state: state, meeting: meeting).folderMenuItems { showsMeetingDetails = false }
                     } label: {
-                        detailsActionLabel(folder?.name ?? "Папка", systemImage: folder?.iconName ?? "folder", hasMenu: true)
+                        detailsActionLabel(folder?.name ?? "Папка", iconName: folder?.iconName ?? "folder", hasMenu: true)
                     }
                     .actionButton(size: buttonSize)
                     .disabled(!state.canModify(meeting))
@@ -719,7 +719,7 @@ struct MeetingView: View {
                             }
                         ]
                     } label: {
-                        detailsActionLabel("Поделиться", systemImage: "square.and.arrow.up", hasMenu: true)
+                        detailsActionLabel("Поделиться", iconName: "square.and.arrow.up", hasMenu: true)
                     }
                     .actionButton(size: buttonSize)
                     .disabled(!state.canExport(meeting) && !state.canExportAudio(meeting))
@@ -727,7 +727,7 @@ struct MeetingView: View {
                     NativeActionMenu {
                         meetingMenuItems
                     } label: {
-                        detailsActionLabel("Ещё", systemImage: "ellipsis", hasMenu: true)
+                        detailsActionLabel("Ещё", iconName: "ellipsis", hasMenu: true)
                     }
                     .actionButton(size: buttonSize)
                     .disabled(!state.canModify(meeting))
@@ -764,12 +764,12 @@ struct MeetingView: View {
         return items
     }
 
-    private func detailsActionLabel(_ title: String, systemImage: String, hasMenu: Bool = false) -> some View {
+    private func detailsActionLabel(_ title: String, iconName: String, hasMenu: Bool = false) -> some View {
         HStack(spacing: PisaDesign.Spacing.inline) {
             Label {
                 screenText(title)
             } icon: {
-                let icon = Image(systemName: systemImage)
+                let icon = FolderIcon.image(iconName, size: PisaDesign.Typography.detail.size * textScale)
                 ViewThatFits(in: .horizontal) {
                     icon.fixedSize()
                     icon.resizable().scaledToFit()

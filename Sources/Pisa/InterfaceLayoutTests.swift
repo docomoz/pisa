@@ -28,6 +28,7 @@ enum InterfaceLayoutElement: Hashable {
     case termSearch, termFind, termReplacement, termAdd, termUndo
     case termCandidate(String)
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
+    case folderIcon(String), folderSave
     case savedVoiceHeading, savedVoiceRow(UUID)
     case voiceMergeList, voiceMergeCandidate(UUID)
     case voiceAllMatching, voiceSuggestion(String)
@@ -369,7 +370,7 @@ private final class LayoutSuite {
         state.modelSetup.phase = .ready
         let meeting = Meeting(title: "Текущая запись", source: "Системный звук")
         let folderName = "Документы и рабочие созвоны"
-        guard let folder = state.saveFolder(folderName) else {
+        guard let folder = state.saveFolder(folderName, symbol: "pisa.necktie") else {
             throw PisaError.message("Не удалось создать папку для проверки переноса")
         }
         state.update(meeting)
@@ -379,6 +380,8 @@ private final class LayoutSuite {
               let destination = submenu.item(withTitle: folderName) else {
             throw PisaError.message("В меню записи нет папки для переноса")
         }
+        scenario = "folder menu"
+        check(destination.image?.isTemplate == true, "the folder menu draws the custom icon as a template")
         let recordingRow = InterfaceLayoutElement.sidebarRecording(meeting.id)
         let folderLabel = InterfaceLayoutElement.sidebarRecordingFolder(meeting.id)
         for (width, height, scale) in [(980, 660, 1.2), (1200, 800, 1.0)] {
@@ -419,6 +422,7 @@ private final class LayoutSuite {
         writer.close()
 
         var ready = Meeting(title: "Проверка планов и результатов", source: "Тестовое аудио")
+        ready.folderID = state.saveFolder("Обратная связь", symbol: "pisa.gavel")
         ready.status = .ready
         ready.duration = 1
         ready.audioFiles = [file]
@@ -1048,11 +1052,51 @@ private final class LayoutSuite {
 
         scenario = "new folder, \(percent)%"
         do {
-            let host = LayoutHost(FolderEditor(folder: nil) { _, _ in },
+            var saved: MeetingFolder?
+            let host = LayoutHost(FolderEditor(folder: nil) { name, symbol in
+                saved = MeetingFolder(name: name, symbol: symbol)
+            },
                                   size: CGSize(width: 420, height: 500), scale: scale)
             defer { host.close() }
             checkInitialFocus(.folderName, in: host)
+            try saveScreenshot("new-folder-\(percent)", in: host)
             checkField(.folderName, placeholder: true, value: "ПППППП", in: host)
+
+            let icons = ["pisa.necktie", "pisa.gavel", "waveform.path.ecg", "safari", "heart",
+                         "arrow.triangle.2.circlepath", "link", "mappin.and.ellipse"]
+            let above = ["cart", "person.crop.rectangle", "headphones", "paintpalette",
+                         "exclamationmark.triangle", "lock.shield", "ladybug", "arrow.triangle.branch"]
+            if let measured = frames((icons + above).map(InterfaceLayoutElement.folderIcon) + [.folderSave], in: host),
+               let save = measured.last {
+                for (index, icon) in icons.enumerated() {
+                    let cell = measured[index]
+                    let upperCell = measured[index + icons.count]
+                    equal(cell.midX, upperCell.midX, "\(icon) aligns with the column above")
+                    equal(cell.minY - upperCell.maxY, PisaDesign.Spacing.inline, "\(icon) follows the row above")
+                    check(cell.maxY < save.minY, "\(icon) fits above the save button")
+                    check(host.textInk(in: cell.insetBy(dx: 3, dy: 3)) != nil, "\(icon) renders a visible glyph")
+                    host.click(cell.center)
+                    host.click(save.center)
+                    check(saved?.name == "ПППППП" && saved?.iconName == icon, "saving a new folder preserves \(icon)")
+                }
+            }
+        }
+
+        scenario = "edit folder, \(percent)%"
+        do {
+            let folder = MeetingFolder(name: "Директорская планёрка", symbol: "pisa.necktie")
+            var savedIcon: String?
+            let host = LayoutHost(FolderEditor(folder: folder) { _, symbol in savedIcon = symbol },
+                                  size: CGSize(width: 420, height: 500), scale: scale)
+            defer { host.close() }
+            try saveScreenshot("edit-folder-\(percent)", in: host)
+            if let measured = frames([.folderSave, .folderIcon("pisa.gavel")], in: host) {
+                host.click(measured[0].center)
+                check(savedIcon == "pisa.necktie", "opening the editor preserves its saved icon")
+                host.click(measured[1].center)
+                host.click(measured[0].center)
+                check(savedIcon == "pisa.gavel", "editing a folder saves the newly selected icon")
+            }
         }
 
         scenario = "voice labeling, \(percent)%"
