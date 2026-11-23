@@ -360,6 +360,20 @@ final class InterfacePreview: NSObject {
         guard finished.title == "Название во время расшифровки", finished.folderID == newFolder.id else {
             throw PisaError.message("Название или папка изменились после завершения расшифровки")
         }
+
+        let queuedMenu = nativeActionMenu(items: MeetingActionSet(state: state, meeting: second).contextMenuItems)
+        guard let queuedMove = queuedMenu.item(withTitle: "Переместить в папку"), queuedMove.isEnabled,
+              let queuedSubmenu = queuedMove.submenu, let queuedDestination = queuedSubmenu.item(withTitle: "Работа"),
+              queuedDestination.isEnabled else {
+            throw PisaError.message("Перемещение из контекстного меню недоступно для записи в очереди")
+        }
+        queuedSubmenu.performActionForItem(at: queuedSubmenu.index(of: queuedDestination))
+        let queuedMeeting = try state.library.read(second.id)
+        guard queuedMeeting.folderID == folderID, queuedMeeting.status == second.status,
+              state.isQueued(first.id), state.isQueued(second.id), state.processingID == processing.id else {
+            throw PisaError.message("Перемещение не сохранило папку или изменило очередь расшифровки")
+        }
+
         state.processingID = active
         state.cancelQueued(first.id)
         guard !state.isQueued(first.id), state.isQueued(second.id), state.processingID == active,
