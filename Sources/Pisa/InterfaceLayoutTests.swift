@@ -581,7 +581,7 @@ private final class LayoutSuite {
                 let (path, choose, notice) = (measured[0], measured[1], measured[2])
                 check(measured.allSatisfy { host.bounds.contains($0) }, "folder controls and cloud notice fit in the window")
                 equal(toggle.minX, path.minX, "checkbox and path share a left edge")
-                equal(path.minY - toggle.maxY, 20, "saved path starts after the standard checkbox gap")
+                equal(path.minY - toggle.maxY, 8, "saved path starts after the standard checkbox gap")
                 check(path.maxY <= choose.minY, "saved path is shown before the folder action")
                 equal(choose.minX, notice.minX, "cloud sync notice is aligned below the folder action")
                 equal(notice.minY - choose.maxY, PisaDesign.Spacing.inline, "cloud sync notice is directly below the folder action")
@@ -635,7 +635,7 @@ private final class LayoutSuite {
         guard let measured = frames([.settingsCheckbox(.mcpAccess), .mcpAccessNotice, .mcpCopyConfiguration], in: host) else { return }
         let (toggle, notice, copy) = (measured[0], measured[1], measured[2])
         check(measured.allSatisfy { host.bounds.contains($0) }, "MCP access checkbox, notice and configuration action fit in the window")
-        equal(notice.minY - toggle.maxY, 20, "MCP data access notice has a 20-point gap below the checkbox")
+        equal(notice.minY - toggle.maxY, 8, "MCP data access notice has an 8-point gap below the checkbox")
         equal(notice.minX, toggle.minX, "MCP data access notice and checkbox share a left edge")
         try saveScreenshot("mcp-off-\(Int(scale * 100))", in: host)
         host.click(toggle.center)
@@ -749,7 +749,7 @@ private final class LayoutSuite {
     private func checkCheckbox(_ id: SettingsCheckbox, in host: LayoutHost) {
         guard let measured = frames([.settingsCheckbox(id), .settingsCheckboxDetails(id)], in: host) else { return }
         let (checkbox, details) = (measured[0], measured[1])
-        equal(details.minY - checkbox.maxY, 20, "checkbox and details have a 20-point gap")
+        equal(details.minY - checkbox.maxY, 8, "checkbox and details have an 8-point gap")
         equal(details.minX, checkbox.minX, "checkbox and details share a left edge")
         check(host.bounds.contains(checkbox), "checkbox fits in the window")
     }

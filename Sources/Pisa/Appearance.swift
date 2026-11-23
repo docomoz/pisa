@@ -46,9 +46,9 @@ enum PisaDesign {
         static let menuItemInset: CGFloat = 5
         static let textLine: CGFloat = 7
         static let inline: CGFloat = 8
+        static let checkboxContent: CGFloat = 8
         static let related: CGFloat = 12
         static let content: CGFloat = 16
-        static let checkboxContent: CGFloat = 20
         static let section: CGFloat = 24
         static let sheetInset: CGFloat = 28
         static let page: CGFloat = 32
