@@ -10,13 +10,22 @@ struct SpokenVocabulary {
         var initialism: Bool
         var cyrillicSpelling: String?
     }
-    private struct Word { var text: String; var range: NSRange }
+    private struct Word {
+        var text: String
+        var range: NSRange
+
+        var isOrdinaryRussian: Bool {
+            let lower = text.lowercased().replacingOccurrences(of: "ё", with: "е")
+            return AbbreviationFamilies.isRussianFunctionWord(lower) || TranscriptTerms.isCommonRussianWord(lower)
+        }
+    }
     private let vocabulary: String
     let decodingVocabulary: String
     private let terms: [String]
     private let entries: [Entry]
     private let phones: [String: [String]]
     private let explicitTerms: Set<String>
+    private let spelledInitialisms: [[String]: String]
     private let cyrillicInitialisms: [(term: String, latin: String)]
     private let nameInstrumentals: [String]
     private let technologyVocabulary: TechnologyVocabulary
@@ -61,6 +70,9 @@ struct SpokenVocabulary {
             return String(term.dropLast()) + "ой"
         }
         let english = terms.filter { $0.unicodeScalars.contains { (65...90).contains($0.value) || (97...122).contains($0.value) } }
+        spelledInitialisms = Dictionary(english.filter(Self.isInitialism).map { term in
+            (term.lowercased().compactMap { Self.letterNames[$0] }, term)
+        }, uniquingKeysWith: { first, _ in first })
         let needed = Set(english.flatMap { Self.parts($0).map { $0.lowercased() } })
         var phones: [String: [String]] = [:]
         for line in pronunciations.split(separator: "\n") {
@@ -122,9 +134,23 @@ struct SpokenVocabulary {
                 guard !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }) else { continue }
                 let source = ns.substring(with: range)
                 guard Self.joinable(source) else { continue }
-                if count > 1, Self.standaloneWords.contains(words[index].text.lowercased()) || Self.standaloneWords.contains(words[index + count - 1].text.lowercased()) { continue }
+                let span = words[index..<(index + count)]
+                let spelled = count > 1 ? spelledInitialisms[span.map { $0.text.lowercased() }] : nil
+                if count > 1, Self.standaloneWords.contains(words[index].text.lowercased()) || Self.standaloneWords.contains(words[index + count - 1].text.lowercased()) {
+                    // A function word can also be an exact letter name (E → и).
+                    // Require every letter as a separate word before consuming it.
+                    if let term = spelled, !explicitTerms.contains(source.lowercased()) {
+                        found = (range, term, count)
+                        break
+                    }
+                    continue
+                }
                 let matches = entries.compactMap { entry -> String? in
-                    matched(source, entry: entry, soundKey: soundKey).map { $0.prefix + entry.term + $0.suffix }
+                    guard let match = matched(source, entry: entry, soundKey: soundKey) else { return nil }
+                    // Vowel folding makes both «это» and «это её» match ETA.
+                    // Check the original words before discarding their endings.
+                    if entry.initialism, spelled != entry.term, span.allSatisfy(\.isOrdinaryRussian) { return nil }
+                    return match.prefix + entry.term + match.suffix
                 }
                 if Set(matches).count == 1, let replacement = matches.first {
                     found = (range, replacement, count); break

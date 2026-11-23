@@ -2,6 +2,29 @@ import XCTest
 @testable import PisaCore
 
 final class SpokenVocabularyTests: XCTestCase {
+    func testDictionaryInitialismsPreserveRussianWordsInTextAndRereadHints() {
+        let vocabulary = SpokenVocabulary("ETA, NET")
+        let text = "Это важно. Эта задача и эти сроки подходят. Эту задачу берём? Нет. Всё это — на этой неделе."
+        XCTAssertEqual(vocabulary.apply(to: text), text)
+        XCTAssertEqual(vocabulary.promptHypothesis(text), text)
+        XCTAssertEqual(vocabulary.relevantTerms(in: [text]), "")
+    }
+
+    func testETARetainsExplicitSpellingAndCompleteSpokenLetterNames() {
+        let vocabulary = SpokenVocabulary("ETA")
+        let text = "Уточни ETA рейса. Обнови и-ти-эй, и ти эй и итиэй."
+        let expected = "Уточни ETA рейса. Обнови ETA, ETA и ETA."
+        XCTAssertEqual(vocabulary.apply(to: text), expected)
+        XCTAssertEqual(vocabulary.relevantTerms(in: ["Уточни и-ти-эй."]), "ETA")
+    }
+
+    func testDictionaryInitialismsDoNotConsumeAdjacentRussianWords() {
+        let vocabulary = SpokenVocabulary("ETA")
+        let text = "Это её дело. Эту я и выбрал. Это ей уже знакомо."
+        XCTAssertEqual(vocabulary.apply(to: text), text)
+        XCTAssertEqual(vocabulary.relevantTerms(in: [text]), "")
+    }
+
     func testShortCompanyNamesDoNotOverrideBackchannelsOrUnrelatedShortWords() {
         let names = SpokenVocabulary("Okko, Siri")
         for reply in ["Okay.", "Ака.", "Ага.", "Mm-hmm, mm-hmm. Okay.", "Okay, let's continue.", "Окей, обсудим."] {
