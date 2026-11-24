@@ -87,7 +87,7 @@ test('all tracked page links have an allowed classification', async () => {
   assert.deepEqual(ctas.map(link => link.match(/data-analytics-location="([^"]+)"/)?.[1]), ['header', 'hero', 'install']);
   const github = links.filter(link => link.includes('href="https://github.com/docomoz/pisa'));
   assert.deepEqual(github.map(link => link.match(/data-analytics-destination="([^"]+)"/)?.[1]), [
-    'source', 'source', 'source', 'privacy', 'install_guide', 'source', 'source',
+    'source', 'source', 'source', 'source', 'privacy', 'install_guide', 'source', 'source',
   ]);
 });
 
