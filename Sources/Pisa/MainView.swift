@@ -229,6 +229,8 @@ struct MeetingView: View {
     @State private var title = ""
     @State private var confirmDeleteAudio = false
     @State private var transcriptSearch = ""
+    @State private var reviewMarks: [UUID: TranscriptReviewReport.Mark] = [:]
+    @State private var reviewRevision = 0
     @State private var showsSavedAudio = false
     @State private var showsMeetingDetails = false
     @State private var showsDetailsKeyboardFocus = false
@@ -338,6 +340,14 @@ struct MeetingView: View {
         .padding(.horizontal, PisaDesign.Spacing.page)
         .background(SlimScrollbars().allowsHitTesting(false))
         .background(ClickToUnfocus())
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            reviewRevision += 1
+        }
+        .task(id: reviewRevision) {
+            let id = meeting.id, library = state.library
+            let marks = await Task.detached(priority: .utility) { library.transcriptReviewMarks(for: id) }.value
+            if !Task.isCancelled { reviewMarks = marks }
+        }
         .onChange(of: canToggleAudio) { _, enabled in
             if !enabled { showsSavedAudio = false }
         }
@@ -489,6 +499,9 @@ struct MeetingView: View {
                                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                                     screenText(segment.speaker, highlighting: transcriptQuery).textStyle(PisaDesign.Typography.detailStrong).foregroundStyle(segment.speaker == "Я" ? Color.moss : Color.ink)
                                     screenText(segment.displayText, highlighting: transcriptQuery).textStyle(PisaDesign.Typography.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                    if let mark = reviewMarks[segment.id], mark.matches(segment) {
+                                        TranscriptReviewNote(mark: mark)
+                                    }
                                 }
                                 if showsTranscriptTools {
                                     Button { editing = segment } label: { Image(systemName: "pencil").textStyle(PisaDesign.Typography.detail) }.buttonStyle(AccentIconStyle()).controlKeyboardFocus().focusEffectDisabled().disabled(state.processingID == meeting.id).screenHelp("Исправить реплику…")
@@ -811,6 +824,43 @@ struct MeetingView: View {
                     .accessibilityHidden(true)
             }
         }
+    }
+}
+
+private struct TranscriptReviewNote: View {
+    let mark: TranscriptReviewReport.Mark
+    @State private var expanded = false
+
+    var body: some View {
+        let reading = mark.reading?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let evidence = mark.evidence?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+            let heading = screenLabel("Проверить реплику", systemImage: "flag")
+                .textStyle(PisaDesign.Typography.footnoteMedium)
+            if reading.isEmpty && evidence.isEmpty {
+                heading
+            } else {
+                Button { expanded.toggle() } label: {
+                    HStack(spacing: PisaDesign.Spacing.inline) {
+                        heading
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(PisaDesign.Typography.Icon.disclosure).accessibilityHidden(true)
+                    }.contentShape(Rectangle())
+                }.shapeAwarePlainButton().foregroundStyle(Color.moss)
+                    .accessibilityValue(expanded ? "Развёрнуто" : "Свёрнуто")
+                    .measuredForInterfaceTest(.reviewDisclosure(mark.segmentID))
+            }
+            screenText(mark.reason).measuredForInterfaceTest(.reviewReason(mark.segmentID))
+            if expanded && (!reading.isEmpty || !evidence.isEmpty) {
+                VStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                    if !reading.isEmpty { screenText("По аудио: " + reading) }
+                    if !evidence.isEmpty { screenText(evidence) }
+                }.textSelection(.enabled).measuredForInterfaceTest(.reviewDetails(mark.segmentID))
+            }
+        }
+        .textStyle(PisaDesign.Typography.footnote)
+        .foregroundStyle(Color.mutedInk)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

@@ -13,6 +13,7 @@ enum InterfaceLayoutElement: Hashable {
     case savedAudioTranscriptionAction(String)
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
+    case reviewDisclosure(UUID), reviewReason(UUID), reviewDetails(UUID)
     case sidebarRecording(UUID), sidebarTranscriptionStatus(UUID, String)
     case sidebarRecordingFolder(UUID)
     case setupStatus, setupAction
@@ -177,13 +178,14 @@ enum InterfaceLayoutTests {
             Task { @MainActor in
                 defer { CFRunLoopStop(CFRunLoopGetMain()) }
                 do {
+                    try await suite.checkTranscriptReview(state: AppState(rootURL: root.appendingPathComponent("transcript-review")))
                     for scale: CGFloat in [1, 1.2] {
                         try await suite.checkModelSettings(state: state, scale: scale)
                     }
                     print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
                     result = suite.failures == 0 && suite.checks > 0 ? 0 : 1
                 } catch {
-                    fputs("MODEL_SETTINGS_LAYOUT_TEST_FAILED: \(error)\n", stderr)
+                    fputs("INTERFACE_LAYOUT_TEST_FAILED: \(error)\n", stderr)
                 }
             }
             CFRunLoopRun()
@@ -365,6 +367,56 @@ private final class LayoutSuite {
         guard let path = ProcessInfo.processInfo.environment["PISA_LAYOUT_SCREENSHOTS"] else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true)
         try host.savePNG(to: directory.appendingPathComponent(name + ".png"))
+    }
+
+    func checkTranscriptReview(state: AppState) async throws {
+        var meeting = Meeting(title: "Подготовка к выставке", source: "Тестовое аудио")
+        meeting.status = .ready
+        meeting.duration = 15
+        let first = TranscriptSegment(start: 1, end: 4, speaker: "Анна", text: "Уточним дату")
+        let second = TranscriptSegment(start: 5, end: 10, speaker: "Я", text: "Привезём три плаката")
+        let third = TranscriptSegment(start: 11, end: 15, speaker: "Анна", text: "Спасибо")
+        meeting.segments = [first, second, third]
+        let report = TranscriptReviewReport(schemaVersion: 1, meetingID: meeting.id, marks: [
+            .init(segmentID: first.id, originalText: first.text, reason: "Дата звучит неотчётливо"),
+            .init(segmentID: third.id, originalText: "Другая фраза", reason: "Устаревшая отметка"),
+            .init(segmentID: second.id, originalText: second.text, reason: "Число отличается от произнесённого",
+                  reading: "Привезём четыре плаката", evidence: "В начале реплики слышно полное числительное. Дальше участники отдельно обсуждают, куда повесить каждый плакат. При проверке использовалась дорожка говорящего, на которой слышен конец фразы.")
+        ])
+        let url = state.library.transcriptReviewURL(meeting.id)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(report).write(to: url, options: .atomic)
+        state.modelSetup.phase = .ready
+        state.preferences.summaryOnboardingAcknowledged = true
+        for (size, scale) in [(CGSize(width: 980, height: 660), 1.2), (CGSize(width: 1200, height: 800), 1.0)] {
+            scenario = "transcript review \(Int(size.width)), \(Int(scale * 100))%"
+            state.update(meeting)
+            state.select(meeting.id)
+            let host = LayoutHost(MainView().environmentObject(state), size: size, scale: scale)
+            defer { host.close() }
+            let deadline = ContinuousClock.now + .seconds(5)
+            while host.frames[.reviewDisclosure(second.id)] == nil && ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+                host.settle()
+            }
+            guard let collapsed = frames([.reviewDisclosure(second.id), .reviewReason(second.id)], in: host) else { continue }
+            check(host.frames[.reviewReason(first.id)] != nil && host.frames[.reviewDisclosure(first.id)] == nil,
+                  "a reason without a reading or evidence is visible without a disclosure")
+            check(host.frames[.reviewDetails(second.id)] == nil && host.frames[.reviewReason(third.id)] == nil,
+                  "only the matching row shows a reason and its details start collapsed")
+            try saveScreenshot("review-collapsed-\(Int(size.width))", in: host)
+            host.click(collapsed[0].center)
+            guard let expanded = frames([.reviewReason(second.id), .reviewDetails(second.id)], in: host) else { continue }
+            check(expanded[1].minY >= expanded[0].maxY && expanded[1].height > 0, "the expanded details follow the reason")
+            if let viewport = host.scrollToBottom(containing: collapsed[0].center),
+               let visible = host.frames[.reviewDetails(second.id)] {
+                check(visible.maxY <= viewport.maxY + 1, "the end of the review details is reachable")
+            } else { check(false, "the transcript scroll view contains the review") }
+            try saveScreenshot("review-expanded-\(Int(size.width))", in: host)
+            state.editSegmentText("Привезём четыре плаката", from: second, meetingID: meeting.id)
+            check(host.wait { host.frames[.reviewReason(second.id)] == nil && host.frames[.reviewDetails(second.id)] == nil },
+                  "editing the transcript removes the obsolete review from the same window")
+        }
     }
 
     func checkActiveRecordingFolder(state: AppState) throws {
@@ -1429,10 +1481,13 @@ private final class LayoutHost {
         settle()
     }
 
-    // Used on settings pages with a single vertical scroll view.
-    func scrollToBottom() -> CGRect? {
+    func scrollToBottom(containing point: CGPoint? = nil) -> CGRect? {
         func findScrollView(in node: NSView) -> NSScrollView? {
-            if let scroll = node as? NSScrollView { return scroll }
+            if let scroll = node as? NSScrollView {
+                guard let point else { return scroll }
+                let local = CGPoint(x: point.x, y: view.isFlipped ? point.y : view.bounds.height - point.y)
+                if scroll.bounds.contains(scroll.convert(local, from: view)) { return scroll }
+            }
             return node.subviews.lazy.compactMap { findScrollView(in: $0) }.first
         }
         guard let scroll = findScrollView(in: view), let document = scroll.documentView else { return nil }
