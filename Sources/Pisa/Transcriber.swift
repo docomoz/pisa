@@ -1303,6 +1303,30 @@ actor Transcriber {
                 ? acousticRecognition(samples, using: russian) : nil))
         }
         do {
+        // An extra group of zeros changes the amount while leaving the rest of the
+        // sentence intact. Only ask the verifier when the acoustic reading is shorter.
+        if RecognitionNumberMagnitude.needsVerification(primaryText),
+           isRussian || RecognitionNumberMagnitude.isStandaloneCandidate(primaryText) {
+            acoustic = acoustic ?? acousticRecognition(samples, using: russian)
+            if let heard = acoustic?.text,
+               RecognitionNumberMagnitude.hasShorterReading(original: primaryText, acoustic: heard) {
+                // Digits alone carry no language evidence. Let the verifier identify
+                // the language before using a Russian acoustic reading for this turn.
+                let reread = try await generate(language: isRussian ? "Russian" : nil, context: "")
+                let confirmedRussian = isRussian || reread.language?.lowercased() == "russian"
+                let corrected = confirmedRussian ? RecognitionNumberMagnitude.revisedText(original: primaryText,
+                    acoustic: heard, reread: reread.text) : nil
+                if let diagnostic {
+                    contextDiagnostics.append(["kind": "number-magnitude", "start": String(diagnostic.start),
+                        "track": diagnostic.track, "source": primaryText, "independent": heard,
+                        "reread": reread.text, "candidate": corrected ?? ""])
+                }
+                if let corrected {
+                    primaryText = corrected
+                    text = spokenVocabulary.apply(to: corrected)
+                }
+            }
+        }
         if let fillerSpelling {
             // Orthography follows the conversation for these sounds. Decoder
             // disagreement may refine the reading, but cannot make a known
