@@ -37,6 +37,11 @@ enum BackchannelLanguage {
     private static let latinLetter = try! NSRegularExpression(pattern: #"\p{Latin}"#)
     private static let lexicalLiteralMarks = CharacterSet(charactersIn: "_+#$%=<>[]{}|‹›„")
     private static let latinLexicalWords = try! NSRegularExpression(pattern: #"[A-Za-z]+(?:[’'][A-Za-z]+)*"#)
+    private static let contractionStems: Set<String> = [
+        "i", "you", "he", "she", "it", "we", "they", "that", "there", "who", "what", "where", "when", "how", "let",
+        "aren", "can", "couldn", "didn", "doesn", "don", "hadn", "hasn", "haven", "isn", "mustn", "shouldn", "wasn", "weren", "won", "wouldn",
+    ]
+    private static let contractionEndings: Set<String> = ["m", "s", "re", "ve", "d", "ll", "t"]
     private static let briefCyrillicReply = try! NSRegularExpression(pattern: #"^([А-ЯЁа-яё][а-яё]{1,2}) +[а-яё]{4,}[.!?…]*$"#)
     private static let lexicalWordLimit = 12
     // A diarized region fits in one 30-second model input. Longer lexical
@@ -44,7 +49,8 @@ enum BackchannelLanguage {
     private static let sentenceMarkers = shortSentenceWords.union(["the", "this", "that", "these", "those", "please", "my", "your", "our", "let"])
 
     static func shouldRecheck(_ text: String, duration: Double) -> Bool {
-        guard duration <= 3, !containsLiteralMarks(text), !isStandaloneLatinTerm(text) else { return false }
+        guard duration <= 3, !containsLiteralMarks(text), !isStandaloneLatinTerm(text),
+              text.rangeOfCharacter(from: lexicalLiteralMarks.union(.decimalDigits)) == nil else { return false }
         let words = RussianRecognition.words(text)
         // Mixed filler chains need spelling edits that retain the Russian reply.
         if words.contains(where: russianFillers.contains) { return false }
@@ -168,7 +174,27 @@ enum BackchannelLanguage {
         let words = RussianRecognition.words(text)
         return !words.isEmpty
             && words.joined().unicodeScalars.allSatisfy { (0x61...0x7A).contains($0.value) }
-            && RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary)
+            && preservesLexicalVocabulary(candidate: "", original: text, vocabulary: vocabulary)
+    }
+
+    private static func preservesLexicalVocabulary(candidate: String, original: String, vocabulary: String) -> Bool {
+        func joiningContractions(_ text: String) -> String {
+            guard text.contains("'") || text.contains("’") else { return text }
+            var joined = text
+            let matches = latinLexicalWords.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for match in matches.reversed() {
+                guard let range = Range(match.range, in: joined) else { continue }
+                let parts = joined[range].split { $0 == "'" || $0 == "’" }
+                guard parts.count == 2, parts[0].dropFirst().allSatisfy(\.isLowercase),
+                      contractionStems.contains(parts[0].lowercased()), contractionEndings.contains(String(parts[1])) else { continue }
+                // A modifier letter keeps the contraction together in the
+                // glossary tokenizer while retaining distinct spellings.
+                joined.replaceSubrange(range, with: parts.joined(separator: "ʼ"))
+            }
+            return joined
+        }
+        return RussianRecognition.preservesVocabulary(candidate: joiningContractions(candidate),
+            original: joiningContractions(original), vocabulary: joiningContractions(vocabulary))
     }
 
     private static func isStandaloneLatinTerm(_ text: String) -> Bool {
@@ -196,7 +222,19 @@ enum BackchannelLanguage {
             return original.replacingCharacters(in: range, with: replacement)
         }
         guard isLexicalSource(original, vocabulary: vocabulary) else { return nil }
-        return agreedRussianText(russian, corroboration: corroboration)
+        if let agreed = agreedRussianText(russian, corroboration: corroboration) { return agreed }
+        // On a brief turn the models can hear the same sounds and place one
+        // internal word boundary differently. Require identical letters and
+        // shared words on both sides of the boundary.
+        let heard = RussianRecognition.words(corroboration)
+        let letters = words.joined()
+        guard words.count >= 3, heard.count >= 3, abs(words.count - heard.count) == 1,
+              letters == heard.joined(),
+              letters.unicodeScalars.allSatisfy({ (0x430...0x44f).contains($0.value) }) else { return nil }
+        let prefix = zip(words, heard).prefix { $0 == $1 }.count
+        let suffix = zip(words.reversed(), heard.reversed()).prefix { $0 == $1 }.count
+        guard prefix > 0, suffix > 0, prefix + suffix + 1 == min(words.count, heard.count) else { return nil }
+        return russian.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func agreedRussianText(_ russian: String, corroboration: String?) -> String? {
@@ -348,6 +386,12 @@ enum BackchannelLanguage {
         return source == fillerEvidence(reread) && source == fillerEvidence(corroboration)
     }
 
+    static func preservesFillerSequenceLength(originalSpelling: String, candidate: String) -> Bool {
+        let count = originalSpelling.components(separatedBy: ", ").count
+        guard let spelling = fillerEvidence(candidate) else { return count == 1 }
+        return spelling.components(separatedBy: ", ").count == count
+    }
+
     private static func fillerEvidence(_ text: String) -> String? {
         let input = text.lowercased().replacingOccurrences(of: #"о['’]кей"#, with: "окей", options: .regularExpression)
         guard !containsLiteralMarks(input) else { return nil }
@@ -421,17 +465,18 @@ enum BackchannelLanguage {
         var replacements: [UUID: String] = [:]
         for segment in segments {
             let audio = shouldRecheck(segment.text, duration: segment.end - segment.start) ? alternatives[segment.id] : nil
-            let fallback = unconfirmed.contains(segment.id) ? "Неразборчиво" : localizedFiller(segment.text)
+            let fallback = localizedFiller(segment.text) ?? (unconfirmed.contains(segment.id) ? "Неразборчиво" : nil)
             if let replacement = verifiedLexical[segment.id] ?? audio ?? fallback,
-               RussianRecognition.preservesVocabulary(candidate: replacement, original: segment.text, vocabulary: vocabulary) {
+               preservesLexicalVocabulary(candidate: replacement, original: segment.text, vocabulary: vocabulary) {
                 replacements[segment.id] = replacement
             }
         }
         guard !replacements.isEmpty else { return segments }
         let anchors = (preceding + segments).compactMap { anchor -> (segment: TranscriptSegment, language: ConversationLanguage)? in
-            // The proposed correction and quoted material cannot establish
-            // the conversation language on which that correction depends.
-            guard verifiedLexical[anchor.id] == nil, !unconfirmed.contains(anchor.id) else { return nil }
+            // A disputed reading, proposed correction, or quote cannot
+            // establish the language used to resolve neighboring turns.
+            guard anchor.independentRecognitionLanguage != false,
+                  verifiedLexical[anchor.id] == nil, !unconfirmed.contains(anchor.id) else { return nil }
             let spoken = NSMutableString(string: anchor.text)
             for range in TranscriptOrthography.literalRanges(in: anchor.text).reversed() {
                 spoken.replaceCharacters(in: range, with: " ")
@@ -458,13 +503,13 @@ enum BackchannelLanguage {
             let segmentTrack = track(segment)
             var revised = segment
             revised.text = alternative
-            // An interjection can be a response to speech on the other track.
-            // Overlapping Russian speech is stronger evidence than distant
-            // speech on the reply's track, unless a local language switch is audible.
+            // Overlapping Russian speech can establish the context for a
+            // neutral sound or an acoustically corroborated Russian reading.
+            let supportedAcknowledgment = alternatives[segment.id] == alternative && russianSpelling(ofFiller: segment.text) != nil
             if nearby.contains(where: { $0.language == .russian && track($0.segment) != segmentTrack
                 && $0.segment.start < segment.end && segment.start < $0.segment.end }),
                !nearby.contains(where: { $0.language == .other && gap($0.segment) <= 2 }),
-               isNeutralVocalization(segment.text) {
+               isNeutralVocalization(segment.text) || supportedAcknowledgment || verifiedLexical[segment.id] != nil {
                 return revised
             }
             let sameTrack = nearby.filter { track($0.segment) == segmentTrack }
@@ -541,7 +586,7 @@ enum BackchannelLanguage {
     }
 
     static func russianSpelling(ofFiller text: String) -> String? {
-        guard !containsLiteralMarks(text) else { return nil }
+        guard !containsLiteralMarks(text), text.rangeOfCharacter(from: lexicalLiteralMarks.union(.decimalDigits)) == nil else { return nil }
         return fillerSpelling(RussianRecognition.words(text))
     }
 
