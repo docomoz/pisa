@@ -303,8 +303,13 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   background: var(--line);
 }
 
-.feature-grid article, .facts > div {
-  padding: clamp(22px, 3vw, 30px);
+.feature-grid article {
+  padding: clamp(20px, 2.5vw, 24px) clamp(24px, 3.4vw, 34px);
+  background: var(--soft);
+}
+
+.feature-grid .feature-primary {
+  padding-block: clamp(24px, 3.4vw, 34px);
   background: var(--surface);
 }
 
@@ -332,39 +337,16 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   font-size: 15px;
 }
 
-.key-grid article { padding: clamp(24px, 3.4vw, 34px); }
-.key-grid .feature-icon { width: 26px; height: 26px; }
-.key-grid h3 { margin-top: 20px; font-size: 20px; letter-spacing: -.02em; }
-.key-grid p { margin-top: 8px; font-size: 16px; }
+.feature-grid .feature-icon { display: block; }
+.feature-grid h3 { margin-top: 12px; }
+.feature-primary .feature-icon { width: 26px; height: 26px; }
+.feature-primary h3 { margin-top: 20px; font-size: 20px; letter-spacing: -.02em; }
+.feature-primary p { margin-top: 8px; font-size: 16px; }
 
-.more-label {
-  margin-top: 36px;
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 600;
+.facts > div {
+  padding: clamp(22px, 3vw, 30px);
+  background: var(--soft);
 }
-
-.more-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px clamp(20px, 3vw, 32px);
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.more-grid li {
-  display: flex;
-  gap: 12px;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.more-grid .icon { margin-top: 3px; color: var(--ink); stroke-width: 1.7; }
-.more-grid b { display: block; color: var(--ink); font-weight: 650; }
-
-.facts { background: var(--line); }
-.facts > div { background: var(--soft); }
 
 /* Assistant example */
 
@@ -562,7 +544,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
 /* Narrow screens */
 
 @media (max-width: 860px) {
-  .feature-grid, .facts, .more-grid { grid-template-columns: minmax(0, 1fr); }
+  .feature-grid, .facts { grid-template-columns: minmax(0, 1fr); }
   .wide-only { display: none; }
 }
 
