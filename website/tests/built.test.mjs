@@ -25,6 +25,21 @@ test('the built Worker serves the page and its assets', async () => {
   assert.equal(head.status, 200);
   assert.equal((await head.arrayBuffer()).byteLength, 0);
 });
+
+test('feature screenshots load from the same assets as their full-size links', async () => {
+  const page = await (await worker.fetch(request('/'))).text();
+  for (const filename of ['speaker-labeling.png', 'term-labeling.png']) {
+    const path = `assets/${filename}`;
+    assert.ok(page.includes(`href="${path}"`));
+    assert.ok(page.includes(`src="${path}"`));
+
+    const image = await worker.fetch(request(`/${path}`));
+    assert.equal(image.status, 200);
+    assert.equal(image.headers.get('content-type'), 'image/png');
+    assert.deepEqual([...new Uint8Array(await image.arrayBuffer()).slice(0, 8)], [137,80,78,71,13,10,26,10]);
+  }
+});
+
 test('the built Worker redirects to the latest feed DMG', async () => {
   const original = globalThis.fetch;
   const url = 'https://github.com/docomoz/pisa/releases/download/v9.8.7/Pisa-9.8.7-arm64.dmg';

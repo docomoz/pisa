@@ -13,6 +13,8 @@ const publicFiles = {
   '/assets/favicon.svg': 'image/svg+xml',
   '/assets/mark-header.svg': 'image/svg+xml',
   '/assets/meeting.png': 'image/png',
+  '/assets/speaker-labeling.png': 'image/png',
+  '/assets/term-labeling.png': 'image/png',
   '/assets/welcome.png': 'image/png',
 };
 const assets = {};
