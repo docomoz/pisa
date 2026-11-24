@@ -67,7 +67,7 @@ struct PisaApp: App {
     }
 
     private var installUpdate: (() -> Void)? {
-        guard updates.hasInstallableUpdate else { return nil }
+        guard updates.hasInstallableUpdate, !state.showingSettings else { return nil }
         return { updates.check() }
     }
 

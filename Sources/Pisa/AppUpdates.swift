@@ -16,7 +16,7 @@ final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
     func start() {
         guard controller == nil else { return }
         let controller = SPUStandardUpdaterController(
-            startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil
+            startingUpdater: false, updaterDelegate: self, userDriverDelegate: self
         )
         let updater = controller.updater
         do {
@@ -34,6 +34,16 @@ final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
         updater.publisher(for: \.automaticallyDownloadsUpdates)
             .sink { [weak self] in self?.installsAutomatically = $0 }
             .store(in: &observations)
+
+        // Check before Sparkle schedules its first check using the last session's timestamp.
+        checkAutomatically()
+    }
+
+    func checkAutomatically() {
+        guard let updater = controller?.updater, updater.automaticallyChecksForUpdates,
+              !updater.sessionInProgress else { return }
+        // Keep Sparkle's automatic downloads available during checks triggered by app activity.
+        updater.checkForUpdatesInBackground()
     }
 
     func check() {
@@ -55,5 +65,18 @@ final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate item: SUAppcastItem, state: SPUUserUpdateState) {
         if choice == .skip { hasInstallableUpdate = false }
+    }
+}
+
+// Sparkle calls its user-driver delegate on the main thread.
+extension AppUpdates: @preconcurrency SPUStandardUserDriverDelegate {
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    func standardUserDriverShouldHandleShowingScheduledUpdate(_ update: SUAppcastItem, andInImmediateFocus _: Bool) -> Bool {
+        update.isCriticalUpdate || update.isInformationOnlyUpdate
+    }
+
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
+        if !handleShowingUpdate && !hasInstallableUpdate { hasInstallableUpdate = true }
     }
 }

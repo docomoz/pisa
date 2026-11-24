@@ -65,21 +65,7 @@ struct MainView: View {
             }
             Spacer(minLength: PisaDesign.Spacing.none)
             if let installUpdate {
-                Button(action: installUpdate) {
-                    Label {
-                        screenText("Установить обновление")
-                            .measuredForInterfaceTest(.updateFooterLink)
-                    } icon: {
-                        Image(systemName: "tray.and.arrow.down")
-                            .imageScale(.small)
-                            .accessibilityHidden(true)
-                            .measuredForInterfaceTest(.updateFooterIcon)
-                    }
-                    .foregroundStyle(canInstallUpdate ? Color.moss : Color.disabledInk)
-                    .contentShape(Rectangle())
-                }
-                .shapeAwarePlainButton()
-                .disabled(!canInstallUpdate)
+                UpdateInstallLink(canInstall: canInstallUpdate, action: installUpdate)
             }
         }
         .textStyle(PisaDesign.Typography.footnote)
@@ -166,6 +152,30 @@ struct MainView: View {
             Image(systemName: icon).font(PisaDesign.Typography.Icon.medium).foregroundStyle(Color.moss)
             SectionHeading(title, subtitle: detail, style: .feature)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct UpdateInstallLink: View {
+    let canInstall: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label {
+                screenText("Установить обновление")
+                    .measuredForInterfaceTest(.updateFooterLink)
+            } icon: {
+                Image(systemName: "tray.and.arrow.down")
+                    .imageScale(.small)
+                    .accessibilityHidden(true)
+                    .measuredForInterfaceTest(.updateFooterIcon)
+            }
+            .foregroundStyle(canInstall ? Color.moss : Color.disabledInk)
+            .contentShape(Rectangle())
+        }
+        .textStyle(PisaDesign.Typography.footnote)
+        .shapeAwarePlainButton()
+        .disabled(!canInstall)
     }
 }
 

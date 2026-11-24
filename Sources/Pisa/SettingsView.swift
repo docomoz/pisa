@@ -70,11 +70,18 @@ struct SettingsView: View {
                     .textStyle(PisaDesign.Typography.footnote)
                     .foregroundStyle(Color.mutedInk)
                 Spacer()
+                if updates.hasInstallableUpdate {
+                    UpdateInstallLink(canInstall: updates.canCheck, action: updates.check)
+                }
                 screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
             }
         }.dialogContent().frame(width: 900, height: 700)
             .background(SettingsInitialFocus().allowsHitTesting(false))
             .background(ClickToUnfocus())
+            .onAppear { updates.checkAutomatically() }
+            .onChange(of: section) { _, section in
+                if section == "Обновления" { updates.checkAutomatically() }
+            }
     }
 
     private var exportSettings: some View {

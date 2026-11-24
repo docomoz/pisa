@@ -219,7 +219,13 @@ final class AppState: ObservableObject {
         }
         if !notices.isEmpty { notice(notices.joined(separator: "\n\n")) }
     }
-    func select(_ id: UUID?) { selectAfterSearch = false; stopPlayback(); selection = id }
+    func select(_ id: UUID?) {
+        let opensMeeting = id != nil && id != selection
+        selectAfterSearch = false
+        stopPlayback()
+        selection = id
+        if opensMeeting { AppUpdates.shared.checkAutomatically() }
+    }
     func openFolder(_ id: UUID? = nil, trash: Bool = false, unfiled: Bool = false) {
         folderFilter = id; showingTrash = trash; unfiledOnly = unfiled
         selectFirstMatching()
@@ -519,6 +525,7 @@ final class AppState: ObservableObject {
         guard !modelSetup.busy, !modelSetup.presented else { modelSetup.presented = true; return }
         stopPlayback()
         starting = true; defer { starting = false }
+        AppUpdates.shared.checkAutomatically()
         let selectedSource = source
         var m = Meeting(title: "", source: selectedSource)
         m.title = m.defaultTitle; m.automaticTitle = m.title
