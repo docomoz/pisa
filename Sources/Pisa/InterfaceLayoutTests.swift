@@ -165,13 +165,18 @@ enum InterfaceLayoutTests {
             let state = AppState(rootURL: root, launchAtLogin: LaunchAtLogin(service: LayoutLoginItem()))
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
-            try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
-            // Run this scenario in AppKit's event loop so the candidate and
-            // occurrence tasks can resume between interactions.
-            if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
-                return 1
+            let scenario = ProcessInfo.processInfo.environment["PISA_LAYOUT_SCENARIO"]
+            guard scenario == nil || scenario == "transcript-review" else {
+                throw PisaError.message("Неизвестный сценарий проверки интерфейса")
             }
-            try suite.checkScreens(state: state)
+            if scenario == nil {
+                try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
+                // Run in AppKit's event loop so the candidate and occurrence tasks can resume.
+                if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
+                    return 1
+                }
+                try suite.checkScreens(state: state)
+            }
             var result: Int32 = 1
             // Keep the focus probes outside a MainActor task. The model actions
             // suspend separately so the run loop can deliver their results.
@@ -179,8 +184,10 @@ enum InterfaceLayoutTests {
                 defer { CFRunLoopStop(CFRunLoopGetMain()) }
                 do {
                     try await suite.checkTranscriptReview(state: AppState(rootURL: root.appendingPathComponent("transcript-review")))
-                    for scale: CGFloat in [1, 1.2] {
-                        try await suite.checkModelSettings(state: state, scale: scale)
+                    if scenario == nil {
+                        for scale: CGFloat in [1, 1.2] {
+                            try await suite.checkModelSettings(state: state, scale: scale)
+                        }
                     }
                     print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
                     result = suite.failures == 0 && suite.checks > 0 ? 0 : 1
