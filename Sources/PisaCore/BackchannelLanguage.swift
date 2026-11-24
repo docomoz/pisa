@@ -3,7 +3,8 @@ import Foundation
 /// Language-neutral vocal acknowledgments need nearby conversation context.
 /// Known fillers can use a Russian spelling when a new audio decode is inconclusive.
 enum BackchannelLanguage {
-    private static let latinVocalizations: Set<String> = ["ah", "uh", "huh", "uhhuh", "hmm", "hm", "mm", "mhm", "mmhmm", "uhum", "um", "ajá"]
+    private static let neutralVocalizations: Set<String> = ["ah", "uh", "huh", "uhhuh", "hmm", "hm", "mm", "mhm", "mmhmm", "uhum", "um"]
+    private static let latinVocalizations = neutralVocalizations.union(["ajá"])
     private static let englishAffirmatives: Set<String> = ["yeah", "yep", "yes"]
     private static let englishOpenVowels: Set<String> = ["ah", "uh", "um"]
     private static let russianVocalizations: Set<String> = ["угу", "ага", "мгм", "хм", "мм", "м", "эм"]
@@ -454,7 +455,19 @@ enum BackchannelLanguage {
             guard let alternative = replacements[segment.id] else { return segment }
             func gap(_ anchor: TranscriptSegment) -> Double { max(0, max(anchor.start - segment.end, segment.start - anchor.end)) }
             let nearby = anchors.filter { $0.segment.id != segment.id && gap($0.segment) <= 60 }
-            let sameTrack = nearby.filter { track($0.segment) == track(segment) }
+            let segmentTrack = track(segment)
+            var revised = segment
+            revised.text = alternative
+            // An interjection can be a response to speech on the other track.
+            // Overlapping Russian speech is stronger evidence than distant
+            // speech on the reply's track, unless a local language switch is audible.
+            if nearby.contains(where: { $0.language == .russian && track($0.segment) != segmentTrack
+                && $0.segment.start < segment.end && segment.start < $0.segment.end }),
+               !nearby.contains(where: { $0.language == .other && gap($0.segment) <= 2 }),
+               isNeutralVocalization(segment.text) {
+                return revised
+            }
+            let sameTrack = nearby.filter { track($0.segment) == segmentTrack }
             let relevant = sameTrack.isEmpty ? nearby : sameTrack
             guard let nearest = relevant.map({ gap($0.segment) }).min() else { return segment }
             let closest = relevant.filter { gap($0.segment) == nearest }
@@ -472,8 +485,13 @@ enum BackchannelLanguage {
                 }
                 guard nearestIsRussian(left), nearestIsRussian(right) else { return segment }
             }
-            var revised = segment; revised.text = alternative; return revised
+            return revised
         }
+    }
+
+    private static func isNeutralVocalization(_ text: String) -> Bool {
+        let words = RussianRecognition.words(text).filter { !russianFillers.contains($0) }
+        return !words.isEmpty && words.allSatisfy(neutralVocalizations.contains)
     }
 
     private static func isOpenVowel(_ word: String) -> Bool {

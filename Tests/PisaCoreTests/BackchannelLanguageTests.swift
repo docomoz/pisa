@@ -168,6 +168,42 @@ final class BackchannelLanguageTests: XCTestCase {
         }
     }
 
+    func testVocalAcknowledgmentsUseOverlappingRussianSpeechOnTheOtherTrack() {
+        for (mic, text, expected, competingTurn) in [
+            (true, "Mm-hmm.", "Угу.", "Что тр."),
+            (false, "Mm-hmm, mm-hmm.", "Угу, угу.", "Ми сьогодні переглянемо зміни."),
+            (true, "Hmm.", "Хм.", "We can discuss the next question."),
+        ] {
+            let reply = segment(20, text, mic: mic)
+            var speech = segment(13, "Сейчас мы обсудим оставшиеся вопросы проекта.", mic: !mic)
+            speech.end = 24
+            let distant = segment(28, competingTurn, mic: mic)
+            let resolved = BackchannelLanguage.resolve([speech, reply, distant], alternatives: [:], preceding: [])
+            var localized = reply
+            localized.text = expected
+            XCTAssertEqual(resolved, [speech, localized, distant])
+
+            for foreign in ["Are you ready?", "Ми сьогодні переглянемо зміни."] {
+                let switchOfLanguage = segment(21.5, foreign, mic: mic)
+                let mixed = BackchannelLanguage.resolve([speech, reply, switchOfLanguage], alternatives: [:], preceding: [])
+                XCTAssertEqual(mixed, [speech, reply, switchOfLanguage], foreign)
+            }
+            XCTAssertEqual(BackchannelLanguage.resolve([speech, reply, distant], alternatives: [:], preceding: [],
+                vocabulary: text)[1], reply)
+
+            speech.end = reply.start
+            XCTAssertEqual(BackchannelLanguage.resolve([speech, reply, distant], alternatives: [:], preceding: [])[1], reply)
+        }
+
+        var speech = segment(13, "Сейчас мы обсудим оставшиеся вопросы проекта.", mic: false)
+        speech.end = 24
+        let foreign = segment(28, "We can discuss the next question.")
+        for text in ["«Mm-hmm».", "Mm-hmm, I agree.", "Ajá.", "Yeah."] {
+            let reply = segment(20, text)
+            XCTAssertEqual(BackchannelLanguage.resolve([speech, reply, foreign], alternatives: [:], preceding: [])[1], reply)
+        }
+    }
+
     func testIndependentEquivalentAcknowledgmentsPreserveEverySoundAndSentenceBoundary() {
         let primary = "Mm-hmm, mm hmm. Okay."
         XCTAssertTrue(BackchannelLanguage.confirmsFillerSequence(original: primary, reread: "Uh huh. Uh huh. Okay.", corroboration: "Угу, угу. О'кей."))
