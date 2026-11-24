@@ -360,12 +360,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   border-radius: inherit;
 }
 
-.feature-gallery figcaption {
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
 .facts > div {
   padding: clamp(22px, 3vw, 30px);
   background: var(--soft);
