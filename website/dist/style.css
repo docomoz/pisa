@@ -219,15 +219,17 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
 
 .hero-product { margin-top: clamp(40px, 6vw, 64px); }
 
-.window {
-  overflow: hidden;
+.hero-product img {
+  display: block;
+  width: 100%;
+  height: auto;
   border: 1px solid #dcdcdc;
   border-radius: 12px;
   background: var(--surface);
   box-shadow: 0 1px 2px rgb(0 0 0 / .04), 0 24px 70px -28px rgb(0 0 0 / .28);
 }
 
-.window-bar, .chat-bar {
+.chat-bar {
   position: relative;
   display: flex;
   align-items: center;
@@ -238,11 +240,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   background: #f7f7f7;
 }
 
-.window-bar i, .chat-bar i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
-.window-bar i:nth-child(2), .chat-bar i:nth-child(2) { background: #febc2e; }
-.window-bar i:nth-child(3), .chat-bar i:nth-child(3) { background: #28c840; }
-
-.window-bar span, .chat-bar span {
+.chat-bar span {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
@@ -252,7 +250,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   white-space: nowrap;
 }
 
-.window img { display: block; width: 100%; height: auto; }
 
 /* Sections */
 
@@ -334,6 +331,37 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   color: var(--text);
   font-size: 15px;
 }
+
+.key-grid article { padding: clamp(24px, 3.4vw, 34px); }
+.key-grid .feature-icon { width: 26px; height: 26px; }
+.key-grid h3 { margin-top: 20px; font-size: 20px; letter-spacing: -.02em; }
+.key-grid p { margin-top: 8px; font-size: 16px; }
+
+.more-label {
+  margin-top: 36px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.more-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px clamp(20px, 3vw, 32px);
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.more-grid li {
+  display: flex;
+  gap: 12px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.more-grid .icon { margin-top: 3px; color: var(--ink); stroke-width: 1.7; }
+.more-grid b { display: block; color: var(--ink); font-weight: 650; }
 
 .facts { background: var(--line); }
 .facts > div { background: var(--soft); }
@@ -534,20 +562,15 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
 /* Narrow screens */
 
 @media (max-width: 860px) {
-  .feature-grid, .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .facts { grid-template-columns: minmax(0, 1fr); }
+  .feature-grid, .facts, .more-grid { grid-template-columns: minmax(0, 1fr); }
   .wide-only { display: none; }
 }
 
 @media (max-width: 640px) {
   .header nav > a:not(.button) { display: none; }
-  .feature-grid { grid-template-columns: minmax(0, 1fr); }
-  .window-bar { height: 30px; padding-inline: 11px; gap: 6px; }
-  .window-bar i { width: 9px; height: 9px; }
-  .window-bar span { font-size: 12px; }
   .hero-product { width: calc(100% - var(--gutter)); margin-inline: var(--gutter) 0; }
-  .hero-product .window { border-radius: 10px 0 0 10px; border-right: 0; }
-  .hero-product img { width: 170%; max-width: none; }
+  .hero-product { overflow: hidden; border-radius: 10px 0 0 10px; }
+  .hero-product img { width: 170%; max-width: none; border-radius: 10px 0 0 10px; border-right: 0; box-shadow: none; }
   .copy { min-height: 40px; }
 }
 
