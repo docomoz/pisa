@@ -257,6 +257,22 @@ enum RussianRecognition {
         })
     }
 
+    /// A clipped beginning can differ between decoders while both agree on
+    /// the damaged word and each of its immediate neighbors.
+    static func shortCyrillicSpelling(original: String, reread: String, heard: String) -> String? {
+        guard ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(original) else { return nil }
+        let source = tokens(in: original), checked = tokens(in: reread)
+        guard (3...12).contains(source.count), source.count == checked.count else { return nil }
+        let changes = source.indices.filter { source[$0].key != checked[$0].key }
+        guard changes.count == 1, let i = changes.first, i > 0, i + 1 < source.count,
+              ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(source[i].key),
+              checked[i].key.count >= 3, TranscriptTerms.isCommonRussianWord(checked[i].key),
+              withinOneEdit(russianLetters(source[i].key), checked[i].key) else { return nil }
+        let evidence = words(heard), phrase = checked[(i - 1)...(i + 1)].map(\.key)
+        guard evidence.indices.filter({ evidence[$0...].starts(with: phrase) }).count == 1 else { return nil }
+        return original.replacingCharacters(in: source[i].range, with: checked[i].text)
+    }
+
     /// Keep punctuation and all unrelated words from the primary. Agreement
     /// on a unique adjacent pair in both independent decodes suffices even
     /// when a stutter or different wording prevents whole-turn alignment.

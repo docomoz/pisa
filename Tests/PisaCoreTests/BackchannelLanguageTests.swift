@@ -384,6 +384,65 @@ final class BackchannelLanguageTests: XCTestCase {
         }
     }
 
+    func testFormattingAnEnglishPronounDoesNotProtectAnUnverifiedEnglishSentence() {
+        let russian = segment(1, "Сегодня мы обсуждаем новую задачу.")
+        for (primary, formatted) in [
+            ("That's it for now.", "That's IT for now."), ("They saved it.", "They saved IT."),
+            ("Part of it grew.", "Part of IT grew."), ("It fits in the box.", "IT fits in the box."),
+        ] {
+            let source = BackchannelLanguage.sourceForLanguageCheck(primary: primary, formatted: formatted, duration: 2, vocabulary: "IT")
+            XCTAssertEqual(source, primary)
+            XCTAssertTrue(BackchannelLanguage.shouldRecheckLexical(source, duration: 2, vocabulary: "IT"))
+            let turn = segment(4, source)
+            let alternative = BackchannelLanguage.lexicalAlternative(original: source, russian: "Мы вернёмся.",
+                corroboration: "мы вернемся", vocabulary: "IT")
+            XCTAssertEqual(alternative, "Мы вернёмся.")
+            XCTAssertEqual(BackchannelLanguage.resolve([turn], alternatives: [:],
+                lexicalAlternatives: alternative.map { [turn.id: $0] } ?? [:], preceding: [russian], vocabulary: "IT")[0].text, alternative)
+        }
+        for protected in ["IT needs a new server.", "it", "Please ask Jira about it."] {
+            XCTAssertFalse(BackchannelLanguage.shouldRecheckLexical(protected, duration: 2, vocabulary: "IT, Jira"))
+        }
+        XCTAssertFalse(BackchannelLanguage.shouldRecheckLexical("We discussed it today.", duration: 2, vocabulary: "it"))
+    }
+
+    func testShortForeignScriptNeedsTwoAudioReadingsAndIndependentConversationContext() {
+        let russian = segment(1, "Сегодня мы обсуждаем новую задачу.")
+        let foreign = segment(1, "Ми сьогодні обговорюємо нову задачу.")
+        for text in ["Tämä käy.", "Nie, to się udało.", "Строить ну такі башти.", "Зелененьку ялинку різали."] {
+            XCTAssertTrue(BackchannelLanguage.shouldVerifyShortScript(text, duration: 2, vocabulary: ""), text)
+            let source = segment(4, text)
+            let heard = BackchannelLanguage.corroboratedScriptReread("Вернёмся чуть позже.", corroboration: "вернемся чуть позже")
+            XCTAssertEqual(heard, "Вернёмся чуть позже.")
+            let alternatives = heard.map { [source.id: $0] } ?? [:]
+            XCTAssertEqual(BackchannelLanguage.resolve([source], alternatives: [:], lexicalAlternatives: alternatives,
+                preceding: [russian])[0].text, heard)
+            XCTAssertEqual(BackchannelLanguage.resolve([source], alternatives: [:], lexicalAlternatives: alternatives,
+                preceding: [foreign]), [source])
+            XCTAssertEqual(BackchannelLanguage.resolve([source], alternatives: [:], preceding: [russian]), [source])
+        }
+        XCTAssertNil(BackchannelLanguage.corroboratedScriptReread("Вернёмся чуть позже.", corroboration: "вернемся завтра"))
+        XCTAssertNil(BackchannelLanguage.corroboratedScriptReread("Вернёмся чуть позже.", corroboration: nil))
+        XCTAssertTrue(BackchannelLanguage.confirmsCyrillicSource(original: "Їдемо на зустріч.", reread: "їдемо на зустріч", language: nil))
+        XCTAssertTrue(BackchannelLanguage.confirmsCyrillicSource(original: "Їдемо на зустріч.", reread: "їду на зустріч", language: "Ukrainian"))
+        XCTAssertFalse(BackchannelLanguage.confirmsCyrillicSource(original: "Їдемо на зустріч.", reread: "идем на встречу", language: "Russian"))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript("«Їдемо на зустріч».", duration: 2, vocabulary: ""))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript("Вітаємо Андрія.", duration: 2, vocabulary: ""))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript("Їдемо на зустріч.", duration: 2, vocabulary: "зустріч"))
+    }
+
+    func testLocalCyrillicCorrectionRetainsAClippedOnsetWhenBothDecodersAgreeInsideTheTurn() {
+        let original = "Носить вот такі перчатки."
+        let reread = "Носить вот такие перчатки."
+        func repair(_ language: String, _ independent: String) -> String? {
+            BackchannelLanguage.mixedRussianAlternative(original: original, language: language, reread: reread, corroboration: independent)
+        }
+        XCTAssertEqual(repair("Russian", "Приносить вот такие перчатки."), reread)
+        XCTAssertNil(repair("Russian", "Приносить вот те перчатки."))
+        XCTAssertNil(repair("Russian", "Приносить вот такие коробки."))
+        XCTAssertNil(repair("Ukrainian", "Приносить вот такие перчатки."))
+    }
+
     func testLexicalAlternativeRequiresIndependentAgreementOnRussianWords() {
         let original = "Yeah, I think that’s a good"
         let decoded = "Да, я ещё тогда об этом говорил."
@@ -605,13 +664,13 @@ final class BackchannelLanguageTests: XCTestCase {
     func testCompactTransliterationNeedsFullRussianAcousticAgreementAndIndependentContext() {
         let russian = segment(10, "Сегодня обсудим цвет новой картинки.")
         let source = segment(12, "Переdaча novogo risunka.")
-        XCTAssertTrue(BackchannelLanguage.shouldVerifyMixedLatin(source.text, duration: 2, vocabulary: ""))
-        XCTAssertTrue(BackchannelLanguage.shouldVerifyMixedLatin("Otóż tak było.", duration: 2, vocabulary: ""))
-        XCTAssertFalse(BackchannelLanguage.shouldVerifyMixedLatin(source.text, duration: 7, vocabulary: ""))
+        XCTAssertTrue(BackchannelLanguage.shouldVerifyShortScript(source.text, duration: 2, vocabulary: ""))
+        XCTAssertTrue(BackchannelLanguage.shouldVerifyShortScript("Otóż tak było.", duration: 2, vocabulary: ""))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript(source.text, duration: 7, vocabulary: ""))
         for protected in ["«Otóż tak było».", "Witaj Jan Kowalski.", "Сегодня пишем proof of concept.", "Проверили MCP Figma."] {
-            XCTAssertFalse(BackchannelLanguage.shouldVerifyMixedLatin(protected, duration: 2, vocabulary: ""), protected)
+            XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript(protected, duration: 2, vocabulary: ""), protected)
         }
-        XCTAssertFalse(BackchannelLanguage.shouldVerifyMixedLatin("Witaj żuraw.", duration: 2, vocabulary: "żuraw"))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript("Witaj żuraw.", duration: 2, vocabulary: "żuraw"))
         let heard = BackchannelLanguage.agreedRussianText("Передача нового рисунка.", corroboration: "передача нового рисунка")
         XCTAssertEqual(heard, "Передача нового рисунка.")
         XCTAssertNil(BackchannelLanguage.agreedRussianText("Передача нового рисунка.", corroboration: "нового рисунка"))
@@ -639,10 +698,10 @@ final class BackchannelLanguageTests: XCTestCase {
 
     func testVocalizationBeforeOneRussianWordNeedsTheSameOnsetAndWordFromAudio() {
         let source = "Uh готов."
-        XCTAssertTrue(BackchannelLanguage.shouldVerifyMixedLatin(source, duration: 0.8, vocabulary: ""))
-        XCTAssertFalse(BackchannelLanguage.shouldVerifyMixedLatin("«Uh готов»", duration: 0.8, vocabulary: ""))
-        XCTAssertFalse(BackchannelLanguage.shouldVerifyMixedLatin("Uh Артём", duration: 0.8, vocabulary: ""))
-        XCTAssertFalse(BackchannelLanguage.shouldVerifyMixedLatin(source, duration: 0.8, vocabulary: "Uh"))
+        XCTAssertTrue(BackchannelLanguage.shouldVerifyShortScript(source, duration: 0.8, vocabulary: ""))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript("«Uh готов»", duration: 0.8, vocabulary: ""))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript("Uh Артём", duration: 0.8, vocabulary: ""))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyShortScript(source, duration: 0.8, vocabulary: "Uh"))
         func result(_ acoustic: String) -> String? {
             BackchannelLanguage.mixedRussianAlternative(original: source, language: "None", reread: "", corroboration: acoustic)
         }
