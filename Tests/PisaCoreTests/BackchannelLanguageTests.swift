@@ -2,6 +2,47 @@ import XCTest
 @testable import PisaCore
 
 final class BackchannelLanguageTests: XCTestCase {
+    func testRepeatedOnsetUsesActualRepeatCountAndRussianConversation() throws {
+        let source = "Dá, dá, dá, gotóvo."
+        let hearing = "Да-да-да, готово."
+        XCTAssertTrue(BackchannelLanguage.shouldVerifyShortScript(source, duration: 1.3, vocabulary: ""))
+        let candidate = try XCTUnwrap(BackchannelLanguage.repeatedOnsetAlternative(original: source, padded: "Да, да, готово.",
+            language: "Russian", isolated: "好了。", acoustic: hearing))
+        XCTAssertEqual(candidate, hearing)
+        let target = segment(3, source), russian = segment(1, "Посмотрим что получилось после обновления")
+        let english = segment(1, "Please send the report on Wednesday")
+        for (context, expected) in [(russian, hearing), (english, source)] {
+            XCTAssertEqual(BackchannelLanguage.resolve([context, target], alternatives: [:],
+                lexicalAlternatives: [target.id: candidate], preceding: [])[1].text, expected)
+        }
+    }
+
+    func testRepeatedOnsetRequiresUnpromptedSupportForAllWords() {
+        let source = "Dá, dá, dá, gotóvo."
+        func check(_ padded: String = "Да, да, готово.", _ core: String = "好了。",
+                   _ acoustic: String = "Да-да-да, готово.", _ language: String = "Russian") -> String? {
+            BackchannelLanguage.repeatedOnsetAlternative(original: source, padded: padded, language: language,
+                isolated: core, acoustic: acoustic)
+        }
+        XCTAssertNil(check("Да, да, готово.", source))
+        XCTAssertNil(check("Да, да, готово.", "Tak, już gotowe."))
+        XCTAssertNil(check("Да, да, готово.", "Нет, ещё рано."))
+        XCTAssertNil(check("Да, да, готово.", "", "Да-да-да, готово."))
+        XCTAssertNil(check("Да, да, готово.", "好了。", "Да-да-да, готово.", "Polish"))
+        XCTAssertNil(check("Нет, нет, готово."))
+        XCTAssertNil(check("Да, да, готово.", "好了。", "Да-да-да, не готово."))
+        XCTAssertNil(check("Да, да, потом."))
+        XCTAssertNil(check("Да, да, готово.", "好了。", "Да-да-да-да, готово."))
+        XCTAssertNil(check("Да, да, готово.", "好了。", "Да-да, готово."))
+        XCTAssertNil(check("Да, да, 20.", "好了。", "Да-да-да, 20."))
+        for translation in ["Tak, tak, tak rób.", "Dá, dá, dá, zrobione."] {
+            XCTAssertNil(BackchannelLanguage.repeatedOnsetAlternative(original: translation, padded: "Да, да, готово.",
+                language: "Russian", isolated: "好了。", acoustic: "Да-да-да, готово."))
+        }
+        XCTAssertEqual(BackchannelLanguage.repeatedOnsetAlternative(original: "Nie, nie, nie, vídno.",
+            padded: "Не, не, видно.", language: "Russian", isolated: "没有。", acoustic: "Не-не-не, видно."), "Не-не-не, видно.")
+    }
+
     private func segment(_ start: Double, _ text: String, mic: Bool = true) -> TranscriptSegment {
         var value = TranscriptSegment(start: start, end: start + 1, speaker: mic ? "Я" : "Собеседники", text: text)
         value.audioFile = mic ? "test-mic.caf" : "test-remote.caf"

@@ -1419,6 +1419,10 @@ actor Transcriber {
                         : BackchannelLanguage.lexicalAlternative(original: text, russian: reread.text,
                             corroboration: evidence.text, vocabulary: vocabulary)
                 }
+                if candidate == nil, checkScript, !sameAudio {
+                    candidate = BackchannelLanguage.repeatedOnsetAlternative(original: text, padded: decoded.text,
+                        language: decoded.language, isolated: reread.text, acoustic: evidence.text)
+                }
                 var primary: String?
                 if candidate == nil, shortLatinWord, RussianRecognition.words(evidence.text).count == 1,
                    !BackchannelLanguage.confirmsLatinSource(original: text, reread: reread.text) {

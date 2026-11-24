@@ -264,6 +264,57 @@ enum BackchannelLanguage {
         return russian.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// A padded multilingual read may compress a repeated particle. The
+    /// isolated acoustic read must retain the primary's exact repeat count
+    /// and agree with the multilingual read on every word after it.
+    static func repeatedOnsetAlternative(original: String, padded: String, language: String?,
+                                         isolated: String, acoustic: String) -> String? {
+        guard language?.lowercased() == "russian",
+              latinSpeech.firstMatch(in: original, range: NSRange(original.startIndex..., in: original)) != nil,
+              !isolated.isEmpty,
+              latinLetter.firstMatch(in: isolated, range: NSRange(isolated.startIndex..., in: isolated)) == nil,
+              [padded, acoustic].allSatisfy({ text in
+                  !containsLiteralMarks(text) && !text.dropFirst().contains(where: \.isUppercase)
+                      && text.allSatisfy { $0.isLetter || $0.isWhitespace || ",.!?…-‐‑".contains($0) }
+              }) else { return nil }
+        let source = RussianRecognition.words(original), checked = RussianRecognition.words(padded)
+        let heard = RussianRecognition.words(acoustic)
+        guard let onset = checked.first, onset == heard.first, onset.count <= 3,
+              AbbreviationFamilies.isRussianFunctionWord(onset), let foreignOnset = source.first,
+              foreignOnset.count <= 3, source.count == heard.count else { return nil }
+        let sourceRepeats = source.prefix { $0 == foreignOnset }.count
+        let heardRepeats = heard.prefix { $0 == onset }.count
+        let checkedRepeats = checked.prefix { $0 == onset }.count
+        let tail = checked.dropFirst(checkedRepeats)
+        guard sourceRepeats == heardRepeats, checkedRepeats >= 2, heardRepeats > checkedRepeats,
+              tail.contains(where: { $0.count >= 4 && TranscriptTerms.isCommonRussianWord($0) }),
+              tail.allSatisfy(TranscriptTerms.isCommonRussianWord),
+              tail.elementsEqual(heard.dropFirst(heardRepeats)) else { return nil }
+        // A translation shares meaning, but does not preserve the sound of
+        // each source word. Fold Latin diacritics and a palatal glide before
+        // e, then require exact agreement, including the repeated particle.
+        func latinKey(_ word: String) -> String? {
+            guard let latin = word.applyingTransform(.toLatin, reverse: false)?
+                .applyingTransform(StringTransform("Latin-ASCII"), reverse: false),
+                  latin.utf8.allSatisfy({ (97...122).contains($0) }) else { return nil }
+            return latin.replacingOccurrences(of: #"(?<=[b-df-hj-np-tv-z])[ij](?=e)"#, with: "",
+                options: .regularExpression)
+        }
+        for (originalWord, russianWord) in zip(source.dropFirst(sourceRepeats - 1), heard.dropFirst(heardRepeats - 1)) {
+            guard let key = latinKey(originalWord), key == latinKey(russianWord) else { return nil }
+        }
+        // A conflicting Cyrillic read on the core is also evidence. Only a
+        // third, unrelated script can abstain without supporting either text.
+        let coreWords = RussianRecognition.words(isolated)
+        if coreWords.contains(where: { word in word.unicodeScalars.contains { (0x400...0x52f).contains($0.value) } }) {
+            guard coreWords.prefix(while: { $0 == onset }).count >= 2,
+                  coreWords.drop(while: { $0 == onset }).elementsEqual(tail) else { return nil }
+        } else if !MeetingSpeechText.containsForeignLetters(isolated) {
+            return nil
+        }
+        return acoustic.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // A second multilingual reading in the source language is positive
     // evidence for an actual switch. The Russian-only model cannot veto it.
     static func confirmsCyrillicSource(original: String, reread: String, language: String?) -> Bool {
