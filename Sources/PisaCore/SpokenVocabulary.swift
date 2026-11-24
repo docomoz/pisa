@@ -87,7 +87,13 @@ struct SpokenVocabulary {
         self.phones = phones
         self.entries = english.filter { !TechnologyVocabulary.requiresCompanyContext($0) }.map { term in
             let initialism = Self.isInitialism(term)
-            var sounds = [Self.sound(term, phones: phones), Self.sound(term, phones: [:])]
+            let parts = term.components(separatedBy: "&")
+            var sounds = [phones, [:]].flatMap { dictionary -> [String] in
+                let spoken = parts.map { Self.sound($0, phones: dictionary) }
+                // The ampersand in R&D is spoken. Dropping it makes C&B
+                // sound like «себе» after the normal vowel folding.
+                return parts.count > 1 ? ["энд", "эн"].map { spoken.joined(separator: $0) } : spoken
+            }
             if initialism {
                 sounds.append(Self.transliterate(term.lowercased()))
                 // Adjacent English letter names can contract in Russian speech:
@@ -150,7 +156,19 @@ struct SpokenVocabulary {
                     // Vowel folding makes both «это» and «это её» match ETA.
                     // Check the original words before discarding their endings.
                     if entry.initialism, spelled != entry.term, span.allSatisfy(\.isOrdinaryRussian) { return nil }
+                    // A declined personal name may share a glossary term's
+                    // vowel-folded key. An adjacent surname also disambiguates
+                    // exact homophones in either name order.
+                    if count == 1, !entry.initialism, Self.isRussianWord(source), TranscriptTerms.isKnownEntityForm(source),
+                       (source.first?.isUppercase == true && !entry.pronunciations.contains(source.lowercased()))
+                        || Self.hasAdjacentSurname(at: index, words: words, text: ns) { return nil }
                     return match.prefix + entry.term + match.suffix
+                }
+                // Exact letter names beat an alternative pronunciation with
+                // the same sounds, e.g. CNB vs the reduced conjunction in C&B.
+                if let spelled, matches.contains(spelled) {
+                    found = (range, spelled, count)
+                    break
                 }
                 if Set(matches).count == 1, let replacement = matches.first {
                     found = (range, replacement, count); break
@@ -162,6 +180,19 @@ struct SpokenVocabulary {
         let output = NSMutableString(string: original)
         for (range, replacement) in replacements.reversed() { output.replaceCharacters(in: range, with: replacement) }
         return technologyVocabulary.apply(to: output as String)
+    }
+
+    private static func hasAdjacentSurname(at index: Int, words: [Word], text: NSString) -> Bool {
+        [index - 1, index + 1].contains { neighbor in
+            guard words.indices.contains(neighbor) else { return false }
+            let word = words[neighbor].text
+            guard TranscriptTerms.hasRussianSurnameEnding(word.lowercased().replacingOccurrences(of: "ё", with: "е")),
+                  word.first?.isUppercase == true || TranscriptTerms.isKnownEntityForm(word) else { return false }
+            let start = NSMaxRange(words[min(index, neighbor)].range)
+            let end = words[max(index, neighbor)].range.location
+            return text.substring(with: NSRange(location: start, length: end - start))
+                .allSatisfy { $0 == " " || $0 == "\u{00A0}" }
+        }
     }
 
     func needsNumericEndingCheck(in text: String) -> Bool {

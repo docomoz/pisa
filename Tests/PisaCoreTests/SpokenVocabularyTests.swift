@@ -182,6 +182,28 @@ final class SpokenVocabularyTests: XCTestCase {
         XCTAssertEqual(SpokenVocabulary("IClients, YClients", pronunciations: pronunciations).apply(to: "айклаинс"), "айклаинс")
     }
 
+    func testPersonalNameIsNotFoldedIntoGlossaryHomophone() {
+        let vocabulary = SpokenVocabulary("Wiki", pronunciations: "wiki W IH1 K IY0")
+        for sentence in ["Я напишу Вике.", "К Вике Петровой.", "Книга Вики Петровой.",
+                         "У Петровой Вики есть книга.", "ответ к вике петровой", "разговор с викой"] {
+            XCTAssertEqual(vocabulary.apply(to: sentence), sentence)
+        }
+        XCTAssertEqual(vocabulary.apply(to: "Открой вики проекта."), "Открой Wiki проекта.")
+        XCTAssertEqual(vocabulary.apply(to: "Обновили Wiki."), "Обновили Wiki.")
+        XCTAssertEqual(SpokenVocabulary("Wiki, Вики", pronunciations: "wiki W IH1 K IY0")
+            .apply(to: "У вики книга."), "У Вики книга.")
+    }
+
+    func testAmpersandInitialsRequireTheSpokenConjunction() {
+        let vocabulary = SpokenVocabulary("C&B, R&D, SQL")
+        XCTAssertEqual(vocabulary.apply(to: "Я оставил себе копию."), "Я оставил себе копию.")
+        XCTAssertEqual(vocabulary.apply(to: "Это си эн би и ар энд ди."), "Это C&B и R&D.")
+        XCTAssertEqual(vocabulary.apply(to: "Напиши в C&B. В R&D используют SQL."),
+                       "Напиши в C&B. В R&D используют SQL.")
+        XCTAssertEqual(vocabulary.apply(to: "Я искал книги."), "Я искал книги.")
+        XCTAssertEqual(SpokenVocabulary("CNB, C&B").apply(to: "Си эн би и си энд би."), "CNB и C&B.")
+    }
+
     func testPhoneticNearMissIsOnlyAnAudioHint() {
         let vocabulary = SpokenVocabulary("YClients, B2C", pronunciations: pronunciations)
         XCTAssertEqual(vocabulary.apply(to: "Мы работаем с Wirklience и BFC."), "Мы работаем с Wirklience и BFC.")
