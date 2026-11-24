@@ -86,8 +86,9 @@ test('all tracked page links have an allowed classification', async () => {
   assert.equal(ctas.length, 3);
   assert.deepEqual(ctas.map(link => link.match(/data-analytics-location="([^"]+)"/)?.[1]), ['header', 'hero', 'install']);
   const github = links.filter(link => link.includes('href="https://github.com/docomoz/pisa'));
-  assert.equal(github.length, 5);
-  assert.deepEqual(github.map(link => link.match(/data-analytics-destination="([^"]+)"/)?.[1]), ['source', 'source', 'privacy', 'install_guide', 'source']);
+  assert.deepEqual(github.map(link => link.match(/data-analytics-destination="([^"]+)"/)?.[1]), [
+    'source', 'source', 'source', 'privacy', 'install_guide', 'source', 'source',
+  ]);
 });
 
 test('download proceeds even when the analytics callback never arrives', () => {

@@ -8,10 +8,10 @@ const request = (path, method = 'GET') => new Request(`https://pisa.example${pat
 test('the built Worker serves the page and its assets', async () => {
   const page = await worker.fetch(request('/'), {}, {});
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /Pisa пишет/);
+  assert.match(await page.text(), /<html lang="ru">/);
   const css = await worker.fetch(request('/style.css'), {}, {});
   assert.match(css.headers.get('content-type'), /text\/css/);
-  assert.match(await css.text(), /hero-logo/);
+  assert.match(await css.text(), /\.hero-product/);
   const image = await worker.fetch(request('/assets/meeting.png'), {}, {});
   assert.equal(image.headers.get('content-type'), 'image/png');
   assert.deepEqual([...new Uint8Array(await image.arrayBuffer()).slice(0, 8)], [137,80,78,71,13,10,26,10]);
@@ -39,7 +39,7 @@ test('download buttons lead to the installation steps, where the DMG is availabl
   const page = await (await worker.fetch(request('/'), {}, {})).text();
   assert.equal((page.match(/href="#install-guide"/g) || []).length, 3);
   assert.match(page, /id="install-guide"/);
-  assert.match(page, /href="\/download">Скачайте DMG<\/a>/);
+  assert.match(page, /href="\/download">Скачать DMG\b/u);
   assert.match(page, /xattr -dr com\.apple\.quarantine/);
 });
 test('the built page uses the configured measurement ID', async () => {
