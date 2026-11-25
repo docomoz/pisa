@@ -9,9 +9,11 @@ final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var isReady = false
     @Published private(set) var canCheck = false
     @Published private(set) var installsAutomatically = false
-    @Published private(set) var hasInstallableUpdate = false
+    @Published private var hasDownloadedUpdate = false
     private var controller: SPUStandardUpdaterController?
     private var observations: Set<AnyCancellable> = []
+
+    var canInstallUpdate: Bool { hasDownloadedUpdate && canCheck }
 
     func start() {
         guard controller == nil else { return }
@@ -55,16 +57,18 @@ final class AppUpdates: NSObject, ObservableObject, SPUUpdaterDelegate {
         controller?.updater.automaticallyDownloadsUpdates = enabled
     }
 
-    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        hasInstallableUpdate = !item.isInformationOnlyUpdate
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock: @escaping () -> Void) -> Bool {
+        hasDownloadedUpdate = true
+        // Let Sparkle finish the background session so the update can be opened with check().
+        return false
     }
 
-    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        hasInstallableUpdate = false
+    func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
+        hasDownloadedUpdate = false
     }
 
     func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate item: SUAppcastItem, state: SPUUserUpdateState) {
-        if choice == .skip { hasInstallableUpdate = false }
+        if choice == .skip || choice == .install { hasDownloadedUpdate = false }
     }
 }
 
@@ -73,10 +77,10 @@ extension AppUpdates: @preconcurrency SPUStandardUserDriverDelegate {
     var supportsGentleScheduledUpdateReminders: Bool { true }
 
     func standardUserDriverShouldHandleShowingScheduledUpdate(_ update: SUAppcastItem, andInImmediateFocus _: Bool) -> Bool {
-        update.isCriticalUpdate || update.isInformationOnlyUpdate
+        !installsAutomatically || update.isCriticalUpdate || update.isInformationOnlyUpdate || update.isMajorUpgrade
     }
 
-    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
-        if !handleShowingUpdate && !hasInstallableUpdate { hasInstallableUpdate = true }
+    func standardUserDriverWillHandleShowingUpdate(_: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+        hasDownloadedUpdate = !update.isInformationOnlyUpdate && (state.stage == .downloaded || state.stage == .installing)
     }
 }

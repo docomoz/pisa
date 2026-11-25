@@ -2,7 +2,6 @@ import AppKit
 import AVFoundation
 import os
 import ServiceManagement
-import Sparkle
 import SwiftUI
 
 // Attach passive measurements only when a test host supplies the named space.
@@ -526,16 +525,19 @@ private final class LayoutSuite {
                               (CGSize(width: 1200, height: 800), 1.0), (CGSize(width: 980, height: 660), 1.2)] {
             scenario = "main \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
             state.select(nil)
-            let host = LayoutHost(MainView().environmentObject(state), size: size, scale: scale)
+            let host = LayoutHost(MainView(installUpdate: {}, canInstallUpdate: false).environmentObject(state),
+                                  size: size, scale: scale)
             defer { host.close() }
             checkWelcome(in: host)
+            check(host.frames[.updateFooterLink] == nil, "hide the unavailable update action on the welcome screen")
+            try saveScreenshot("welcome-\(Int(size.width))-\(Int(scale * 100))", in: host)
             checkSidebarStatuses(in: host, state: state, saved: saved.id, queued: queued.id, processing: processing.id,
                                  interrupted: interrupted)
             state.select(ready.id)
             guard let reference = checkMeetingHeader(in: host) else { continue }
             checkTranscript(in: host, wide: size.width > 980)
             try saveScreenshot("meeting-\(Int(size.width))-\(Int(scale * 100))", in: host)
-            check(host.frames[.updateFooterLink] == nil, "only show the update link when an update is available")
+            check(host.frames[.updateFooterLink] == nil, "hide the unavailable update action beside the recognition footer")
             try checkUpdateFooter(state: state, size: size, scale: scale)
 
             var processingPositions: (heading: CGRect, action: CGRect, progress: CGRect)?
@@ -1140,7 +1142,8 @@ private final class LayoutSuite {
     private func checkUpdateFooter(state: AppState, size: CGSize, scale: CGFloat) throws {
         scenario = "update footer \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
         var clicks = 0
-        let host = LayoutHost(MainView(installUpdate: { clicks += 1 }).environmentObject(state), size: size, scale: scale)
+        let host = LayoutHost(MainView(installUpdate: { clicks += 1 }, canInstallUpdate: true).environmentObject(state),
+                              size: size, scale: scale)
         defer { host.close() }
         if let measured = frames([.recognitionFooterLabel, .recognitionFooterIcon, .updateFooterLink, .updateFooterIcon], in: host) {
             let (label, recognitionIcon, link, icon) = (measured[0], measured[1], measured[2], measured[3])
@@ -1156,23 +1159,27 @@ private final class LayoutSuite {
             check(clicks == 2, "clicking the icon also opens the update action")
             try saveScreenshot("update-footer-\(Int(size.width))-\(Int(scale * 100))", in: host)
         }
+
+        state.showingSettings = true
+        check(host.wait { host.frames[.updateFooterLink] == nil }, "the main window hides the update action while settings are open")
+        state.showingSettings = false
+
+        let selection = state.selected?.id
+        state.select(nil)
+        defer { state.select(selection) }
+        if frames([.welcomeTitle, .updateFooterLink, .updateFooterIcon], in: host) != nil {
+            try saveScreenshot("welcome-update-\(Int(size.width))-\(Int(scale * 100))", in: host)
+        }
     }
 
     private func checkSettingsUpdateFooter(state: AppState, scale: CGFloat) throws {
-        scenario = "settings with an available update, \(Int(scale * 100))%"
-        let updates = AppUpdates.shared
-        let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
-        // The delegate only needs a non-information-only item to set the presentation state.
-        updates.updater(controller.updater, didFindValidUpdate: SUAppcastItem.empty())
-        defer { updates.updaterDidNotFindUpdate(controller.updater) }
-        check(updates.hasInstallableUpdate, "the settings render while an update is available")
-
+        scenario = "update settings, \(Int(scale * 100))%"
         let host = LayoutHost(SettingsView(initialSection: "Обновления").environmentObject(state),
                               size: CGSize(width: 900, height: 700), scale: scale)
         defer { host.close() }
         guard frames([.settingsCheckbox(.automaticUpdates)], in: host) != nil else { return }
         check(host.frames[.updateFooterLink] == nil, "settings never show the install link next to Done")
-        try saveScreenshot("settings-update-available-\(Int(scale * 100))", in: host)
+        try saveScreenshot("settings-update-\(Int(scale * 100))", in: host)
     }
 
     private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,

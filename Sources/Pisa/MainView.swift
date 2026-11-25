@@ -4,8 +4,10 @@ import AppKit
 struct MainView: View {
     @EnvironmentObject var state: AppState
     @State private var recordingDateReference = Date()
-    var installUpdate: (() -> Void)? = nil
-    var canInstallUpdate = true
+    var installUpdate: () -> Void = {}
+    var canInstallUpdate = false
+    private var showsInstallUpdate: Bool { canInstallUpdate && !state.showingSettings }
+
     var body: some View {
         HStack(spacing: PisaDesign.Spacing.none) {
             sidebar.frame(width: 270)
@@ -16,7 +18,7 @@ struct MainView: View {
                 if let meeting = state.selected {
                     MeetingView(meeting: meeting, dateReference: recordingDateReference).id(meeting.id)
                 } else { welcome }
-                if state.selected != nil || installUpdate != nil { footer }
+                if state.selected != nil || showsInstallUpdate { footer }
             }.background(Color.paper)
         }
         .background(SlimScrollbars().allowsHitTesting(false))
@@ -64,8 +66,8 @@ struct MainView: View {
                 .foregroundStyle(Color.mutedInk)
             }
             Spacer(minLength: PisaDesign.Spacing.none)
-            if let installUpdate {
-                UpdateInstallLink(canInstall: canInstallUpdate, action: installUpdate)
+            if showsInstallUpdate {
+                UpdateInstallLink(action: installUpdate)
             }
         }
         .textStyle(PisaDesign.Typography.footnote)
@@ -155,8 +157,7 @@ struct MainView: View {
     }
 }
 
-struct UpdateInstallLink: View {
-    let canInstall: Bool
+private struct UpdateInstallLink: View {
     let action: () -> Void
 
     var body: some View {
@@ -170,12 +171,11 @@ struct UpdateInstallLink: View {
                     .accessibilityHidden(true)
                     .measuredForInterfaceTest(.updateFooterIcon)
             }
-            .foregroundStyle(canInstall ? Color.moss : Color.disabledInk)
+            .foregroundStyle(Color.moss)
             .contentShape(Rectangle())
         }
         .textStyle(PisaDesign.Typography.footnote)
         .shapeAwarePlainButton()
-        .disabled(!canInstall)
     }
 }
 

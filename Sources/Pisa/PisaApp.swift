@@ -8,7 +8,7 @@ struct PisaApp: App {
     @AppStorage("appTextSize") private var textSize = AppTextSize.normal
     var body: some Scene {
         Window("Pisa", id: "main") {
-            MainView(installUpdate: installUpdate, canInstallUpdate: updates.canCheck)
+            MainView(installUpdate: updates.check, canInstallUpdate: updates.canInstallUpdate)
                 .environmentObject(state).frame(minWidth: 980, minHeight: 660)
                 .background(MainWindowConnection(state: state, delegate: delegate).allowsHitTesting(false))
                 .preferredColorScheme(.light)
@@ -64,11 +64,6 @@ struct PisaApp: App {
             }
             CommandGroup(replacing: .appSettings) { screenButton("Настройки") { state.showingSettings = true }.keyboardShortcut(",") }
         }
-    }
-
-    private var installUpdate: (() -> Void)? {
-        guard updates.hasInstallableUpdate, !state.showingSettings else { return nil }
-        return { updates.check() }
     }
 
     private func changeTextSize(by step: Int) {
