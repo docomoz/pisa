@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { downloadFromAppcast, versionFromAppcast, handleRequest } from '../worker/index.js';
+import worker, { downloadFromAppcast, versionFromAppcast, releaseDateFromAppcast, formatReleaseDate, handleRequest } from '../worker/index.js';
 
 const dmg = 'https://github.com/docomoz/pisa/releases/download/v1.2.3/Pisa-1.2.3-arm64.dmg';
 const feed = url => `<rss><channel><item><enclosure url="${url}" /></item></channel></rss>`;
@@ -68,4 +68,12 @@ test('reads the version only from a trusted DMG link', () => {
   assert.equal(versionFromAppcast(feed(dmg)), '1.2.3');
   assert.equal(versionFromAppcast(feed('https://example.com/v6.6.6/Pisa-6.6.6-arm64.dmg')), null);
   assert.equal(versionFromAppcast('<rss></rss>'), null);
+});
+
+test('formats the release date in Moscow time and omits the current year', () => {
+  const late = releaseDateFromAppcast(`<rss><item><pubDate>Tue, 24 Nov 2026 23:30:00 +0000</pubDate><enclosure url="${dmg}" /></item></rss>`);
+  assert.deepEqual(formatReleaseDate(late, new Date('2026-12-01T12:00:00Z')), { label: '25 ноября', iso: '2026-11-25' });
+  assert.deepEqual(formatReleaseDate(late, new Date('2027-01-10T12:00:00Z')), { label: '25 ноября 2026', iso: '2026-11-25' });
+  assert.equal(releaseDateFromAppcast(`<rss><item><pubDate>soon</pubDate><enclosure url="${dmg}" /></item></rss>`), null);
+  assert.equal(releaseDateFromAppcast('<rss><item><pubDate>Tue, 24 Nov 2026 20:38:04 +0300</pubDate></item></rss>'), null);
 });

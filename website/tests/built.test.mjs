@@ -6,17 +6,20 @@ import { measurementIdFromConfig } from '../scripts/analytics-config.mjs';
 
 const request = (path, method = 'GET') => new Request(`https://pisa.example${path}`, { method });
 const badge = page => page.match(/<span class="pill-badge" data-release-version>([^<]*)<\/span>/)?.[1];
+const releaseDate = page => page.match(/<span class="pill-date" data-release-date><time datetime="([^"]+)">([^<]+)<\/time><\/span>/)?.slice(1);
 
 test('the release badge shows the latest version and keeps it between page loads', async () => {
   const original = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
     calls++;
-    return new Response('<rss><item><enclosure url="https://github.com/docomoz/pisa/releases/download/v9.8.7/Pisa-9.8.7-arm64.dmg" /></item></rss>');
+    return new Response('<rss><item><pubDate>Tue, 03 Mar 2020 23:30:00 +0300</pubDate><enclosure url="https://github.com/docomoz/pisa/releases/download/v9.8.7/Pisa-9.8.7-arm64.dmg" /></item></rss>');
   };
   try {
     resetReleaseCache();
-    assert.equal(badge(await (await worker.fetch(request('/'))).text()), 'v9.8.7');
+    const page = await (await worker.fetch(request('/'))).text();
+    assert.equal(badge(page), 'v9.8.7');
+    assert.deepEqual(releaseDate(page), ['2020-03-03', '3 марта 2020']);
     assert.equal(badge(await (await worker.fetch(request('/index.html'))).text()), 'v9.8.7');
     assert.equal(calls, 1);
   } finally { globalThis.fetch = original; }
@@ -28,7 +31,9 @@ test('the release badge falls back to a static label when the feed is unavailabl
     resetReleaseCache();
     const response = await worker.fetch(request('/'));
     assert.equal(response.status, 200);
-    assert.equal(badge(await response.text()), 'Релиз');
+    const page = await response.text();
+    assert.equal(badge(page), 'Релиз');
+    assert.match(page, /<span class="pill-date" data-release-date hidden><\/span>/);
   } finally { globalThis.fetch = original; }
 });
 test('the built Worker serves the page and its assets', async () => {

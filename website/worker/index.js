@@ -14,6 +14,26 @@ export function versionFromAppcast(xml) {
   return downloadFromAppcast(xml)?.match(/\/v(\d+\.\d+\.\d+)\//)?.[1] ?? null;
 }
 
+// Release dates are shown in Moscow time, where Pisa releases are published.
+const RELEASE_TIME_ZONE = 'Europe/Moscow';
+
+export function releaseDateFromAppcast(xml) {
+  if (!versionFromAppcast(xml)) return null;
+  const firstItem = xml.match(/<item\b[^>]*>([\s\S]*?)<\/item\s*>/i)?.[1];
+  const date = new Date(firstItem?.match(/<pubDate>([^<]{1,64})<\/pubDate>/i)?.[1] ?? NaN);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatReleaseDate(date, now = new Date()) {
+  const year = value => new Intl.DateTimeFormat('en', { year: 'numeric', timeZone: RELEASE_TIME_ZONE }).format(value);
+  const label = new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric', month: 'long', timeZone: RELEASE_TIME_ZONE,
+    ...(year(date) === year(now) ? {} : { year: 'numeric' }),
+  }).format(date).replace(/\s*г\.$/, '');
+  const iso = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: RELEASE_TIME_ZONE }).format(date);
+  return { label, iso };
+}
+
 async function fetchAppcast(fetchFeed, timeout) {
   let upstream = await fetchFeed(APPCAST_URL, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(timeout) });
   // Some GitHub edges briefly cache the old latest-release redirect after publishing.
@@ -35,40 +55,50 @@ async function fetchAppcast(fetchFeed, timeout) {
 // cache waits briefly, a stale one is refreshed in the background, and without
 // a version the badge keeps its static «Релиз» label.
 const VERSION_TTL = 10 * 60 * 1000;
-const release = { version: null, checkedAt: 0, pending: null };
+const release = { version: null, date: null, checkedAt: 0, pending: null };
 
 export function resetReleaseCache() {
   release.version = null;
+  release.date = null;
   release.checkedAt = 0;
   release.pending = null;
 }
 
 function refreshVersion(fetchFeed) {
   release.pending ??= fetchAppcast(fetchFeed, 5000)
-    .then(xml => { release.version = versionFromAppcast(xml) ?? release.version; })
+    .then(xml => {
+      const version = versionFromAppcast(xml);
+      if (version) { release.version = version; release.date = releaseDateFromAppcast(xml); }
+    })
     .catch(() => {})
     .finally(() => { release.checkedAt = Date.now(); release.pending = null; });
   return release.pending;
 }
 
-async function latestVersion(fetchFeed) {
-  if (Date.now() - release.checkedAt < VERSION_TTL) return release.version;
+async function latestRelease(fetchFeed) {
+  if (Date.now() - release.checkedAt < VERSION_TTL) return release;
   const refresh = refreshVersion(fetchFeed);
   if (release.checkedAt === 0) {
     let timer;
     await Promise.race([refresh, new Promise(resolve => { timer = setTimeout(resolve, 1500); })]);
     clearTimeout(timer);
   }
-  return release.version;
+  return release;
 }
 
 const BADGE = '<span class="pill-badge" data-release-version>Релиз</span>';
+const DATE_BADGE = '<span class="pill-date" data-release-date hidden></span>';
 let pageTemplate = null;
 
 async function renderPage(asset, fetchFeed) {
   pageTemplate ??= new TextDecoder().decode(Uint8Array.from(atob(asset.data), character => character.charCodeAt(0)));
-  const version = await latestVersion(fetchFeed);
-  const page = version ? pageTemplate.replace(BADGE, `<span class="pill-badge" data-release-version>v${version}</span>`) : pageTemplate;
+  const { version, date } = await latestRelease(fetchFeed);
+  let page = pageTemplate;
+  if (version) page = page.replace(BADGE, `<span class="pill-badge" data-release-version>v${version}</span>`);
+  if (version && date) {
+    const { label, iso } = formatReleaseDate(date);
+    page = page.replace(DATE_BADGE, `<span class="pill-date" data-release-date><time datetime="${iso}">${label}</time></span>`);
+  }
   return new TextEncoder().encode(page);
 }
 

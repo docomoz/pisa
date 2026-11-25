@@ -43,7 +43,7 @@
   <main id="top">
     <section class="hero" aria-labelledby="hero-title">
       <div class="wrap">
-        <a class="pill" href="https://github.com/docomoz/pisa/releases/latest" data-analytics-destination="source"><span class="pill-badge" data-release-version>Релиз</span>Что нового в&nbsp;Pisa<span aria-hidden="true">›</span></a>
+        <a class="pill" href="https://github.com/docomoz/pisa/releases/latest" data-analytics-destination="source"><span class="pill-badge" data-release-version>Релиз</span><span class="pill-date" data-release-date hidden></span>Что нового в&nbsp;Pisa<span aria-hidden="true">›</span></a>
         <h1 id="hero-title">Вы разговариваете.<br>Pisa записывает.</h1>
         <p class="hero-copy">Записывает встречи и&nbsp;расшифровывает их прямо на&nbsp;вашем Mac.<br class="wide-only"> Запоминает имена ваших коллег и&nbsp;корпоративный сленг.</p>
         <div class="hero-actions">
@@ -94,12 +94,12 @@
       </div>
       <div class="feature-gallery">
         <figure>
-          <a href="assets/speaker-labeling.png" aria-label="Открыть снимок разметки собеседников в полном размере">
+          <a data-lightbox href="assets/speaker-labeling.png" aria-label="Открыть снимок разметки собеседников в полном размере">
             <img src="assets/speaker-labeling.png" width="1880" height="1320" loading="lazy" alt="Голоса встречи в Pisa. Слева список реплик, справа имя собеседника и настройка запоминания голоса.">
           </a>
         </figure>
         <figure>
-          <a href="assets/term-labeling.png" aria-label="Открыть снимок разметки терминов в полном размере">
+          <a data-lightbox href="assets/term-labeling.png" aria-label="Открыть снимок разметки терминов в полном размере">
             <img src="assets/term-labeling.png" width="1880" height="1320" loading="lazy" alt="Разметка терминов в Pisa. Слева слова из расшифровки, справа найденные реплики и поле для исправления написания.">
           </a>
         </figure>
@@ -189,5 +189,10 @@ xattr -dr com.apple.quarantine "/Applications/Pisa.app"</code>
       </div>
     </div>
   </footer>
+
+  <dialog class="lightbox" aria-label="Снимок экрана Pisa">
+    <img alt="">
+    <button class="lightbox-close" type="button" aria-label="Закрыть"><span aria-hidden="true">×</span></button>
+  </dialog>
 </body>
 </html>

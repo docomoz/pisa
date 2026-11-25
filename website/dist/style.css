@@ -153,6 +153,19 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
 
 .pill:hover { border-color: #cfcfcf; color: var(--ink); }
 
+.pill-date {
+  margin-left: -4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pill-date[hidden] { display: none; }
+
 .pill-badge {
   display: inline-flex;
   align-items: center;
@@ -336,7 +349,69 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   margin-top: clamp(24px, 4vw, 40px);
 }
 
-.feature-gallery a { display: block; border-radius: 12px; }
+.feature-gallery a { display: block; border-radius: 12px; cursor: zoom-in; transition: transform .2s ease, box-shadow .2s ease; }
+.feature-gallery a:hover { transform: translateY(-2px); box-shadow: 0 18px 40px -26px rgb(0 0 0 / .35); }
+
+/* Screenshot viewer */
+
+.lightbox-open { overflow: hidden; }
+
+.lightbox {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: clamp(16px, 4vw, 48px);
+  border: 0;
+  background: transparent;
+  cursor: zoom-out;
+}
+
+.lightbox[open] { display: grid; place-items: center; animation: lightbox-in .22s ease-out; }
+
+.lightbox::backdrop {
+  background: rgb(255 255 255 / .84);
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  animation: lightbox-fade .22s ease-out;
+}
+
+.lightbox img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(1180px, 100%);
+  max-height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px rgb(0 0 0 / .04), 0 40px 90px -40px rgb(0 0 0 / .35);
+}
+
+.lightbox-close {
+  position: fixed;
+  top: clamp(12px, 2.5vw, 24px);
+  right: clamp(12px, 2.5vw, 24px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font: 400 26px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  box-shadow: 0 4px 14px -8px rgb(0 0 0 / .3);
+}
+
+.lightbox-close:hover { border-color: #cfcfcf; }
+
+@keyframes lightbox-in { from { opacity: 0; transform: scale(.97); } }
+@keyframes lightbox-fade { from { opacity: 0; } }
 
 .feature-gallery img {
   display: block;
@@ -562,4 +637,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .button, .text-link span { transition: none; }
+  .feature-gallery a { transition: none; }
+  .feature-gallery a:hover { transform: none; }
+  .lightbox[open], .lightbox::backdrop { animation: none; }
 }

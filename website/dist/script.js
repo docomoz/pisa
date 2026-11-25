@@ -15,3 +15,28 @@ document.querySelectorAll('.code').forEach(block => {
     }
   });
 });
+
+// Screenshots open in place over a lightened page. Without <dialog> support the
+// links still lead to the image files.
+const lightbox = document.querySelector('.lightbox');
+if (lightbox && typeof lightbox.showModal === 'function') {
+  const image = lightbox.querySelector('img');
+  let opener = null;
+  document.querySelectorAll('a[data-lightbox]').forEach(link => {
+    link.addEventListener('click', event => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      opener = link;
+      image.src = link.href;
+      image.alt = link.querySelector('img')?.alt ?? '';
+      document.documentElement.classList.add('lightbox-open');
+      lightbox.showModal();
+    });
+  });
+  // Any click closes it: on the picture, around it or on the close button. Escape is handled by <dialog>.
+  lightbox.addEventListener('click', () => lightbox.close());
+  lightbox.addEventListener('close', () => {
+    document.documentElement.classList.remove('lightbox-open');
+    opener?.focus({ preventScroll: true });
+  });
+}
