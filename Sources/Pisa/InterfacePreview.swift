@@ -416,7 +416,7 @@ final class InterfacePreview: NSObject {
             throw PisaError.message("Перемещение не сохранилось или изменило повторную расшифровку")
         }
 
-        state.cancelProcessing()
+        state.cancelProcessing(for: meeting.id)
         try await waitForTranscriptionToStop(state)
         let stopped = try state.library.read(meeting.id)
         guard stopped.status == .failed, stopped.folderID == folderID, stopped.segments == meeting.segments else {
@@ -524,9 +524,16 @@ final class InterfacePreview: NSObject {
             if enabled, let id = state.processingID { turboStarts.append(id) }
         }
         defer { observation.cancel() }
-        state.cancelProcessing()
+        state.cancelProcessing(for: batch.id)
+        guard !state.isStoppingProcessing else {
+            throw PisaError.message("Остановка записи в очереди повлияла на текущую обработку")
+        }
+        state.cancelProcessing(for: blocker.id)
+        guard state.isStoppingProcessing, state.processingID == blocker.id, state.isQueued(normal.id) else {
+            throw PisaError.message("Остановка не отобразилась до завершения обработки или изменила очередь")
+        }
         try await waitForTranscriptionToStop(state)
-        guard turboStarts == [batch.id, resume.id], !state.turboTranscriptionEnabled,
+        guard !state.isStoppingProcessing, turboStarts == [batch.id, resume.id], !state.turboTranscriptionEnabled,
               [normal, requeued, batch, resume].allSatisfy({ !state.isQueued($0.id) }) else {
             throw PisaError.message("Очередь запустила обработку с неверным турбо-режимом")
         }
@@ -632,7 +639,8 @@ final class InterfacePreview: NSObject {
             throw PisaError.message("Турбо-режим включился без запроса")
         }
         state.setTurboTranscription(true, for: saved.id)
-        state.cancelProcessing()
+        state.cancelProcessing(for: saved.id)
+        guard state.isStoppingProcessing else { throw PisaError.message("Остановка черновика не отобразилась сразу") }
         try await waitForTranscriptionToStop(state)
         guard state.recordingMeetingID == current.id else { throw PisaError.message("Отмена расшифровки остановила запись") }
 
@@ -644,7 +652,7 @@ final class InterfacePreview: NSObject {
         guard state.canUseTurboTranscription(saved.id), !state.turboTranscriptionEnabled else {
             throw PisaError.message("Турбо-режим сохранился после остановки расшифровки")
         }
-        state.cancelProcessing()
+        state.cancelProcessing(for: saved.id)
         try await waitForTranscriptionToStop(state)
 
         state.enqueue(current.id)

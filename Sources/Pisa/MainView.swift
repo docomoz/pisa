@@ -248,6 +248,7 @@ struct MeetingView: View {
     private var isSaving: Bool { presentation.isSaving }
     private var isQueued: Bool { presentation.isQueued }
     private var isTranscribing: Bool { presentation.isTranscribing }
+    private var isStoppingProcessing: Bool { state.processingID == meeting.id && state.isStoppingProcessing }
     private var canStartLiveTranscription: Bool { isRecording && state.canStartLiveTranscription }
     private var showsTranscriptTools: Bool { presentation.showsTranscriptTools }
     private var showsAutomaticPlayer: Bool { presentation.showsAutomaticPlayer }
@@ -649,16 +650,20 @@ struct MeetingView: View {
                             set: { state.setTurboTranscription($0, for: meeting.id) }
                         ))
                         .textStyle(PisaDesign.Typography.detail)
+                        .disabled(isStoppingProcessing)
                         .accessibilityLabel("Турбо-режим")
                         .screenHelp("Повышает приоритет распознавания. Mac может нагреваться сильнее.")
                     }
                     if isQueued {
                         screenButton("Убрать из очереди") { state.cancelQueued(meeting.id) }.actionButton()
                     } else {
-                        screenButton(compact ? "Остановить" : "Остановить обработку") { state.cancelProcessing() }
+                        let label = isStoppingProcessing ? "Останавливаю…" : "Остановить обработку"
+                        let title = compact && !isStoppingProcessing ? "Остановить" : label
+                        screenButton(title) { state.cancelProcessing(for: meeting.id) }
                             .actionButton()
-                            .accessibilityLabel("Остановить обработку")
-                            .measuredForInterfaceTest(.transcriptionStatusAction)
+                            .disabled(isStoppingProcessing)
+                            .accessibilityLabel(label)
+                            .measuredForInterfaceTest(isStoppingProcessing ? .transcriptionStoppingAction : .transcriptionStatusAction)
                     }
                 }
                 .fixedSize(horizontal: true, vertical: false)
