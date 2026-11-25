@@ -461,9 +461,13 @@ struct SpokenVocabulary {
                 }
                 let key = soundKey(stem)
                 guard entry.keys.contains(key) else { continue }
-                // A three-sound key collapses both vowels and repeated
-                // consonants: Okay, Ака and Окко otherwise all match Okko.
-                if !entry.initialism, key.count <= 3,
+                // A Russian case ending can distinguish an ordinary noun
+                // from a glossary homophone. Keep the audible inflection.
+                if !entry.initialism, !literalSuffix.isEmpty, prefix.isEmpty,
+                   TranscriptTerms.isCommonRussianWord(lower), TranscriptTerms.isCommonRussianWord(literal) { continue }
+                // In a short name or two-letter code, folding vowels can
+                // erase the only distinction between an acronym and a word.
+                if key.count <= 3, !entry.initialism || entry.term.count <= 2 || entry.term.contains(where: \.isNumber),
                    !entry.pronunciations.contains(Self.sound(stem, phones: phones)) { continue }
                 if literal != entry.term.lowercased(), BackchannelLanguage.russianSpelling(ofFiller: source) != nil { continue }
                 return (prefix, phoneticSuffix)

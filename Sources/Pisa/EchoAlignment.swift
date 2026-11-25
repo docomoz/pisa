@@ -12,23 +12,41 @@ struct EchoAlignment {
         microphonePosition + Int64(((offset - referenceOffset - delay + margin) * 16000).rounded())
     }
     static func estimate(microphone: AVAudioFile, reference: AVAudioFile, offset: Double, referenceOffset: Double,
+                         denseProbes: Bool = false,
                          progress: @escaping @Sendable (Double, String) async -> Void) async throws -> EchoAlignment {
         let length = Double(microphone.length) / 16000
-        var candidates: [(time: Double, evidence: EchoAnalysis.Evidence)] = []
+        var probes: [(time: Double, evidence: EchoAnalysis.Evidence)] = []
         func probe(_ t: Double, duration: Double = 3) throws -> EchoAnalysis.Evidence {
             let m = try AcousticEcho.frame(microphone, at: Int64(t * 16000), count: Int(duration * 16000))
             let r = try AcousticEcho.frame(reference, at: Int64((t + offset - referenceOffset - 2) * 16000), count: Int((duration + 4) * 16000))
             return EchoAnalysis.measure(EchoAnalysis.downsample(m), EchoAnalysis.downsample(r))
         }
-        for t in stride(from: 0.0, to: max(0, length - 1), by: 5) {
+        // Live transcription ordinarily supplies only 15 seconds at a time.
+        // Probe adjacent, non-overlapping windows there so a quiet opening
+        // does not consume the evidence needed for the entire window.
+        let probeInterval = denseProbes || length <= 30 ? 3.0 : 5.0
+        for t in stride(from: 0.0, to: max(0, length - 1), by: probeInterval) {
             try Task.checkCancellation()
             let evidence = try probe(t, duration: min(3, length - t))
-            if evidence.reliableAlignment { candidates.append((t + 1.5, evidence)) }
+            if evidence.possibleAlignment { probes.append((t + 1.5, evidence)) }
             if Int(t) % 30 == 0 { await progress(t / max(1, length), "Выравниваю дорожки · \(timecode(t))") }
         }
         var points: [Point] = []
+        // A weak peak alone can be chance correlation during double-talk. A
+        // stable lag in three disjoint windows can still align the AEC render
+        // reference, including when the playback clock runs behind the mic.
+        var supported = Set(probes.indices.filter { probes[$0].evidence.reliableAlignment })
+        for index in probes.indices.dropFirst(2) {
+            let triple = probes[(index - 2)...index]
+            let delays = triple.map(\.evidence.delay)
+            if probes[index].time - probes[index - 2].time <= 15,
+               delays.max()! - delays.min()! <= 0.06 {
+                supported.formUnion(triple.indices)
+            }
+        }
         var previous: (time: Double, evidence: EchoAnalysis.Evidence)?
-        for candidate in candidates {
+        for index in probes.indices where supported.contains(index) {
+            let candidate = probes[index]
             defer { previous = candidate }
             guard let prior = previous, candidate.time - prior.time <= 15,
                   abs(candidate.evidence.delay - prior.evidence.delay) <= 0.04 else { continue }

@@ -24,7 +24,11 @@ final class AcousticEcho {
         } } }
         return output
     }
-    static func clean(microphone: URL, offset: Double, reference: URL, referenceOffset: Double,
+    static func outputStartFrame(offset: Double, start: Double) -> Int64 {
+        max(0, Int64(ceil((start - offset) * 16_000)))
+    }
+
+    static func clean(microphone: URL, offset: Double, reference: URL, referenceOffset: Double, outputStart: Double? = nil,
                       outputDirectory: URL? = nil, progress: @escaping @Sendable (Double, String) async -> Void) async throws -> URL {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("pisa-aec-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
@@ -38,8 +42,15 @@ final class AcousticEcho {
         let staged = temporary.appendingPathComponent("clean.caf")
         let format = mic.processingFormat
         let writer = try AVAudioFile(forWriting: staged, settings: format.settings)
-        let alignment = try await EchoAlignment.estimate(microphone: mic, reference: ref, offset: offset, referenceOffset: referenceOffset) { fraction, phase in
+        let firstOutput = Self.outputStartFrame(offset: offset, start: outputStart ?? offset)
+        var alignment = try await EchoAlignment.estimate(microphone: mic, reference: ref, offset: offset, referenceOffset: referenceOffset) { fraction, phase in
             await progress(fraction * 0.25, phase)
+        }
+        // An extended live window may have useful echo only near its end.
+        // Try adjacent probes when the coarse search found no stable delay.
+        if firstOutput > 0, mic.length > 30 * 16_000, alignment.points.isEmpty {
+            alignment = try await EchoAlignment.estimate(microphone: mic, reference: ref, offset: offset,
+                referenceOffset: referenceOffset, denseProbes: true) { _, _ in }
         }
         let processor = try AcousticEcho()
         var position: Int64 = 0
@@ -78,8 +89,8 @@ final class AcousticEcho {
             let playback = try frame(ref, at: referencePosition(position, delay: delay), count: frameSize)
             var output = try processor.process(microphone: input, reference: playback)
             let outputPosition = position - Int64(latency)
-            let leadingSkip = Int(max(0, -outputPosition))
-            let writePosition = max(0, outputPosition)
+            let leadingSkip = Int(max(0, firstOutput - outputPosition))
+            let writePosition = max(firstOutput, outputPosition)
             if leadingSkip < frameSize && writePosition < mic.length {
                 let count = Int(min(Int64(frameSize - leadingSkip), mic.length - writePosition))
                 let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count))!

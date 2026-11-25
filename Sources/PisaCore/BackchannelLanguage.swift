@@ -70,6 +70,14 @@ enum BackchannelLanguage {
         return count >= 4 && RussianRecognition.words(text).contains(where: sentenceMarkers.contains)
     }
 
+    static func isIncompleteLatinReply(_ text: String, vocabulary: String) -> Bool {
+        let words = RussianRecognition.words(text)
+        let article = words.count == 1 && ["a", "an", "the"].contains(words[0])
+        let unfinishedQuestion = words.count == 2 && questionAuxiliaries.contains(words[0])
+            && questionSubjects.contains(words[1]) && text.last?.isLetter == true
+        return (article || unfinishedQuestion) && isLexicalSource(text, vocabulary: vocabulary)
+    }
+
     static func isBriefCyrillicSource(_ text: String, vocabulary: String) -> Bool {
         guard briefCyrillicReply.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil else { return false }
         let words = RussianRecognition.words(text)

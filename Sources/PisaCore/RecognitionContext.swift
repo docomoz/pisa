@@ -188,6 +188,60 @@ struct RecognitionContext {
         return OverlappingWord(source: source, background: background.text)
     }
 
+    struct ShortReplyAnchor {
+        let start: Double
+        let end: Double
+        fileprivate let preceding: [String]
+        fileprivate let following: [String]
+
+        // The isolated Russian recognizer must hear the reply itself. The
+        // multilingual decoder must independently put it before the known
+        // opening of the next turn, without a language or vocabulary prompt.
+        func candidate(isolated: String, wide: String, language: String?) -> String? {
+            let exact = RussianRecognition.words(isolated), heard = RussianRecognition.words(wide)
+            guard language?.lowercased() == "russian", exact.count == 1, let word = exact.first,
+                  TranscriptTerms.isCommonRussianWord(word), word != following.first,
+                  heard.first == word, heard.dropFirst().starts(with: following.prefix(3)) else { return nil }
+            let clean = isolated.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let first = clean.first, first.isLetter,
+                  clean.dropLast().allSatisfy(\.isLetter),
+                  clean.last?.isLetter == true || clean.last.map({ ".!?".contains($0) }) == true else { return nil }
+            return first.uppercased() + clean.dropFirst() + (clean.last?.isLetter == true ? "." : "")
+        }
+
+        // The following voice alone could bias language detection. Listen
+        // from the opposite direction too, ending before that voice starts.
+        func confirmsPreceding(_ candidate: String, wide: String, language: String?) -> Bool {
+            let heard = RussianRecognition.words(wide)
+            guard language?.lowercased() == "russian", let word = RussianRecognition.words(candidate).first,
+                  heard.last == word, preceding.last != word else { return false }
+            let tail = Array(heard.dropLast().suffix(9))
+            return zip(tail, tail.dropFirst()).contains { [$0, $1].elementsEqual(preceding.suffix(2)) }
+        }
+    }
+
+    func shortReplyAnchor(for target: TranscriptSegment, vocabulary: String) -> ShortReplyAnchor? {
+        guard (0.2...1.5).contains(target.end - target.start), let track = target.audioFile,
+              BackchannelLanguage.isIncompleteLatinReply(target.text, vocabulary: vocabulary) else { return nil }
+        let following = startingAtOrAfter(target.end).lazy.prefix { $0.segment.start <= target.end + 5 }
+            .first { $0.segment.audioFile == track }?.segment
+        guard let following, BackchannelLanguage.isRussianContext(following.text),
+              following.independentRecognitionLanguage != false, following.start - target.end > 0.25,
+              let previous = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 20 })
+                .first(where: { $0.segment.audioFile == track })?.segment,
+              previous.independentRecognitionLanguage != false, BackchannelLanguage.isRussianContext(previous.text),
+              target.start - previous.end > 0.35
+              else { return nil }
+        let source = RussianRecognition.words(target.text)
+        let anchors = RussianRecognition.words(previous.text) + RussianRecognition.words(following.text)
+        guard !anchors.contains(where: source.contains),
+              !byStart.contains(where: { $0.segment.id != target.id && $0.segment.audioFile == track
+                  && $0.segment.start < target.end && $0.segment.end > target.start }) else { return nil }
+        return ShortReplyAnchor(start: max(previous.end - 6, previous.start), end: min(following.start + 5, following.end),
+                              preceding: RussianRecognition.words(previous.text),
+                              following: RussianRecognition.words(following.text))
+    }
+
     func neighbors(around target: TranscriptSegment) -> Neighbors {
         let previous = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 60 })
             .filter { $0.segment.id != target.id }
@@ -1311,7 +1365,7 @@ struct RecognitionContext {
         text.replacingOccurrences(of: "[«»“”]", with: " ", options: .regularExpression)
     }
 
-    private struct Token {
+    fileprivate struct Token {
         let text: String
         let key: String
         let range: Range<String.Index>
@@ -1592,5 +1646,225 @@ struct RecognitionContext {
         let maximumDistance = numeral || isLatinInitialism(term) ? 3 : 2
         guard let distance = phoneticDistance(first, second, term: term), distance <= maximumDistance else { return nil }
         return distance
+    }
+}
+
+extension RecognitionContext {
+    /// Decode context on the same physical channel, then return only the timed
+    /// words belonging to this turn. Neighbors can schedule a read, not supply
+    /// replacement words. Unprompted multilingual evidence protects switches.
+    struct ContextualScriptRepair {
+        let source: String
+        let terms: [String]
+        let scriptMismatch: Bool
+        let protectedKeys: Set<String>
+
+        private static func letterRun(_ words: ArraySlice<Token>, term: String) -> Bool {
+            guard (2...term.count).contains(words.count), words.allSatisfy({ $0.text.count <= 4 && ($0.text.count == 1 || $0.text != $0.text.uppercased()) }) else { return false }
+            let spelling = words.map(\.key).joined().replacingOccurrences(of: "і", with: "и")
+            var endings: Set<String> = [spelling]
+            for letter in term {
+                guard let sound = RecognitionContext.initialismSounds[letter] else { return false }
+                var forms = [String(letter).lowercased(), sound]
+                // A clipped consonant may replace the letter name ("ти" → "т").
+                if sound.count == 2, sound.last == "и" { forms.append(String(sound.prefix(1))) }
+                endings = Set(endings.flatMap { rest in
+                    forms.compactMap { rest.hasPrefix($0) ? String(rest.dropFirst($0.count)) : nil }
+                })
+                if endings.isEmpty { return false }
+            }
+            return endings.contains("")
+        }
+
+        fileprivate static func runs(in words: [Token], text: String, term: String) -> [Range<Int>] {
+            guard words.count >= 2 else { return [] }
+            return (0..<(words.count - 1)).flatMap { start -> [Range<Int>] in
+                (2...min(term.count, words.count - start)).compactMap { length in
+                    let span = start..<start + length
+                    guard letterRun(words[span], term: term),
+                          text[RecognitionContext.range(in: words, span)].allSatisfy({
+                              $0.isLetter || $0.isWhitespace || $0 == "-"
+                          }) else { return nil }
+                    return span
+                }
+            }
+        }
+
+        private func normalized(_ text: String) -> [String] {
+            var words = RecognitionContext.tokens(text)
+            for term in terms {
+                let matches = Self.runs(in: words, text: text, term: term)
+                guard matches.count == 1, let match = matches.first else { continue }
+                let range = RecognitionContext.range(in: words, match)
+                words.replaceSubrange(match, with: [Token(text: term, key: term.lowercased(), range: range)])
+            }
+            return words.map(\.key)
+        }
+
+        private static func containsOnce(_ phrase: [String], in text: [String]) -> Bool {
+            guard !phrase.isEmpty, phrase.count <= text.count else { return false }
+            return (0...(text.count - phrase.count)).filter { text[$0..<($0 + phrase.count)].elementsEqual(phrase) }.count == 1
+        }
+
+        // The acoustic decoder can skip a short word beside a run of spelled
+        // letters. Keep it only if both multilingual reads agree on the full
+        // phrase. A one-letter competing abbreviation does not change the
+        // term backed by the timed acoustic word, source letters and primary.
+        private func restoredModifier(phrase: String, primary: [String], verifier: String) -> String? {
+            guard terms.count == 1, let term = terms.first else { return nil }
+            let words = RecognitionContext.tokens(phrase), keys = words.map(\.key), base = term.lowercased()
+            guard let t = words.firstIndex(where: { $0.text == term }), t > 0, t + 1 < words.count,
+                  keys.filter({ $0 == base }).count == 1, keys.count >= 3 else { return nil }
+            let variants = Set(RecognitionContext.tokens(verifier).map(\.text).filter {
+                RecognitionContext.isLatinInitialism($0) && RecognitionContext.editDistance($0, term) == 1
+            })
+            var checked = normalized(verifier)
+            for i in checked.indices where variants.contains(checked[i].uppercased()) { checked[i] = base }
+            let modifiers = primary.indices.compactMap { i -> String? in
+                guard primary[i] == base, i > 0 else { return nil }
+                let word = primary[i - 1]
+                guard RecognitionContext.isRussianWord(word), TranscriptTerms.isCommonRussianWord(word),
+                      (2...10).contains(word.count), !RecognitionContext.markers.contains(word), word != "вряд",
+                      word != keys[t - 1] else { return nil }
+                var expanded = keys
+                expanded.insert(word, at: t)
+                guard Self.containsOnce(expanded, in: primary), Self.containsOnce(expanded, in: checked) else { return nil }
+                return word
+            }
+            guard modifiers.count == 1, let modifier = modifiers.first else { return nil }
+            var result = phrase
+            result.insert(contentsOf: modifier + " ", at: words[t].range.lowerBound)
+            return result
+        }
+
+        private func anchoredWord(sourceTokens: [Token], timed: ArraySlice<RecognitionTimedWord>,
+                                  primary: [String], verifier: [String],
+                                  confirm: (Range<Double>) -> (text: String, language: String?)?) -> String? {
+            let distinctive = sourceTokens.indices.filter { ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(sourceTokens[$0].text) }
+            guard distinctive.count == 1, let pos = distinctive.first, pos >= 2, pos + 2 < sourceTokens.count else { return nil }
+            let old = sourceTokens[pos], sourceKeys = sourceTokens.map(\.key)
+            guard old.text.first?.isLowercase == true, !protectedKeys.contains(old.key) else { return nil }
+            let left = sourceKeys[(pos - 2)..<pos], right = sourceKeys[(pos + 1)...(pos + 2)]
+            func site(in keys: [String]) -> Int? {
+                guard keys.count >= 5 else { return nil }
+                let matches = (2..<(keys.count - 2)).filter { i in
+                    keys[(i - 2)..<i].elementsEqual(left) && keys[(i + 1)...(i + 2)].elementsEqual(right)
+                }
+                return matches.count == 1 ? matches.first : nil
+            }
+            let acoustic = timed.map { $0.text.lowercased().replacingOccurrences(of: "ё", with: "е") }
+            guard site(in: sourceKeys) == pos, let center = site(in: acoustic),
+                  let p = site(in: primary), let v = site(in: verifier) else { return nil }
+            let word = acoustic[center], i = timed.startIndex + center
+            guard primary[p] == word, verifier[v] == word, RecognitionContext.isRussianWord(word),
+                  !RecognitionContext.markers.contains(word), word.count >= 4, old.key.prefix(4) == word.prefix(4),
+                  RecognitionContext.editDistance(old.key, word) <= 2 else { return nil }
+            let start = timed[i - 1].start, end = timed[i + 1].end
+            guard start.isFinite, end.isFinite, end > start, let local = confirm(start..<end),
+                  local.language?.lowercased() == "russian", !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(local.text),
+                  Self.containsOnce(Array(acoustic[(center - 1)...(center + 1)]), in: normalized(local.text)) else { return nil }
+            return source.replacingCharacters(in: old.range, with: timed[i].text.lowercased())
+        }
+
+        func revised(acoustic: RecognitionAcousticResult, target: Range<Double>,
+                     primary: String, verifier: String, language: String?,
+                     isolated: (text: String, language: String?)? = nil,
+                     confirmWord: ((Range<Double>) -> (text: String, language: String?)?)? = nil) -> String? {
+            guard language?.lowercased() == "russian", !acoustic.words.isEmpty,
+                  target.lowerBound.isFinite, target.upperBound.isFinite else { return nil }
+            if let isolated, let detected = isolated.language?.lowercased(),
+               !detected.isEmpty, detected != "russian" { return nil }
+            if let isolated, BackchannelLanguage.confirmsCyrillicSource(original: source,
+                reread: isolated.text, language: isolated.language) { return nil }
+            let tokens = RecognitionContext.tokens(acoustic.text)
+            guard tokens.map(\.text) == acoustic.words.map(\.text) else { return nil }
+            // RNNT token emission can precede the diarized onset by a fraction
+            // of a second; a word must also extend into the actual speech.
+            let indices = acoustic.words.indices.filter {
+                let word = acoustic.words[$0]
+                return word.start >= target.lowerBound - 0.25 && word.start < target.upperBound - 0.03
+                    && word.end > target.lowerBound
+            }
+            guard let first = indices.first, let last = indices.last, indices.count == last - first + 1 else { return nil }
+            let span = first..<(last + 1)
+            let phrase = String(acoustic.text[RecognitionContext.range(in: tokens, span)])
+            let keys = normalized(phrase)
+            let checked = normalized(verifier), multilingual = normalized(primary)
+            let originals = normalized(source)
+            let isolatedAgreement = isolated.map { reading in
+                reading.language?.lowercased() == "russian" && originals.count == keys.count
+                    && normalized(reading.text) == keys
+            } ?? false
+            let supported = Self.containsOnce(keys, in: checked) || isolatedAgreement
+            let negations = RecognitionContext.markers
+            let anchored = originals.contains { old in keys.contains { new in
+                let folded = old.replacingOccurrences(of: "і", with: "и")
+                return (folded.count >= 3 && folded == new)
+                    || (min(folded.count, new.count) >= 4 && folded.prefix(4) == new.prefix(4))
+            } }
+            let completed = scriptMismatch && !supported
+                ? restoredModifier(phrase: phrase, primary: multilingual, verifier: verifier) : nil
+            // Collapse letter runs before comparing lengths. A clipped decode can
+            // agree verbatim across models while omitting part of the turn.
+            if scriptMismatch, anchored, originals.filter(negations.contains) == keys.filter(negations.contains),
+               originals.filter(protectedKeys.contains) == keys.filter(protectedKeys.contains),
+               keys.count >= 2, keys.count * 3 >= originals.count * 2, keys.count <= originals.count + 3,
+               !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(phrase),
+               completed != nil || supported || (Self.containsOnce(keys, in: multilingual)
+                    && !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(verifier)
+                    && !terms.isEmpty),
+               RussianRecognition.words(source) != keys {
+                var result = completed ?? phrase
+                if source.first?.isUppercase == true, let first = result.first, first.isLowercase {
+                    result = first.uppercased() + result.dropFirst()
+                }
+                if let last = source.last, ".!?…".contains(last) { result.append(last) }
+                return result
+            }
+            let sourceTokens = RecognitionContext.tokens(source)
+            if scriptMismatch, terms.isEmpty, let confirmWord,
+               let word = anchoredWord(sourceTokens: sourceTokens, timed: acoustic.words[span],
+                                       primary: multilingual, verifier: checked, confirm: confirmWord) { return word }
+            // The rest of the sentence can disagree while the locally spelled
+            // acronym is independently supported at this time.
+            guard terms.count == 1, let term = terms.first, tokens[span].filter({ $0.text == term }).count == 1,
+                  normalized(primary).contains(term.lowercased()) || checked.contains(term.lowercased()),
+                  let match = Self.runs(in: sourceTokens, text: source, term: term).first else { return nil }
+            return source.replacingCharacters(in: RecognitionContext.range(in: sourceTokens, match), with: term)
+        }
+    }
+
+    func scriptRepair(for target: TranscriptSegment, vocabulary: String, neighbors knownNeighbors: Neighbors? = nil) -> ContextualScriptRepair? {
+        let text = target.text, duration = target.end - target.start
+        guard (0.45...9).contains(duration), !Self.hasLetterDictation(text),
+              TranscriptOrthography.literalRanges(in: text).isEmpty, !text.contains(where: \.isNumber) else { return nil }
+        let words = Self.tokens(text)
+        guard (2...18).contains(words.count) else { return nil }
+        let script = ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text)
+        let split = zip(words, words.dropFirst()).contains { a, b in
+            min(a.text.count, b.text.count) == 1 && max(a.text.count, b.text.count) <= 3
+                && (a.text.first?.isUppercase == true || b.text.first?.isUppercase == true)
+        }
+        guard script || split else { return nil }
+        let nearby = knownNeighbors ?? neighbors(around: target)
+        let excerpts = nearby.preceding + nearby.following
+        guard excerpts.contains(where: BackchannelLanguage.isRussianContext),
+              !excerpts.contains(where: Self.hasLetterDictation) else { return nil }
+        let dictionary = Self.terms(in: vocabulary)
+        let possible = Set(dictionary + excerpts.flatMap { Self.tokens($0).map(\.text) })
+        let terms = possible.filter { $0.count >= 3 && Self.isLatinInitialism($0)
+            && ContextualScriptRepair.runs(in: words, text: text, term: $0).count == 1 }
+        guard terms.count <= 1, script || terms.count == 1 else { return nil }
+        let sourceKeys = words.map(\.key)
+        let writtenTerms = dictionary.flatMap { term -> [String] in
+            let keys = Self.tokens(term).map(\.key)
+            return !keys.isEmpty && keys.count <= sourceKeys.count && (0...(sourceKeys.count - keys.count)).contains { offset in
+                sourceKeys[offset..<(offset + keys.count)].elementsEqual(keys)
+            } ? keys : []
+        }
+        // Preserve names even when they have never appeared in the dictionary.
+        let latinWords = words.filter { $0.text.range(of: #"\p{Latin}"#, options: .regularExpression) != nil }
+        return ContextualScriptRepair(source: text, terms: Array(terms), scriptMismatch: script,
+                                      protectedKeys: Set(writtenTerms + latinWords.map(\.key)))
     }
 }

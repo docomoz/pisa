@@ -2,12 +2,35 @@ import XCTest
 @testable import PisaCore
 
 final class SpokenVocabularyTests: XCTestCase {
+    func testQuarterNamesRequireMoreThanAFoldedSoundMatch() {
+        let vocabulary = SpokenVocabulary("Q1, Q2")
+        let question = "Can you tell me when I can leave?"
+        XCTAssertEqual(vocabulary.apply(to: question), question)
+        XCTAssertEqual(vocabulary.promptHypothesis(question), question)
+        XCTAssertEqual(vocabulary.apply(to: "Планы на Q1, кью один и кью два."), "Планы на Q1, Q1 и Q2.")
+    }
+
+    func testTwoLetterInitialismsKeepDistinctVowelsInBothLanguages() {
+        let vocabulary = SpokenVocabulary("ID")
+        XCTAssertEqual(vocabulary.apply(to: "Юди"), "Юди")
+        XCTAssertEqual(vocabulary.promptHypothesis("Юди"), "Юди")
+        XCTAssertEqual(vocabulary.apply(to: "Проверь ID, айди и ай ди."), "Проверь ID, ID и ID.")
+    }
+
     func testDictionaryInitialismsPreserveRussianWordsInTextAndRereadHints() {
         let vocabulary = SpokenVocabulary("ETA, NET")
         let text = "Это важно. Эта задача и эти сроки подходят. Эту задачу берём? Нет. Всё это — на этой неделе."
         XCTAssertEqual(vocabulary.apply(to: text), text)
         XCTAssertEqual(vocabulary.promptHypothesis(text), text)
         XCTAssertEqual(vocabulary.relevantTerms(in: [text]), "")
+    }
+
+    func testGlossaryDoesNotStripTheEndingOfAnOrdinaryRussianNoun() {
+        let vocabulary = SpokenVocabulary("Product, Contact")
+        let text = "О продукте и контакте. Продуктом пользуются."
+        XCTAssertEqual(vocabulary.apply(to: text), text)
+        XCTAssertEqual(vocabulary.promptHypothesis(text), text)
+        XCTAssertEqual(vocabulary.apply(to: "Открыли Product и Contact."), "Открыли Product и Contact.")
     }
 
     func testETARetainsExplicitSpellingAndCompleteSpokenLetterNames() {

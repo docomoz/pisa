@@ -146,17 +146,18 @@ actor Transcriber {
             collectDiagnostics: collectDiagnostics, retainProcessedMicrophone: retainProcessedMicrophone, checkpointURL: checkpointURL, progress: progress).segments
     }
 
-    func transcribeWindow(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, verifierDirectory: URL? = nil,
+    func transcribeWindow(files: [(URL, Double)], echoHistory: [CaptureWindowFile] = [],
+                          modelDirectory: URL, context: String, speakerDirectory: URL, verifierDirectory: URL? = nil,
                           performance: TranscriptionPerformance, preceding: [TranscriptSegment],
                           boundaryCheck: WindowBoundaryCheck?) async throws -> WindowPass {
         try await transcribeAudio(files: files, modelDirectory: modelDirectory, context: context, speakerDirectory: speakerDirectory, verifierDirectory: verifierDirectory,
-            performance: performance, live: true, preceding: preceding, boundaryCheck: boundaryCheck) { _, _ in }
+            performance: performance, live: true, preceding: preceding, echoHistory: echoHistory, boundaryCheck: boundaryCheck) { _, _ in }
     }
 
     private func transcribeAudio(files: [(URL, Double)], modelDirectory: URL, context: String, speakerDirectory: URL, verifierDirectory: URL? = nil,
                                  profiles: [VoiceProfile]? = nil, performance: TranscriptionPerformance, live: Bool,
                                  russianVerification: Bool = true, contextualVerification: Bool = true,
-                                 preceding: [TranscriptSegment], collectDiagnostics: Bool = false,
+                                 preceding: [TranscriptSegment], collectDiagnostics: Bool = false, echoHistory: [CaptureWindowFile] = [],
                                  boundaryCheck: WindowBoundaryCheck? = nil, retainProcessedMicrophone: Bool = false, checkpointURL: URL? = nil,
                                  progress: @escaping @Sendable (Double, String) async -> Void) async throws -> WindowPass {
         contextDiagnostics = []
@@ -233,8 +234,12 @@ actor Transcriber {
                                                         attributes: [.posixPermissions: 0o700])
                 scratch = directory
             }
-            let clean = try await AcousticEcho.clean(microphone: mic.0, offset: mic.1, reference: remote.0,
-                                                     referenceOffset: remote.1, outputDirectory: scratch) { fraction, phase in
+            let micHistory = echoHistory.first { $0.url.lastPathComponent.contains("-mic.") }
+            let remoteHistory = echoHistory.first { $0.url.lastPathComponent.contains("-remote.") }
+            let micOffset = micHistory?.offset ?? mic.1
+            let clean = try await AcousticEcho.clean(microphone: micHistory?.url ?? mic.0, offset: micOffset,
+                reference: remoteHistory?.url ?? remote.0, referenceOffset: remoteHistory?.offset ?? remote.1,
+                outputStart: mic.1, outputDirectory: scratch) { fraction, phase in
                 await report(fraction * 0.12, phase)
             }
             generated = clean
@@ -245,7 +250,8 @@ actor Transcriber {
             }
             checkpoint?.processedMicrophone = clean.lastPathComponent
             sourceMicrophone = mic.0
-            preparedFiles = preparedFiles.map { $0.0 == mic.0 ? (clean, mic.1) : $0 }
+            let cleanOffset = micOffset + Double(AcousticEcho.outputStartFrame(offset: micOffset, start: mic.1)) / 16_000
+            preparedFiles = preparedFiles.map { $0.0 == mic.0 ? (clean, cleanOffset) : $0 }
         }
         await report(0.12, "Загружаю модель в память")
         let activity: SpeechDetector
@@ -777,6 +783,37 @@ actor Transcriber {
                   let audioRange = bounds[segment.id] else { continue }
             let duration = segment.end - segment.start
             guard duration <= 30 else { continue }
+            if let anchor = snapshot.shortReplyAnchor(for: segment, vocabulary: vocabulary) {
+                let start = segment.start - offset
+                if let isolated = try? Self.contextSamples(url, start: start, end: segment.end - offset),
+                   let heard = acousticRecognition(isolated, using: russian), RussianRecognition.words(heard.text).count == 1,
+                   let wide = try? Self.contextSamples(url, start: start - 0.35, end: anchor.end - offset), !wide.isEmpty {
+                    let began = ContinuousClock.now
+                    let verifier = try await verificationModel(model)
+                    func readAnchor(_ clip: [Float]) throws -> STTOutput {
+                        try Task.checkCancellation()
+                        return measureRecognition("qwen") {
+                            verifier.generate(audio: MLXArray(clip), maxTokens: 384, context: "", language: nil,
+                                              chunkDuration: 30, repetitionPenalty: 1.1)
+                        }
+                    }
+                    let checked = try readAnchor(wide)
+                    var accepted: String?
+                    if let candidate = anchor.candidate(isolated: heard.text, wide: checked.text, language: checked.language),
+                       let earlier = try? Self.contextSamples(url, start: anchor.start - offset, end: segment.end - offset + 0.25),
+                       !earlier.isEmpty {
+                        let prior = try readAnchor(earlier)
+                        if anchor.confirmsPreceding(candidate, wide: prior.text, language: prior.language) { accepted = candidate }
+                    }
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["kind": "short-reply-anchor", "start": String(segment.start),
+                            "source": segment.text, "independent": heard.text, "reread": checked.text,
+                            "language": checked.language ?? "", "candidate": accepted ?? ""])
+                    }
+                    try await performance.pace(after: began)
+                    if let accepted { revised[index].text = accepted; continue }
+                }
+            }
             // A brief interruption can be wholly contained in another turn
             // on the same track. In that case the original decode has no room
             // for padding. Verify the word itself before using either margin.
@@ -833,6 +870,63 @@ actor Transcriber {
                 }
                 regionSamples = loaded
                 return loaded
+            }
+            if let repair = snapshot.scriptRepair(for: segment, vocabulary: vocabulary, neighbors: neighbors) {
+                let start = segment.start - offset, end = segment.end - offset
+                let lower = max(0, start - 4), upper = end + 2
+                if let wide = try? Self.contextSamples(url, start: lower, end: upper),
+                   let evidence = acousticRecognition(wide, using: russian), !evidence.words.isEmpty,
+                   let core = readRegion(), !core.isEmpty {
+                    let began = ContinuousClock.now
+                    let verifier = try await verificationModel(model)
+                    func autoRead(_ samples: [Float]) -> STTOutput {
+                        let maxTokens = max(96, Int(Double(samples.count) / 16000 * 24))
+                        return decodeCache.value(samples: samples, context: "", language: nil, maxTokens: maxTokens) {
+                            measureRecognition("qwen") {
+                                verifier.generate(audio: MLXArray(samples), maxTokens: maxTokens, context: "", language: nil,
+                                                  chunkDuration: 30, repetitionPenalty: 1.1)
+                            }
+                        }
+                    }
+                    let coreRead = autoRead(core)
+                    if !["ukrainian", "belarusian"].contains(coreRead.language?.lowercased() ?? ""),
+                       !BackchannelLanguage.confirmsCyrillicSource(original: segment.text, reread: coreRead.text, language: coreRead.language) {
+                        try Task.checkCancellation()
+                        // An independently framed multilingual read reduces a shared
+                        // boundary's influence on clipped letter names.
+                        let checkAudio = repair.terms.isEmpty || !repair.scriptMismatch ? wide
+                            : (try? Self.contextSamples(url, start: max(0, start - 3.7), end: end + 1.3)) ?? wide
+                        let check = autoRead(checkAudio)
+                        let primary = measureRecognition("parakeet") { model.generate(wide) }.text
+                        // The padded clip and both wide reads can absorb a neighbor's
+                        // ending. Isolate exactly the same turn as the first pass.
+                        var isolated: STTOutput?
+                        if repair.scriptMismatch, repair.terms.isEmpty,
+                           let range = SpeechCoverage.unpaddedShortTurn(start: start - audioRange.lowerBound,
+                               duration: duration, sampleCount: core.count, includeAlreadyIsolated: true) {
+                            isolated = range.count == core.count ? coreRead : autoRead(Array(core[range]))
+                        }
+                        let candidate = repair.revised(acoustic: evidence, target: (start - lower)..<(end - lower),
+                            primary: primary, verifier: check.text, language: check.language,
+                            isolated: isolated.map { ($0.text, $0.language) }, confirmWord: { range in
+                                guard let clip = SpeechCoverage.unpaddedTurn(start: range.lowerBound,
+                                    duration: range.upperBound - range.lowerBound, sampleCount: wide.count,
+                                    minimumPadding: 0) else { return nil }
+                                let local = autoRead(Array(wide[clip]))
+                                return (local.text, local.language)
+                            })
+                        if collectDiagnostics {
+                            contextDiagnostics.append(["kind": "wide-script", "start": String(segment.start),
+                                "source": segment.text, "independent": evidence.text, "primary": primary,
+                                "reread": check.text, "language": check.language ?? "", "isolated": isolated?.text ?? "",
+                                "isolatedLanguage": isolated?.language ?? "", "candidate": candidate ?? ""])
+                        }
+                        if let candidate { revised[index].text = candidate }
+                    }
+                    try await performance.pace(after: began)
+                    try Task.checkCancellation()
+                    if revised[index].text != segment.text { continue }
+                }
             }
             if duration < 2 {
                 guard RecognitionContext.isWordRichShortTurn(segment.text, duration: duration),

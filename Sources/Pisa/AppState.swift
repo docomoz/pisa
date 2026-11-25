@@ -815,14 +815,16 @@ final class AppState: ObservableObject {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pisa-window-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
-        let files = try await Task.detached(executorPreference: transcriptionPerformance, priority: .utility) {
-            try CaptureWindow.copy(tracks, start: window.start, end: end, directory: directory)
+        let capture = try await Task.detached(executorPreference: transcriptionPerformance, priority: .utility) {
+            try CaptureWindow.live(tracks, start: window.start, end: end, directory: directory)
         }.value
+        let files = capture.files
         guard !files.isEmpty else {
             if case .nominal = boundaryCheck { return Transcriber.WindowPass(retry: .withLookahead) }
             return Transcriber.WindowPass()
         }
-        var pass = try await transcriber.transcribeWindow(files: files.map { ($0.url, $0.offset) }, modelDirectory: model,
+        var pass = try await transcriber.transcribeWindow(files: files.map { ($0.url, $0.offset) },
+            echoHistory: capture.echoHistory, modelDirectory: model,
             context: preferences.vocabulary, speakerDirectory: library.root.appendingPathComponent("Models/Speakers"),
             verifierDirectory: verifierModelURL(),
             performance: transcriptionPerformance, preceding: preceding, boundaryCheck: boundaryCheck)

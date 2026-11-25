@@ -33,7 +33,8 @@ public enum LivePipelineTests {
         let remote = library.audioDirectory.appendingPathComponent("fixture-remote.caf")
         let mic = library.audioDirectory.appendingPathComponent("fixture-mic.caf")
         meeting.audioFiles = [remote.lastPathComponent, mic.lastPathComponent]
-        meeting.audioOffsets = [remote.lastPathComponent: 0, mic.lastPathComponent: 0]
+        let micOffset = 0.000017 // The capture clocks need not share a sample boundary.
+        meeting.audioOffsets = [remote.lastPathComponent: 0, mic.lastPathComponent: micOffset]
         meeting.status = .processing; meeting.liveCommittedUntil = 0
         try library.save(meeting)
         let total = 48 * rate
@@ -69,7 +70,7 @@ public enum LivePipelineTests {
         }
         func boundaries() -> [CaptureTrackBoundary] {
             [CaptureTrackBoundary(url: remote, offset: 0, frames: Int64(written), sampleRate: Double(rate)),
-             CaptureTrackBoundary(url: mic, offset: 0, frames: Int64(written), sampleRate: Double(rate))]
+             CaptureTrackBoundary(url: mic, offset: micOffset, frames: Int64(written), sampleRate: Double(rate))]
         }
         let transcriber = Transcriber()
         var scheduler = LiveTranscriptionSchedule()
@@ -80,9 +81,16 @@ public enum LivePipelineTests {
             let temp = root.appendingPathComponent("window-" + UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             defer { try? FileManager.default.removeItem(at: temp) }
-            let files = try CaptureWindow.copy(boundaries(), start: window.start, end: min(available, window.end + 2), directory: temp)
-            try check(!files.isEmpty, "No fixture tracks in window")
-            var result = try await transcriber.transcribe(files: files.map { ($0.url, $0.offset) }, modelDirectory: model, context: "", speakerDirectory: speakerDirectory, verifierDirectory: verifier, profiles: [], quiet: true, live: true) { _, _ in }
+            func recognize(until end: Double) async throws -> [TranscriptSegment] {
+                let input = try CaptureWindow.live(boundaries(), start: window.start, end: end, directory: temp)
+                try check(!input.files.isEmpty, "No fixture tracks in window")
+                let pass = try await transcriber.transcribeWindow(files: input.files.map { ($0.url, $0.offset) },
+                    echoHistory: input.echoHistory, modelDirectory: model, context: "", speakerDirectory: speakerDirectory,
+                    verifierDirectory: verifier, performance: TranscriptionPerformance(), preceding: [], boundaryCheck: nil)
+                try check(pass.segments.allSatisfy { $0.start >= window.start }, "Committed audio was transcribed twice")
+                return pass.segments
+            }
+            var result = try await recognize(until: min(available, window.end + 2))
             guard let identity = await transcriber.liveModelIdentity() else { throw PisaError.message("Live model not retained") }
             if let initialModel { try check(identity == initialModel, "Model was not reused across windows") }
             else { initialModel = identity }
@@ -93,8 +101,7 @@ public enum LivePipelineTests {
             if commitEnd == window.start {
                 if !stopped { _ = scheduler.deferBoundary(window); return }
                 // Same conservative fallback as AppState after stop.
-                let fallbackFiles = try CaptureWindow.copy(boundaries(), start: window.start, end: window.end, directory: temp)
-                result = try await transcriber.transcribe(files: fallbackFiles.map { ($0.url, $0.offset) }, modelDirectory: model, context: "", speakerDirectory: speakerDirectory, verifierDirectory: verifier, profiles: [], quiet: true, live: true) { _, _ in }
+                result = try await recognize(until: window.end)
                 commitEnd = window.end
             } else { result.removeAll { $0.end > commitEnd } }
             result = try result.map { original in

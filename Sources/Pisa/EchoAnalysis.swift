@@ -9,6 +9,9 @@ enum EchoAnalysis {
         var delay: Double
         var peakRatio: Float = 0
         var reliableAlignment: Bool { correlation >= 0.28 && coherence >= 0.65 && peakRatio >= 1.12 }
+        // Room reflections and independent mic sound dilute coherence. A
+        // distinct but weaker peak needs corroboration in separate probes.
+        var possibleAlignment: Bool { correlation >= 0.18 && coherence >= 0.14 && peakRatio >= 1.12 }
     }
     static func downsample(_ input: [Float]) -> [Float] {
         guard input.count >= 8 else { return [] }

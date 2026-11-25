@@ -17,15 +17,27 @@ struct CaptureWindowFile: Sendable {
 }
 
 enum CaptureWindow {
+    static func live(_ tracks: [CaptureTrackBoundary], start: Double, end: Double, directory: URL) throws
+        -> (files: [CaptureWindowFile], echoHistory: [CaptureWindowFile]) {
+        let current = try copy(tracks, start: start, end: end, directory: directory, startRounding: .up)
+        guard start > 0, current.contains(where: { $0.url.lastPathComponent.contains("-mic.") }),
+              current.contains(where: { $0.url.lastPathComponent.contains("-remote.") }) else { return (current, []) }
+        // Keep the recognizer's two inputs bounded by the committed cursor.
+        // Only the acoustic canceller sees these longer, still bounded snapshots.
+        let history = try copy(tracks, start: max(0, start - 30), end: end, directory: directory)
+        return (current, history)
+    }
+
     /// Copies only the already-written prefix. Called off the capture queue;
     /// an incomplete or unreadable snapshot fails without advancing the cursor.
-    static func copy(_ tracks: [CaptureTrackBoundary], start: Double, end: Double, directory: URL) throws -> [CaptureWindowFile] {
+    static func copy(_ tracks: [CaptureTrackBoundary], start: Double, end: Double, directory: URL,
+                     startRounding: FloatingPointRoundingRule = .down) throws -> [CaptureWindowFile] {
         guard start.isFinite, end.isFinite, start >= 0, end > start else { throw PisaError.message("Некорректный диапазон аудио") }
         var outputs: [CaptureWindowFile] = []
         do {
             for track in tracks {
                 guard track.offset.isFinite, track.offset >= 0, track.sampleRate.isFinite, track.sampleRate > 0, track.frames >= 0 else { throw PisaError.message("Некорректная граница аудио") }
-                let lower = min(track.frames, max(0, Int64(floor((start - track.offset) * track.sampleRate))))
+                let lower = min(track.frames, max(0, Int64(((start - track.offset) * track.sampleRate).rounded(startRounding))))
                 let upper = min(track.frames, max(0, Int64(ceil((end - track.offset) * track.sampleRate))))
                 guard upper > lower else { continue }
                 let reader = try AVAudioFile(forReading: track.url)

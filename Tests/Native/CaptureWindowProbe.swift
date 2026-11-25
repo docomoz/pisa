@@ -46,6 +46,22 @@ enum PisaError: Error { case message(String) }
         precondition(intFiles.count == 1 && intFiles[0].offset == 0.5 && intFiles[0].original == intSource)
         let intReader = try AVAudioFile(forReading: intFiles[0].url)
         precondition(intReader.length == 24000)
+        let live = try CaptureWindow.live([boundary, intBoundary], start: 0.5, end: 1, directory: directory)
+        precondition(live.files.map(\.offset) == [0.5, 0.5])
+        precondition(live.echoHistory.map(\.offset) == [0, 0.25])
+        for (index, track) in [boundary, intBoundary].enumerated() {
+            let input = try AVAudioFile(forReading: live.files[index].url)
+            precondition(input.length == Int64(0.5 * track.sampleRate))
+        }
+        let single = try CaptureWindow.live([intBoundary], start: 0.5, end: 1, directory: directory)
+        precondition(single.echoHistory.isEmpty && single.files.count == 1)
+        let delayed = CaptureTrackBoundary(url: intSource, offset: 0.750003, frames: intWriter.length, sampleRate: 48000)
+        let committed = 0.500010
+        let offsetWindow = try CaptureWindow.live([boundary, delayed], start: committed, end: 1, directory: directory)
+        precondition(offsetWindow.files.map(\.original) == [source, intSource])
+        precondition(offsetWindow.files[0].offset == 12001.0 / 24000 && offsetWindow.files[0].offset >= committed)
+        precondition(offsetWindow.files[1].offset == delayed.offset)
+        precondition(offsetWindow.echoHistory.map(\.offset) == [0, delayed.offset])
         let intResult = AVAudioPCMBuffer(pcmFormat: intReader.processingFormat, frameCapacity: 24000)!
         try intReader.read(into: intResult)
         precondition(abs(intResult.floatChannelData![0][0] - 0.25) < 0.0001)
