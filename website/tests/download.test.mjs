@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { downloadFromAppcast, handleRequest } from '../worker/index.js';
+import worker, { downloadFromAppcast, versionFromAppcast, handleRequest } from '../worker/index.js';
 
 const dmg = 'https://github.com/docomoz/pisa/releases/download/v1.2.3/Pisa-1.2.3-arm64.dmg';
 const feed = url => `<rss><channel><item><enclosure url="${url}" /></item></channel></rss>`;
@@ -62,4 +62,10 @@ test('a second 404 stops retrying and returns an error', async () => {
   });
   assert.equal(calls, 2);
   assert.equal(result.status, 503);
+});
+
+test('reads the version only from a trusted DMG link', () => {
+  assert.equal(versionFromAppcast(feed(dmg)), '1.2.3');
+  assert.equal(versionFromAppcast(feed('https://example.com/v6.6.6/Pisa-6.6.6-arm64.dmg')), null);
+  assert.equal(versionFromAppcast('<rss></rss>'), null);
 });

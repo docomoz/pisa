@@ -1,10 +1,36 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import worker from '../dist/server/index.js';
+import worker, { resetReleaseCache } from '../dist/server/index.js';
 import { measurementIdFromConfig } from '../scripts/analytics-config.mjs';
 
 const request = (path, method = 'GET') => new Request(`https://pisa.example${path}`, { method });
+const badge = page => page.match(/<span class="pill-badge" data-release-version>([^<]*)<\/span>/)?.[1];
+
+test('the release badge shows the latest version and keeps it between page loads', async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response('<rss><item><enclosure url="https://github.com/docomoz/pisa/releases/download/v9.8.7/Pisa-9.8.7-arm64.dmg" /></item></rss>');
+  };
+  try {
+    resetReleaseCache();
+    assert.equal(badge(await (await worker.fetch(request('/'))).text()), 'v9.8.7');
+    assert.equal(badge(await (await worker.fetch(request('/index.html'))).text()), 'v9.8.7');
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = original; }
+});
+test('the release badge falls back to a static label when the feed is unavailable', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response('', { status: 503 });
+  try {
+    resetReleaseCache();
+    const response = await worker.fetch(request('/'));
+    assert.equal(response.status, 200);
+    assert.equal(badge(await response.text()), 'Релиз');
+  } finally { globalThis.fetch = original; }
+});
 test('the built Worker serves the page and its assets', async () => {
   const page = await worker.fetch(request('/'), {}, {});
   assert.equal(page.status, 200);
