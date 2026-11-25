@@ -23,6 +23,21 @@ public final class MeetingLibrary: @unchecked Sendable {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(meeting).write(to: meetingsDirectory.appendingPathComponent(meeting.id.uuidString + ".json"), options: [.atomic, .completeFileProtectionUnlessOpen])
     }
+    func transcriptReviewURL(_ id: UUID) -> URL {
+        root.appendingPathComponent("TranscriptReviews", isDirectory: true).appendingPathComponent(id.uuidString + ".json")
+    }
+
+    func transcriptReviewMarks(for id: UUID) -> [UUID: TranscriptReviewReport.Mark] {
+        guard let data = try? Data(contentsOf: transcriptReviewURL(id)),
+              let report = try? JSONDecoder().decode(TranscriptReviewReport.self, from: data),
+              report.schemaVersion == 1, report.meetingID == id else { return [:] }
+        return Dictionary(grouping: report.marks, by: \.segmentID).compactMapValues { marks in
+            guard marks.count == 1, let mark = marks.first,
+                  !mark.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return mark
+        }
+    }
+
     func batchTranscriptionURL(_ id: UUID) -> URL {
         meetingsDirectory.appendingPathComponent(id.uuidString + ".transcription")
     }
@@ -54,6 +69,8 @@ public final class MeetingLibrary: @unchecked Sendable {
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         }
         try discardBatchTranscription(id)
+        do { try FileManager.default.removeItem(at: transcriptReviewURL(id)) }
+        catch where Self.fileIsMissing(error) {}
         try FileManager.default.removeItem(at: meetingsDirectory.appendingPathComponent(id.uuidString + ".json"))
     }
     public func folders() throws -> [MeetingFolder] {
@@ -85,6 +102,25 @@ public final class MeetingLibrary: @unchecked Sendable {
         return audioDirectory.appendingPathComponent(name)
     }
 }
+
+struct TranscriptReviewReport: Codable {
+    struct Mark: Codable, Sendable {
+        let segmentID: UUID
+        let originalText: String
+        let reason: String
+        var reading: String?
+        var evidence: String?
+
+        func matches(_ segment: TranscriptSegment) -> Bool {
+            segmentID == segment.id && originalText.utf8.elementsEqual(segment.text.utf8)
+        }
+    }
+
+    let schemaVersion: Int
+    let meetingID: UUID
+    let marks: [Mark]
+}
+
 struct LibraryStorageUsage: Sendable {
     let audioFiles: [String: Int64]
     let audioBytes: Int64

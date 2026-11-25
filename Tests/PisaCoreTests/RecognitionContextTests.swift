@@ -80,6 +80,41 @@ final class RecognitionContextTests: XCTestCase {
         }
     }
 
+    func testRecurringWordUsesUnpromptedAudioAndTwoIndependentMentions() throws {
+        let target = segment(30, 35, "Нам нужен этот фотабонк перед новым запуском.")
+        let heard = "Нам нужен этот фотобанк перед новым запуском."
+        let earlier = segment(1, 5, "Откроем фотобанк после обеда.")
+        let later = segment(50, 55, "Где наш фотобанк для обложек?")
+        let context = RecognitionContext(segments: [target, earlier, later])
+        let repair = try XCTUnwrap(context.recurringWord(for: target, independent: heard, vocabulary: ""))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: "Очень нужен этот фотобанк перед новым показом."), heard)
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: "Нам нужен этот фотоальбом перед новым запуском."))
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: "Мне нравится фотобанк."))
+        XCTAssertNil(repair.confirmedText(language: "Ukrainian", reread: heard))
+        XCTAssertNil(context.recurringWord(for: target, independent: heard, vocabulary: "фотабонк"))
+        var unverified = later
+        unverified.independentRecognitionLanguage = false
+        for turn in [earlier, unverified, segment(50, 55, "Там было написано «фотобанк».")] {
+            XCTAssertNil(RecognitionContext(segments: [target, earlier, turn]).recurringWord(for: target, independent: heard, vocabulary: ""))
+        }
+    }
+
+    func testTwoPlausibleWordsNeedAnUncontestedRecurringPhraseAndMatchingAudio() throws {
+        let target = segment(30, 35, "Нам нужна новая таблица перед первым запуском.")
+        let heard = "Нам нужна новая теплица перед первым запуском."
+        let earlier = segment(1, 5, "Там появится новая теплица.")
+        let later = segment(50, 55, "Новая теплица уже готова.")
+        func probe(_ context: [TranscriptSegment]) -> RecognitionContext.RecurringWord? {
+            RecognitionContext(segments: context + [target]).recurringWord(for: target, independent: heard, vocabulary: "")
+        }
+        XCTAssertTrue(TranscriptTerms.isCommonRussianWord("таблица"))
+        let repair = try XCTUnwrap(probe([earlier, later]))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: heard), heard)
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: target.text))
+        XCTAssertNil(probe([earlier, segment(60, 65, "А эта теплица готова.")]))
+        XCTAssertNil(probe([earlier, later, segment(7, 10, "Вот новая таблица."), segment(15, 19, "Новая таблица готова.")]))
+    }
+
     func testSecondWordCanUseUniqueThreeWordOppositeAnchor() throws {
         let original = "В Конторе мы обсуждали этот проект сегодня."
         let candidate = "В Контуре мы обсуждали этот проект сегодня."

@@ -157,8 +157,7 @@ public enum TranscriptTerms {
                     var isEntity = entityForms.contains(entity) || speakers.contains(entity)
                     // Contextual tags can mistake acronyms and model names for entities.
                     if !isEntity, family == nil, !stem.contains(where: \.isNumber) {
-                        isEntity = stem.first?.isUppercase == true
-                            && russianSurname.firstMatch(in: entity, range: NSRange(location: 0, length: entity.utf16.count)) != nil
+                        isEntity = stem.first?.isUppercase == true && hasRussianSurnameEnding(entity)
                         isEntity = isEntity || hasPersonNameShape(stem, key: entity, in: text, at: range)
                         if !isEntity {
                             if taggedNames == nil { taggedNames = contextualEntityRanges(in: text, using: tagger) }
@@ -476,6 +475,14 @@ public enum TranscriptTerms {
         term.lowercased().replacingOccurrences(of: "ё", with: "е")
             .replacingOccurrences(of: "‐", with: "-").replacingOccurrences(of: "‑", with: "-")
             .replacingOccurrences(of: "’", with: "'")
+    }
+
+    static func isKnownEntityForm(_ word: String) -> Bool {
+        entityForms.contains(entityKey(word))
+    }
+
+    static func hasRussianSurnameEnding(_ key: String) -> Bool {
+        russianSurname.firstMatch(in: key, range: NSRange(key.startIndex..., in: key)) != nil
     }
 
     static func isCommonRussianWord(_ word: String) -> Bool {

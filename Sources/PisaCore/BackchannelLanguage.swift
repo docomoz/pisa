@@ -78,20 +78,20 @@ enum BackchannelLanguage {
             && RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary)
     }
 
-    // A compact transliteration or accented Latin reading can contain one
-    // Russian word or even both scripts within the same word. Never mark this
-    // class unclear on language disagreement: it includes genuine code-switches.
-    static func shouldVerifyMixedLatin(_ text: String, duration: Double, vocabulary: String) -> Bool {
+    // Short turns can be decoded entirely in a neighboring Cyrillic language,
+    // in accented Latin, or in both scripts. Only audio can resolve them.
+    static func shouldVerifyShortScript(_ text: String, duration: Double, vocabulary: String) -> Bool {
         guard (0...6).contains(duration) else { return false }
         let letters = text.unicodeScalars.filter(CharacterSet.letters.contains)
         guard letters.contains(where: { !$0.isASCII }) else { return false }
         let latin = latinLetter.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
-        guard latin * 2 > letters.count || shortVocalizationBeforeRussianWord(text),
+        let distinctCyrillic = ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text) && latin == 0
+        guard distinctCyrillic || latin * 2 > letters.count || shortVocalizationBeforeRussianWord(text),
               !MeetingSpeechText.containsForeignLetters(text), !containsLiteralMarks(text),
               text.rangeOfCharacter(from: lexicalLiteralMarks.union(.decimalDigits)) == nil else { return false }
         let words = text.split(whereSeparator: { !$0.isLetter })
         return (2...lexicalWordLimit).contains(words.count)
-            && words.filter({ word in word.unicodeScalars.allSatisfy { (0x400...0x52f).contains($0.value) } }).count <= 1
+            && (distinctCyrillic || words.filter({ word in word.unicodeScalars.allSatisfy { (0x400...0x52f).contains($0.value) } }).count <= 1)
             && !words.contains(where: { $0.dropFirst().contains(where: \.isUppercase) })
             && !words.dropFirst().contains(where: { $0.first?.isUppercase == true })
             && RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary)
@@ -193,8 +193,27 @@ enum BackchannelLanguage {
             }
             return joined
         }
+        // In English sentences Parakeet writes the pronoun "it" in lowercase
+        // or sentence case. Glossary formatting can subsequently turn it into
+        // "IT". An acronym actually present in the primary keeps its protection.
+        var glossary = vocabulary
+        if vocabulary.contains("IT"), !original.contains("IT") {
+            let tokens = latinLexicalWords.matches(in: original, range: NSRange(original.startIndex..., in: original))
+                .compactMap { Range($0.range, in: original).map { String(original[$0]) } }
+            if tokens.count >= 3, tokens.contains("it") || tokens.first == "It" {
+                glossary = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
+                    .filter { $0.trimmingCharacters(in: .whitespacesAndNewlines) != "IT" }.joined(separator: "\n")
+            }
+        }
         return RussianRecognition.preservesVocabulary(candidate: joiningContractions(candidate),
-            original: joiningContractions(original), vocabulary: joiningContractions(vocabulary))
+            original: joiningContractions(original), vocabulary: joiningContractions(glossary))
+    }
+
+    static func sourceForLanguageCheck(primary: String, formatted: String, duration: Double, vocabulary: String) -> String {
+        guard primary != formatted, primary.caseInsensitiveCompare(formatted) == .orderedSame,
+              shouldRecheckLexical(primary, duration: duration, vocabulary: vocabulary),
+              !shouldRecheckLexical(formatted, duration: duration, vocabulary: vocabulary) else { return formatted }
+        return primary
     }
 
     private static func isStandaloneLatinTerm(_ text: String) -> Bool {
@@ -245,6 +264,74 @@ enum BackchannelLanguage {
         return russian.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// A padded multilingual read may compress a repeated particle. The
+    /// isolated acoustic read must retain the primary's exact repeat count
+    /// and agree with the multilingual read on every word after it.
+    static func repeatedOnsetAlternative(original: String, padded: String, language: String?,
+                                         isolated: String, acoustic: String) -> String? {
+        guard language?.lowercased() == "russian",
+              latinSpeech.firstMatch(in: original, range: NSRange(original.startIndex..., in: original)) != nil,
+              !isolated.isEmpty,
+              latinLetter.firstMatch(in: isolated, range: NSRange(isolated.startIndex..., in: isolated)) == nil,
+              [padded, acoustic].allSatisfy({ text in
+                  !containsLiteralMarks(text) && !text.dropFirst().contains(where: \.isUppercase)
+                      && text.allSatisfy { $0.isLetter || $0.isWhitespace || ",.!?…-‐‑".contains($0) }
+              }) else { return nil }
+        let source = RussianRecognition.words(original), checked = RussianRecognition.words(padded)
+        let heard = RussianRecognition.words(acoustic)
+        guard let onset = checked.first, onset == heard.first, onset.count <= 3,
+              AbbreviationFamilies.isRussianFunctionWord(onset), let foreignOnset = source.first,
+              foreignOnset.count <= 3, source.count == heard.count else { return nil }
+        let sourceRepeats = source.prefix { $0 == foreignOnset }.count
+        let heardRepeats = heard.prefix { $0 == onset }.count
+        let checkedRepeats = checked.prefix { $0 == onset }.count
+        let tail = checked.dropFirst(checkedRepeats)
+        guard sourceRepeats == heardRepeats, checkedRepeats >= 2, heardRepeats > checkedRepeats,
+              tail.contains(where: { $0.count >= 4 && TranscriptTerms.isCommonRussianWord($0) }),
+              tail.allSatisfy(TranscriptTerms.isCommonRussianWord),
+              tail.elementsEqual(heard.dropFirst(heardRepeats)) else { return nil }
+        // A translation shares meaning, but does not preserve the sound of
+        // each source word. Fold Latin diacritics and a palatal glide before
+        // e, then require exact agreement, including the repeated particle.
+        func latinKey(_ word: String) -> String? {
+            guard let latin = word.applyingTransform(.toLatin, reverse: false)?
+                .applyingTransform(StringTransform("Latin-ASCII"), reverse: false),
+                  latin.utf8.allSatisfy({ (97...122).contains($0) }) else { return nil }
+            return latin.replacingOccurrences(of: #"(?<=[b-df-hj-np-tv-z])[ij](?=e)"#, with: "",
+                options: .regularExpression)
+        }
+        for (originalWord, russianWord) in zip(source.dropFirst(sourceRepeats - 1), heard.dropFirst(heardRepeats - 1)) {
+            guard let key = latinKey(originalWord), key == latinKey(russianWord) else { return nil }
+        }
+        // A conflicting Cyrillic read on the core is also evidence. Only a
+        // third, unrelated script can abstain without supporting either text.
+        let coreWords = RussianRecognition.words(isolated)
+        if coreWords.contains(where: { word in word.unicodeScalars.contains { (0x400...0x52f).contains($0.value) } }) {
+            guard coreWords.prefix(while: { $0 == onset }).count >= 2,
+                  coreWords.drop(while: { $0 == onset }).elementsEqual(tail) else { return nil }
+        } else if !MeetingSpeechText.containsForeignLetters(isolated) {
+            return nil
+        }
+        return acoustic.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // A second multilingual reading in the source language is positive
+    // evidence for an actual switch. The Russian-only model cannot veto it.
+    static func confirmsCyrillicSource(original: String, reread: String, language: String?) -> Bool {
+        guard ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(original),
+              ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(reread) else { return false }
+        let source = RussianRecognition.words(original), checked = RussianRecognition.words(reread)
+        if source == checked { return true }
+        return ["ukrainian", "belarusian"].contains(language?.lowercased() ?? "")
+            && source.contains { $0.count >= 3 && checked.contains($0) }
+    }
+
+    static func corroboratedScriptReread(_ russian: String, corroboration: String?) -> String? {
+        let words = RussianRecognition.words(russian)
+        guard words.contains(where: { TranscriptTerms.isCommonRussianWord($0) || russianFillers.contains($0) }) else { return nil }
+        return agreedRussianText(russian, corroboration: corroboration)
+    }
+
     /// For a compact mixed-script source, the multilingual read is unprompted.
     /// Disagreements about a boundary never authorize changes inside a clause.
     static func mixedRussianAlternative(original: String, language: String?, reread: String, corroboration: String?) -> String? {
@@ -259,6 +346,7 @@ enum BackchannelLanguage {
         if let fillers = mixedFillerAlternative(original: original, reread: reread, heard: corroboration) { return fillers }
         guard language?.lowercased() == "russian", !containsLiteralMarks(reread), !containsLiteralMarks(corroboration) else { return nil }
         if let full = agreedRussianText(reread, corroboration: corroboration) { return full }
+        if let repair = RussianRecognition.shortCyrillicSpelling(original: original, reread: reread, heard: corroboration) { return repair }
         let checked = RussianRecognition.words(reread), source = RussianRecognition.words(original)
         let heard = RussianRecognition.words(corroboration)
         guard !checked.isEmpty, checked.allSatisfy({ word in word.unicodeScalars.allSatisfy { (0x430...0x44f).contains($0.value) } }) else { return nil }
@@ -452,7 +540,7 @@ enum BackchannelLanguage {
         for segment in segments {
             let candidate = lexicalAlternatives[segment.id]
             let isUncertain = uncertain.contains(segment.id)
-            if let candidate, shouldVerifyMixedLatin(segment.text, duration: segment.end - segment.start, vocabulary: vocabulary)
+            if let candidate, shouldVerifyShortScript(segment.text, duration: segment.end - segment.start, vocabulary: vocabulary)
                 || mixedWordIndex(segment.text, duration: segment.end - segment.start, vocabulary: vocabulary) != nil {
                 verifiedLexical[segment.id] = candidate
                 continue

@@ -872,6 +872,30 @@ actor Transcriber {
                 continue
             }
             let independent = hypotheses[segment.id]?.text
+            if let independent, let word = snapshot.recurringWord(for: segment, independent: independent, vocabulary: vocabulary),
+               let samples = readRegion(), !samples.isEmpty {
+                let began = ContinuousClock.now
+                try Task.checkCancellation()
+                let audio = MLXArray(samples)
+                let verifier = try await verificationModel(model)
+                let tokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
+                let output = decodeCache.value(samples: samples, context: "", language: nil, maxTokens: tokens) {
+                    measureRecognition("qwen") {
+                        verifier.generate(audio: audio, maxTokens: tokens, context: "", language: nil,
+                            chunkDuration: 30, repetitionPenalty: 1.1)
+                    }
+                }
+                try await performance.pace(after: began)
+                try Task.checkCancellation()
+                if let confirmed = word.confirmedText(language: output.language, reread: output.text) {
+                    revised[index].text = confirmed
+                    if collectDiagnostics {
+                        contextDiagnostics.append(["kind": "recurring-word", "start": String(segment.start),
+                            "source": segment.text, "independent": independent, "candidate": confirmed])
+                    }
+                    continue
+                }
+            }
             // Lexical disagreements at the region's first/last words have no
             // glossary term and no second text anchor. Re-listen without a
             // prompt, then require exact agreement with the other recognizer.
@@ -1263,7 +1287,8 @@ actor Transcriber {
         // must never force a Russian retry or suppress Russian quality checks.
         let isRussian = ParakeetRecognitionPolicy.hasRussianTextEvidence(primaryText)
         var acoustic = isRussian ? spellingEvidence : nil
-        var text = spokenVocabulary.apply(to: primaryText)
+        var text = BackchannelLanguage.sourceForLanguageCheck(primary: primaryText, formatted: spokenVocabulary.apply(to: primaryText),
+            duration: duration, vocabulary: vocabulary)
         var uncertainLanguage = false
         guard text.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains),
               !MeetingSpeechText.containsForeignLetters(text) else { return nil }
@@ -1368,9 +1393,12 @@ actor Transcriber {
                 needsLexicalCheck = BackchannelLanguage.shouldRecheckLexical(text, duration: duration, vocabulary: vocabulary)
             }
         }
-        let mixedLatin = BackchannelLanguage.shouldVerifyMixedLatin(text, duration: duration, vocabulary: vocabulary)
-        if mixedLatin || needsLexicalCheck {
+        let checkScript = BackchannelLanguage.shouldVerifyShortScript(text, duration: duration, vocabulary: vocabulary)
+        if checkScript || needsLexicalCheck {
             let decoded = try await generate(language: nil, context: "")
+            if BackchannelLanguage.confirmsCyrillicSource(original: text, reread: decoded.text, language: decoded.language) {
+                return RecognizedSpeech(text: text, acoustic: spellingEvidence)
+            }
             let words = RussianRecognition.words(text)
             let shortLatinWord = words.count == 1 && words[0].count <= 3 && words[0].utf8.allSatisfy { (97...122).contains($0) }
             // Padding helps the initial decode, but on a short reply it can
@@ -1385,9 +1413,16 @@ actor Transcriber {
                 guard let evidence = existing ?? acousticRecognition(core, using: russian),
                       ParakeetRecognitionPolicy.hasRussianTextEvidence(evidence.text) else { return nil }
                 let reread = sameAudio ? decoded : try await generate(language: nil, context: "", audioSamples: core)
-                var candidate = reread.language?.lowercased() == "russian"
-                    ? BackchannelLanguage.lexicalAlternative(original: text, russian: reread.text,
-                        corroboration: evidence.text, vocabulary: vocabulary) : nil
+                var candidate: String?
+                if reread.language?.lowercased() == "russian" {
+                    candidate = checkScript ? BackchannelLanguage.agreedRussianText(reread.text, corroboration: evidence.text)
+                        : BackchannelLanguage.lexicalAlternative(original: text, russian: reread.text,
+                            corroboration: evidence.text, vocabulary: vocabulary)
+                }
+                if candidate == nil, checkScript, !sameAudio {
+                    candidate = BackchannelLanguage.repeatedOnsetAlternative(original: text, padded: decoded.text,
+                        language: decoded.language, isolated: reread.text, acoustic: evidence.text)
+                }
                 var primary: String?
                 if candidate == nil, shortLatinWord, RussianRecognition.words(evidence.text).count == 1,
                    !BackchannelLanguage.confirmsLatinSource(original: text, reread: reread.text) {
@@ -1421,16 +1456,23 @@ actor Transcriber {
                 }
                 return RecognizedSpeech(text: text)
             }
-            let independent = acousticRecognition(samples, using: russian)
+            let independent = spellingEvidence ?? acousticRecognition(samples, using: russian)
             acoustic = independent
-            if mixedLatin {
-                let alternative = BackchannelLanguage.mixedRussianAlternative(original: text, language: decoded.language,
+            if checkScript {
+                var alternative = BackchannelLanguage.mixedRussianAlternative(original: text, language: decoded.language,
                     reread: decoded.text, corroboration: independent?.text)
+                var forced: String?
+                if alternative == nil, let heard = independent?.text, ParakeetRecognitionPolicy.hasRussianTextEvidence(heard) {
+                    let checked = try await generate(language: "Russian", context: "")
+                    forced = checked.text
+                    alternative = BackchannelLanguage.corroboratedScriptReread(checked.text, corroboration: heard)
+                }
                 if let diagnostic {
                     contextDiagnostics.append(["kind": "mixed-language", "start": String(diagnostic.start),
                         "track": diagnostic.track, "source": text, "reread": decoded.text, "language": decoded.language ?? "",
-                        "independent": independent?.text ?? "", "candidate": alternative ?? ""])
+                        "russianReread": forced ?? "", "independent": independent?.text ?? "", "candidate": alternative ?? ""])
                 }
+                if alternative == nil, let reading = try await unpaddedRussianReading(paddedEvidence: independent) { return reading }
                 return RecognizedSpeech(text: text, russianLexical: alternative, independentLanguage: false, acoustic: independent)
             }
             var alternative = decoded.language?.lowercased() == "russian"
