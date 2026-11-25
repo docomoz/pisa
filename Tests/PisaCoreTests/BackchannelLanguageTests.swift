@@ -64,6 +64,43 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertNil(isolated("«Exactly».", "समझा तो", "Hindi", "Запно."))
     }
 
+    func testIsolatedForeignCompoundUsesTheWordBoundaryHeardByBothVerifiers() {
+        func reading(_ source: String, _ reread: String, _ corroboration: String?, language: String = "English",
+                     vocabulary: String = "") -> BackchannelLanguage.IsolatedLatinReading? {
+            BackchannelLanguage.isolatedLatinReading(original: source, reread: reread, language: language,
+                corroboration: corroboration, vocabulary: vocabulary)
+        }
+        XCTAssertEqual(reading("Alright.", "All right.", "all right"), .foreign("All right."))
+        XCTAssertEqual(reading("Breaktime.", "Break time.", "break time"), .foreign("Break time."))
+        XCTAssertEqual(reading("Debout.", "De bout.", "de bout", language: "French"), .foreign("De bout."))
+        XCTAssertNil(reading("Alright.", "All right.", "Запно."))
+        XCTAssertNil(reading("Alright.", "All right.", nil))
+        XCTAssertNil(reading("Going.", "Go in.", "go in"))
+        XCTAssertNil(reading("Breaktime.", "Break time.", "break time", vocabulary: "Breaktime"))
+        XCTAssertNil(reading("Breaktime.", "Break Time.", "break time"))
+        XCTAssertNil(reading("Breaktime.", "Break time.", "break time", language: "None"))
+        XCTAssertNil(reading("«Breaktime».", "Break time.", "break time"))
+    }
+
+    func testDisputedForeignEndingNeedsTheSameLeadInAndAFullIndependentFocusedRead() {
+        func start(_ source: String, _ candidate: String, _ padded: String, _ acoustic: String,
+                   language: String = "English", vocabulary: String = "") -> Int? {
+            let tokens = acoustic.split(separator: " ").enumerated().map { i, word in
+                RecognitionTimedWord(text: String(word), start: i == 0 ? 0.12 : 0.72, end: i == 0 ? 0.72 : 1)
+            }
+            return BackchannelLanguage.foreignEndingStart(original: source, reread: candidate, padded: padded, language: language,
+                acoustic: .init(text: acoustic, words: tokens), sampleCount: 16000, vocabulary: vocabulary)
+        }
+        XCTAssertEqual(start("Follow than.", "Follow them.", "Follow them.", "Follow Dan"), 6720)
+        XCTAssertTrue(BackchannelLanguage.confirmsLatinSource(original: "Follow them.", reread: "follow them"))
+        XCTAssertFalse(BackchannelLanguage.confirmsLatinSource(original: "Follow them.", reread: "them"))
+        XCTAssertNil(start("Follow than.", "Follow them.", "Follow me.", "Follow Dan"))
+        XCTAssertNil(start("Follow than.", "Follow them.", "Follow them.", "Значит всё"))
+        XCTAssertNil(start("Follow than.", "Follow them.", "Follow them.", "Fellow Dan"))
+        XCTAssertNil(start("Follow than.", "Follow them.", "Follow them.", "Follow Dan", language: "Russian"))
+        XCTAssertNil(start("Follow than.", "Follow them.", "Follow them.", "Follow Dan", vocabulary: "Follow"))
+    }
+
     func testLexicalRereadRequiresIndependentWordsAndVocalizationsCanStandAlone() {
         for heard in [nil, "", "ну, а я?", "четыре слова для проверки"] {
             XCTAssertFalse(BackchannelLanguage.canVerifyAlternative(original: "Yeah.", corroboration: heard))
@@ -114,6 +151,92 @@ final class BackchannelLanguageTests: XCTestCase {
         }
         XCTAssertEqual(BackchannelLanguage.repeatedOnsetAlternative(original: "Nie, nie, nie, vídno.",
             padded: "Не, не, видно.", language: "Russian", isolated: "没有。", acoustic: "Не-не-не, видно."), "Не-не-не, видно.")
+    }
+
+    func testShortTimedClausesKeepQuotesNamesGlossaryAndFillerChains() {
+        for source in ["Go ahead.", "Opération", "Could cela sujet.", "Yo там digo."] {
+            XCTAssertTrue(BackchannelLanguage.shouldVerifyTimedClause(source, duration: 1, vocabulary: ""), source)
+        }
+        for source in ["«Go ahead»", "María López", "File.go", "DevOps rules", "OK.", "San José",
+                       "Говоримо про ці речі.", "Knock", "Si", "Ah yeah."] {
+            XCTAssertFalse(BackchannelLanguage.shouldVerifyTimedClause(source, duration: 1, vocabulary: ""), source)
+        }
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyTimedClause("Opération", duration: 1, vocabulary: "Opération"))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifyTimedClause("Go ahead.", duration: 4, vocabulary: ""))
+    }
+
+    func testTimedClauseChecksTokenTimesAndNeighboringWordsInBothReadings() throws {
+        func read(_ words: [(String, Double)]) -> RecognitionAcousticResult {
+            RecognitionAcousticResult(text: words.map(\.0).joined(separator: " "),
+                words: words.map { .init(text: $0.0, start: $0.1, end: $0.1 + 0.2) })
+        }
+        let core = read([("Ну", 0.05), ("я", 0.31)])
+        let wide = read([("Ну", 2.04), ("я", 2.32), ("сегодня", 2.62), ("снова", 3), ("попробую", 3.5)])
+        let clause = try XCTUnwrap(BackchannelLanguage.timedClause(source: "All right.", isolated: core,
+            wide: wide, interval: 2..<2.55))
+        XCTAssertEqual(clause.text, "Ну я.")
+        XCTAssertTrue(clause.confirmed(in: "Ну, я сегодня снова попробую."))
+        XCTAssertTrue(clause.confirmed(in: "Ну я уж точно сегодня снова всё попробую."))
+        XCTAssertFalse(clause.confirmed(in: "Ну, я скоро смогу попробовать."))
+        XCTAssertFalse(clause.confirmed(in: "All right! Ну я сегодня снова попробую."))
+        XCTAssertFalse(clause.confirmed(in: "Ну, я сегодня снова попробую. Ну я."))
+        XCTAssertNil(BackchannelLanguage.timedClause(source: "All right.", isolated: core, wide: wide, interval: 1.7..<2.8))
+        let interfering = read([("Ну", 2.04), ("погоди", 2.18), ("я", 2.32), ("сегодня", 2.62), ("снова", 3)])
+        XCTAssertNil(BackchannelLanguage.timedClause(source: "All right.", isolated: core, wide: interfering, interval: 2..<2.55))
+        let unclearOnset = read([("Эй", 0.03), ("выставки", 0.44)])
+        let ending = read([("говорили", 0.6), ("после", 1), ("про", 1.5), ("выставки", 2.42)])
+        let partial = try XCTUnwrap(BackchannelLanguage.timedClause(source: "Exposición", isolated: unclearOnset,
+            wide: ending, interval: 2..<3))
+        XCTAssertEqual(partial.text, "… выставки.")
+        XCTAssertTrue(partial.confirmed(in: "Говорили после про выставки."))
+        XCTAssertFalse(partial.confirmed(in: "Exposicion. Говорили после про выставки."))
+        let name = read([("Убер", 0.03)])
+        let heardName = read([("сегодня", 0.6), ("представили", 1), ("Убер", 2.03)])
+        XCTAssertNil(BackchannelLanguage.timedClause(source: "Über", isolated: name, wide: heardName, interval: 2..<3))
+        let agreement = read([("готовим", 0.7), ("документы", 1.1), ("подписываем", 2.42)])
+        for start in ["Не", "Ни", "Без", "Две", "Ян", "Ли", "Он"] {
+            let core = read([(start, 0.03), ("подписываем", 0.44)])
+            XCTAssertNil(BackchannelLanguage.timedClause(source: "All right.", isolated: core, wide: agreement, interval: 2..<3), start)
+        }
+        let verb = try XCTUnwrap(BackchannelLanguage.timedClause(source: "All right.",
+            isolated: read([("подписываем", 0.44)]), wide: agreement, interval: 2..<3))
+        XCTAssertFalse(verb.confirmed(in: "Готовим документы не подписываем."))
+        XCTAssertTrue(verb.confirmed(in: "Готовим документы подписываем."))
+        let full = read([("не", 0.05), ("подписываем", 0.44)])
+        let supported = read([("готовим", 0.7), ("документы", 1.1), ("не", 2.05), ("подписываем", 2.42)])
+        XCTAssertEqual(BackchannelLanguage.timedClause(source: "All right.", isolated: full, wide: supported,
+            interval: 2..<3)?.text, "Не подписываем.")
+        XCTAssertFalse(partial.confirmed(in: "Говорили после про две выставки."))
+        XCTAssertFalse(partial.confirmed(in: "Говорили после про не выставки."))
+        XCTAssertFalse(partial.confirmed(in: "Говорили после про Михаила выставки."))
+        let changed = read([("новой", 0.03), ("выставки", 0.44)])
+        XCTAssertNil(BackchannelLanguage.timedClause(source: "Exposición", isolated: changed, wide: ending, interval: 2..<3))
+    }
+
+    func testMidstemScriptSwitchOnAClauseUsesAnIndependentReadAndConversation() {
+        let source = segment(11, "So no, caжès.", mic: false)
+        XCTAssertTrue(BackchannelLanguage.shortMixedFragment(source.text, duration: 1, vocabulary: ""))
+        let positive = BackchannelLanguage.mixedFragmentReading(original: source.text, reread: "So no, caжès.",
+            language: "English", corroboration: "ну вот")
+        XCTAssertFalse(positive.uncertain)
+        let foreign = BackchannelLanguage.mixedFragmentReading(original: "So no, caжès.", reread: "So no, cažes.",
+            language: "Spanish", corroboration: "да нет")
+        XCTAssertFalse(foreign.uncertain)
+        let unconfirmed = BackchannelLanguage.mixedFragmentReading(original: source.text, reread: "没办法",
+            language: "Chinese", corroboration: "ну вот")
+        XCTAssertTrue(unconfirmed.uncertain)
+        XCTAssertNil(unconfirmed.alternative)
+        for source in ["So no, caЖès.", "So no, Caseжès.", "So no, señor.", "So, nos llegó.", "«So no, caжès»."] {
+            XCTAssertFalse(BackchannelLanguage.shortMixedFragment(source, duration: 1, vocabulary: ""), source)
+        }
+        XCTAssertFalse(BackchannelLanguage.shortMixedFragment(source.text, duration: 1, vocabulary: "caжès"))
+        var overlapping = segment(10, "Сегодня мы обсудим это решение.")
+        overlapping.end = 13
+        XCTAssertEqual(BackchannelLanguage.resolve([source], alternatives: [:], uncertain: [source.id],
+            preceding: [overlapping])[0].text, "Неразборчиво")
+        overlapping.text = "Today we will discuss our plan."
+        XCTAssertEqual(BackchannelLanguage.resolve([source], alternatives: [:], uncertain: [source.id],
+            preceding: [overlapping]), [source])
     }
 
     private func segment(_ start: Double, _ text: String, mic: Bool = true) -> TranscriptSegment {

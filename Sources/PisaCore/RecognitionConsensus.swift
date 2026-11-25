@@ -319,6 +319,14 @@ enum RecognitionConsensus {
         return (old, new)
     }
 
+    /// Omitting a subject, condition, negation or amount at an acoustic cut
+    /// can reverse the meaning even when the following words agree.
+    static func isSensitiveAtCut(_ word: String) -> Bool {
+        meaningMarkers.contains(word) || ["если", "якобы", "возможно", "наверное", "вероятно",
+            "невозможно", "запрещено", "разрешено", "можно"].contains(word)
+            || word.contains(where: \.isNumber) || isNumberWord(word) || TranscriptTerms.isKnownEntityForm(word)
+    }
+
     static func isNumberWord(_ word: String) -> Bool {
         // Cardinal/ordinal stems include Russian case forms and compound
         // quantities. Over-protection here only skips an optional reread.

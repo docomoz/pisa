@@ -198,13 +198,14 @@ final class RecognitionContextTests: XCTestCase {
         func recover(_ source: String, narrow: String = "В новой студии мы сограли нашу группу перед перерывом",
                      checked: String = "Новой студии мы собрали нашу группу после объявления",
                      primary: String = "В новой студии мы собрали нашу группу после выступления",
-                     language: String = "Russian", offset: Double = 0) throws -> String? {
+                     language: String = "Russian", offset: Double = 0,
+                     trimmed: ((Double) -> String?)? = nil, bounded: String? = nil) throws -> String? {
             let target = segment(10, 12.7, source)
             let plan = try XCTUnwrap(RecognitionContext(segments: [before, target]).scriptRepair(for: target, vocabulary: ""))
             return plan.timedPrefix(acoustic: timed(prefix + " перед перерывом", offset: offset), target: 0..<2.7,
                 primary: "Раньше. " + prefix + " после выступления.", verifier: prefix + " затем разошлись.",
                 language: "Russian", exact: { .init(acoustic: timed(narrow, offset: 0), verifier: checked, language: language) },
-                exactPrimary: { primary })
+                exactPrimary: { primary }, trimmedPrimary: trimmed, boundedVerifier: bounded.map { ($0, "Russian") })
         }
         XCTAssertEqual(try recover(original), prefix + "…")
         XCTAssertNil(try recover(original, language: "Ukrainian"))
@@ -213,9 +214,55 @@ final class RecognitionContextTests: XCTestCase {
         // The disputed word and the remaining tail cannot pass on either
         // wide context or the exact multilingual verifier alone.
         XCTAssertNotEqual(try recover(original, primary: "В новой студии мы открыли нашу группу."), prefix + "…")
+        var boundaries: [Double] = []
+        let restored = try recover(original, primary: "Нова студія, ми сьогодні разом.", trimmed: { boundary in
+            boundaries.append(boundary)
+            return prefix
+        })
+        XCTAssertEqual(restored, prefix + "…")
+        XCTAssertEqual(try XCTUnwrap(boundaries.first), 2.4, accuracy: 0.001)
+        XCTAssertEqual(boundaries.count, 1)
+        XCTAssertNotEqual(try recover(original, primary: "В новой студии мы открыли нашу группу.", trimmed: { _ in
+            XCTFail("An independently heard competing Russian word cannot trigger a crop search")
+            return prefix
+        }), prefix + "…")
+        XCTAssertNil(try recover(original, primary: "Нова студія, ми сьогодні разом.", trimmed: { _ in "Початок виступу." }))
+        XCTAssertNil(try recover(original, primary: original, trimmed: { _ in
+            XCTFail("Repeating the original Ukrainian words cannot trigger a Russian substitution")
+            return prefix
+        }))
+        let drift = "Нова студія, ми сьогодні разом."
+        XCTAssertEqual(try recover(original, primary: drift, trimmed: { _ in drift }, bounded: prefix), prefix + "…")
+        XCTAssertEqual(try recover(original, checked: "Новое студии мы собрали нашу группу после объявления.",
+            primary: drift, bounded: prefix), prefix + "…")
+        XCTAssertNotEqual(try recover(original, primary: drift, bounded: "В новой студии мы открыли нашу группу."), prefix + "…")
+        XCTAssertNil(try recover(original, primary: drift, bounded: "В другой студии мы собрали нашу группу."))
         for suffix in [" Ивана.", " пять.", " не.", " перерывом."] {
             XCTAssertNil(try recover(original + suffix), suffix)
         }
+    }
+
+    func testTimedRussianOpeningBeforeDisputedInitialismsPreservesSuffixAndSavedSpellings() throws {
+        let before = segment(1, 8, "Сейчас уточним одну вещь вместе.")
+        let target = segment(10, 14, "Ми уточняємо нашу заявку ABC QR, у нее два.")
+        let prefix = "Мы уточняем нашу заявку"
+        let wide = prefix + " AX QR у неё два"
+        let audio = RecognitionAcousticResult(text: wide, words: wide.split(separator: " ").enumerated().map { i, word in
+            .init(text: String(word), start: Double(i) * 0.4, end: Double(i + 1) * 0.4)
+        })
+        func recover(_ checked: String, language: String = "Russian", vocabulary: String = "") throws -> String? {
+            let plan = try XCTUnwrap(RecognitionContext(segments: [before, target]).scriptRepair(for: target, vocabulary: vocabulary))
+            return plan.timedPrefix(acoustic: audio, target: 0..<4, primary: prefix + " иные буквы у него два.",
+                verifier: prefix + " иная серия у него два.", language: "Russian",
+                exact: { .init(acoustic: audio, verifier: checked, language: language) }, exactPrimary: { "" })
+        }
+        let checked = prefix + " иная серия у него два."
+        XCTAssertEqual(try recover(checked), prefix + " … QR, у нее два.")
+        XCTAssertEqual(try recover(checked, vocabulary: "ABC"), prefix + " ABC QR, у нее два.")
+        XCTAssertEqual(try recover(prefix + " ABC QR у него два."), prefix + " ABC QR, у нее два.")
+        XCTAssertNil(try recover(prefix + " иная серия у него три."))
+        XCTAssertNil(try recover("Ми уточняємо нашу заявку в іншій системі.", language: "Ukrainian"))
+        XCTAssertNil(try recover("Мы отменим нашу заявку иная серия у него два."))
     }
 
     func testShortTimedScriptOpeningPreservesTheDisputedRemainderAndRejectsOverlap() throws {

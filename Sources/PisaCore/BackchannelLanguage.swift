@@ -147,6 +147,108 @@ enum BackchannelLanguage {
             && RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary)
     }
 
+    /// On short turns a multilingual primary can change the word boundaries
+    /// or the entire script. Check these only against the same speaker's audio.
+    static func shouldVerifyTimedClause(_ text: String, duration: Double, vocabulary: String) -> Bool {
+        guard (0.3...2).contains(duration), !containsLiteralMarks(text),
+              text.allSatisfy({ $0.isLetter || $0.isWhitespace || ",.!?…".contains($0) }),
+              preservesLexicalVocabulary(candidate: "", original: text, vocabulary: vocabulary),
+              russianSpelling(ofFiller: text) == nil else { return false }
+        let tokens = text.split(whereSeparator: { !$0.isLetter })
+        guard !tokens.isEmpty, tokens.count <= 5,
+              !tokens.contains(where: { $0.dropFirst().contains(where: \.isUppercase) }),
+              tokens.dropFirst().allSatisfy({ $0.first?.isLowercase == true }) else { return false }
+        if tokens.count == 1 {
+            return isLatinSpeech(text) && tokens[0].count >= 4 && !tokens[0].allSatisfy(\.isASCII)
+        }
+        return shouldRecheckLexical(text, duration: duration, vocabulary: vocabulary)
+            || (shouldVerifyShortScript(text, duration: duration, vocabulary: vocabulary)
+                && latinLetter.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil)
+    }
+
+    struct TimedClause {
+        let text: String
+        fileprivate let source: Set<String>
+        fileprivate let keys: [String]
+        fileprivate let omittedOnset: Bool
+        fileprivate let previous: [String]
+        fileprivate let following: [String]
+
+        func confirmed(in reading: String) -> Bool {
+            let heard = RussianRecognition.words(reading)
+            guard source.isDisjoint(with: heard.map({ $0.folding(options: .diacriticInsensitive, locale: nil) })) else { return false }
+            let matches = heard.indices.filter { heard[$0...].starts(with: keys) }
+            guard matches.count == 1, let i = matches.first else { return false }
+            if i > 0, RecognitionConsensus.isSensitiveAtCut(heard[i - 1]),
+               omittedOnset || previous.last != heard[i - 1] { return false }
+            func sharesAnchor(_ expected: [String], _ nearby: ArraySlice<String>) -> Bool {
+                let pairs = zip(nearby, nearby.dropFirst())
+                return zip(expected, expected.dropFirst()).contains { a, b in
+                    max(a.count, b.count) >= 4 && pairs.contains { $0 == a && $1 == b }
+                }
+            }
+            return sharesAnchor(previous, heard[..<i].suffix(6))
+                || sharesAnchor(following, heard.dropFirst(i + keys.count).prefix(6))
+        }
+    }
+
+    static func timedClause(source: String, isolated: RecognitionAcousticResult,
+                            wide: RecognitionAcousticResult, interval: Range<Double>) -> TimedClause? {
+        let exact = RussianRecognition.words(isolated.text), heard = RussianRecognition.words(wide.text)
+        guard (1...5).contains(exact.count), exact == isolated.words.flatMap({ RussianRecognition.words($0.text) }),
+              exact.count == isolated.words.count, heard.count == wide.words.count,
+              heard == wide.words.flatMap({ RussianRecognition.words($0.text) }),
+              exact.allSatisfy({ $0.unicodeScalars.allSatisfy { (0x430...0x44f).contains($0.value) }
+                  && !TranscriptTerms.isKnownEntityForm($0) }),
+              isolated.text.dropFirst().allSatisfy({ !$0.isUppercase }) else { return nil }
+        // The same words must start at the same times on narrow and wide
+        // audio. A neighboring speaker's sentence alone proves nothing.
+        let first = exact.indices.first { j in
+            heard.indices.contains { i in
+                heard[i] == exact[j] && abs(wide.words[i].start - interval.lowerBound - isolated.words[j].start) <= 0.16
+            }
+        }
+        // Only nonlexical sounds may be omitted. A short name, pronoun or
+        // negation can be the most important word in the utterance.
+        let hesitations = ["э", "эм", "мм", "м", "хм", "эй"]
+        guard let first, first == 0 || (first == 1 && hesitations.contains(exact[0]) && exact.count == 2 && exact[1].count >= 5)
+        else { return nil }
+        let keys = Array(exact[first...])
+        // Both Russian reads can transliterate a genuine standalone foreign
+        // name in a Russian sentence. Its spoken form corroborates the source.
+        let original = RussianRecognition.words(source)
+        if original.count == 1, keys.count == 1,
+           let roman = keys[0].applyingTransform(.toLatin, reverse: false)?.applyingTransform(.stripDiacritics, reverse: false),
+           let latin = original[0].applyingTransform(.stripDiacritics, reverse: false),
+           SpokenVocabulary.distance(roman, latin) <= 1 { return nil }
+        let hits = heard.indices.filter { i in
+            heard[i...].starts(with: keys) && keys.indices.allSatisfy { j in
+                let time = wide.words[i + j].start
+                return time >= interval.lowerBound - 0.12 && time < interval.upperBound
+                    && abs(time - interval.lowerBound - isolated.words[first + j].start) <= 0.16
+            }
+        }
+        guard hits.count == 1, let i = hits.first,
+              first == 0 || i == 0 || !RecognitionConsensus.isSensitiveAtCut(heard[i - 1]),
+              !wide.words.enumerated().contains(where: { index, word in
+                  !(i..<(i + keys.count)).contains(index) && word.start >= interval.lowerBound + 0.12
+                      && word.start < interval.upperBound - 0.12
+              }) else { return nil }
+        let text: String
+        if first == 0 {
+            let raw = isolated.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            text = raw.prefix(1).uppercased() + String(raw.dropFirst()) + (raw.last?.isLetter == true ? "." : "")
+        } else {
+            text = "… " + wide.words[i].text.lowercased() + "."
+        }
+        let sourceWords = Set(RussianRecognition.words(source).compactMap { word -> String? in
+            guard latinLetter.firstMatch(in: word, range: NSRange(word.startIndex..., in: word)) != nil else { return nil }
+            return word.folding(options: .diacriticInsensitive, locale: nil)
+        })
+        return TimedClause(text: text, source: sourceWords, keys: keys, omittedOnset: first > 0,
+            previous: Array(heard[..<i].suffix(6)), following: Array(heard.dropFirst(i + keys.count).prefix(6)))
+    }
+
     private static func shortVocalizationBeforeRussianWord(_ text: String) -> Bool {
         let words = RussianRecognition.words(text)
         return words.count == 2 && latinVocalizations.contains(words[0]) && words[1].count >= 3
@@ -162,6 +264,16 @@ enum BackchannelLanguage {
               RussianRecognition.preservesVocabulary(candidate: "", original: text, vocabulary: vocabulary) else { return false }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?…")))
         let words = body.split(whereSeparator: { $0.isWhitespace || $0 == "," })
+        // A word can switch scripts twice mid-stem in a longer turn. A
+        // foreign sentence with an ordinary loanword has no such corruption.
+        if (2...5).contains(words.count),
+           let last = words.last, last.allSatisfy(\.isLowercase),
+           last.range(of: #"^\p{Latin}{2,}\p{Cyrillic}+\p{Latin}{2,}$"#, options: .regularExpression) != nil {
+            return words.dropLast().enumerated().allSatisfy { index, token in
+                token.allSatisfy { $0.isASCII && $0.isLetter }
+                    && (index == 0 ? token.dropFirst().allSatisfy(\.isLowercase) : token.allSatisfy(\.isLowercase))
+            }
+        }
         if words.count == 2 {
             return latinVocalizations.contains(words[0].lowercased()) && words[1].count >= 3
                 && words[1].allSatisfy(\.isLowercase)
@@ -184,6 +296,11 @@ enum BackchannelLanguage {
         if confirmsCyrillicSource(original: original, reread: reread, language: language) { return true }
         guard !checked.isEmpty, let word = source.first else { return false }
         if source.joined() == checked.joined() { return true }
+        if source.count >= 2, source.count == checked.count, source.dropLast() == checked.dropLast(),
+           let tail = source.last, let heard = checked.last, isLatinSpeech(heard),
+           let latin = tail.applyingTransform(.toLatin, reverse: false)?.applyingTransform(.stripDiacritics, reverse: false),
+           let folded = heard.applyingTransform(.stripDiacritics, reverse: false),
+           SpokenVocabulary.distance(latin, folded) <= 1 { return true }
         if source.count == 2, let last = source.last, checked == [last],
            ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(last) { return true }
         if source.count == 1 {
@@ -565,7 +682,7 @@ enum BackchannelLanguage {
     }
 
     enum IsolatedLatinReading: Equatable {
-        case source, russian(String), disputed, unconfirmed
+        case source, foreign(String), russian(String), disputed, unconfirmed
     }
 
     static func needsIsolatedLanguageRead(latin: Bool, paddedConfirmsSource: Bool, isolatedAcoustic: String?) -> Bool {
@@ -580,6 +697,22 @@ enum BackchannelLanguage {
               preservesLexicalVocabulary(candidate: "", original: original, vocabulary: vocabulary),
               original.rangeOfCharacter(from: lexicalLiteralMarks.union(.decimalDigits)) == nil else { return nil }
         if confirmsLatinSource(original: original, reread: reread) { return .source }
+        // Two independent decoders may split a foreign compound that the
+        // primary joined, with a doubled or omitted letter at that boundary.
+        if let detected = language?.lowercased(), !["", "none", "russian", "unknown"].contains(detected),
+           let corroboration, isLatinSpeech(reread), isLatinSpeech(corroboration),
+           [reread, corroboration].allSatisfy({ $0.allSatisfy { $0.isLetter || $0.isWhitespace || ".,!?…".contains($0) } }) {
+            let source = RussianRecognition.words(original), checked = RussianRecognition.words(reread)
+            let compact = source.joined(), expanded = checked.joined()
+            if source.count == 1, checked.count == 2, checked.allSatisfy({ $0.count >= 2 }),
+               checked == RussianRecognition.words(corroboration), compact.count >= 5,
+               !reread.dropFirst().contains(where: \.isUppercase),
+               (compact == expanded ||
+                (Set(checked[0].suffix(2)).count == 1 && compact == String(checked[0].dropLast()) + checked[1]) ||
+                (Set(checked[1].prefix(2)).count == 1 && compact == checked[0] + String(checked[1].dropFirst()))) {
+                return .foreign(reread.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
         // A padded decoder may agree with the primary even when its isolated
         // read switches script. Keep the source pending a timed contextual
         // check; neither this disagreement nor the Russian ASR supplies a word.
@@ -600,6 +733,29 @@ enum BackchannelLanguage {
             return .russian(candidate)
         }
         return .disputed
+    }
+
+    /// When all three decoders hear the same foreign first word, focus the
+    /// primary on the disputed ending. Keep half of the agreed word as a
+    /// phonetic lead-in, leaving every sample of the second word intact.
+    static func foreignEndingStart(original: String, reread: String, padded: String, language: String?,
+                                   acoustic: RecognitionAcousticResult, sampleCount: Int, vocabulary: String) -> Int? {
+        guard language?.lowercased() == "english", shouldRecheckLexical(original, duration: Double(sampleCount) / 16000,
+                  vocabulary: vocabulary), sampleCount <= 2 * 16000,
+              [original, reread, acoustic.text].allSatisfy({ isLatinSpeech($0) && !containsLiteralMarks($0)
+                  && $0.allSatisfy({ $0.isLetter || $0.isWhitespace || ".,!?…".contains($0) }) }),
+              confirmsLatinSource(original: reread, reread: padded) else { return nil }
+        let primary = RussianRecognition.words(original), checked = RussianRecognition.words(reread)
+        let heard = acoustic.words.map { $0.text.lowercased() }
+        guard primary.count == 2, checked.count == 2, heard.count == 2, heard == RussianRecognition.words(acoustic.text),
+              primary[0].count >= 4, primary[0] == checked[0], checked[0] == heard[0],
+              (2...5).contains(checked[1].count), [primary[1], heard[1]].allSatisfy({ (2...5).contains($0.count) }),
+              primary[1] != checked[1], !reread.dropFirst().contains(where: \.isUppercase),
+              let first = acoustic.words.first, let last = acoustic.words.last,
+              first.start.isFinite, first.end.isFinite, last.start.isFinite, last.end.isFinite,
+              first.start >= 0, first.end - first.start >= 0.25, first.end <= last.start,
+              last.end > last.start, last.end <= Double(sampleCount) / 16000 + 0.02 else { return nil }
+        return Int(((first.start + first.end) / 2 * 16_000).rounded())
     }
 
     /// Independent agreement preserves foreign Latin speech regardless of its
@@ -788,7 +944,9 @@ enum BackchannelLanguage {
             if nearby.contains(where: { $0.language == .russian && track($0.segment) != segmentTrack
                 && $0.segment.start < segment.end && segment.start < $0.segment.end }),
                !nearby.contains(where: { $0.language == .other && gap($0.segment) <= 2 }),
-               isNeutralVocalization(segment.text) || supportedAcknowledgment || verifiedLexical[segment.id] != nil {
+               isNeutralVocalization(segment.text) || supportedAcknowledgment || verifiedLexical[segment.id] != nil
+                    || (unconfirmed.contains(segment.id) && shortMixedFragment(segment.text,
+                        duration: segment.end - segment.start, vocabulary: vocabulary)) {
                 return revised
             }
             let sameTrack = nearby.filter { track($0.segment) == segmentTrack }

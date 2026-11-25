@@ -50,6 +50,7 @@ def synthetic_corpus(root):
         ("cyrillic-acronym", "Мы познакомились с руководителем ЦРТС. Мы можем сделать встречу.", 170, "ЦРТС, Анжела"),
         ("cyrillic-name", "Обсудим с Анжелой детали и вернёмся с ответом.", 170, "ЦРТС, Анжела"),
         ("spoken-subtitle-credit", "Субтитры сделал Михаил.", 170, ""),
+        ("spoken-outro", "Продолжение следует.", 170, ""),
     ]
     fixtures = []
     for name, reference, rate, context in phrases:
@@ -91,6 +92,8 @@ def synthetic_corpus(root):
     replies = [(f"english-reply-{index}", reply, {"Okay.": "Окей.", "Yes.": "Да.", "Sorry.": "Сорри."}.get(reply, reply), "Samantha", "2ГИС")
                for index, reply in enumerate(["Thank you.", "All right.", "And what?", "Friends.", "Okay.", "Yes.",
                                                "Sorry.", "Sorry, I cannot attend the meeting today.", "Exactly.", "Let's eat."])]
+    replies.extend([("english-challenge", "Challenge them.", "Challenge them.", "Samantha", "2ГИС"),
+                    ("portuguese-reply", "Transformação.", "Transformação.", "Luciana", "2ГИС")])
     replies.append(("short-dictionary-name", "Конфлюенс.", "Confluence.", "Milena (Russian (Russia))", "2ГИС, Confluence"))
     for name, spoken, reply, voice, context in replies:
         aiff, wav = root / f"{name}.aiff", root / f"{name}.wav"
@@ -107,7 +110,14 @@ def synthetic_corpus(root):
     fixtures += [dict(name="silence", reference="", samples=[0.] * 48000, context="Бронегис, Геопэй", maximum_errors=0),
                  dict(name="noise", reference="", samples=[generator.uniform(-.03, .03) for _ in range(48000)],
                       context="Бронегис, Геопэй", maximum_errors=0)]
-    return fixtures + [dict(fixture, name=fixture["name"] + "-remote", track="remote") for fixture in fixtures]
+    recordings = fixtures + [dict(fixture, name=fixture["name"] + "-remote", track="remote") for fixture in fixtures]
+    # Saved meetings rerun segmentation and use the entire first pass as context.
+    # Exercise that entry point on the same PCM used by the live controls.
+    batch_controls = {"vocabulary", "spoken-subtitle-credit", "spoken-outro"}
+    batch_controls.update(name for name, spoken, *_ in replies
+                          if spoken in {"All right.", "Exactly.", "Let's eat.", "Challenge them.", "Transformação."})
+    return recordings + [dict(fixture, name=fixture["name"] + "-batch", live=False) for fixture in recordings
+                         if fixture["name"].removesuffix("-remote") in batch_controls]
 
 
 def main():

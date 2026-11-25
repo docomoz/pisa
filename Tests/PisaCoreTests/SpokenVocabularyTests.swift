@@ -2,6 +2,38 @@ import XCTest
 @testable import PisaCore
 
 final class SpokenVocabularyTests: XCTestCase {
+    func testCyrillicNameRequiresUnpromptedSpeechAndAnAnchoredVerifierSpelling() throws {
+        let dictionary = SpokenVocabulary("Бронегис, Геопэй")
+        let source = "На следующей встрече обсудим бронегис и геопий. Проверим Бронегис в четверг."
+        let primary = "На следующей встрече обсудим Бронеги с Эгиопой. Проверим Бронегис в четверг."
+        let reading = try XCTUnwrap(dictionary.cyrillicNameReading(original: source, acoustic: source, primary: primary))
+        XCTAssertEqual(reading.context, "Бронегис, Геопэй")
+        XCTAssertEqual(reading.confirmedText("Обсудим Бронегис и Геопэй. Проверим Бронегис в четверг.", language: "Russian"),
+            "На следующей встрече обсудим Бронегис и Геопэй. Проверим Бронегис в четверг.")
+        XCTAssertNil(reading.confirmedText("Проверим Геопэй и обсудим Бронегис.", language: "Russian"))
+        XCTAssertNil(reading.confirmedText(source, language: "Russian"))
+        XCTAssertNil(reading.confirmedText(source.replacingOccurrences(of: "геопий", with: "Геопэй"), language: "Ukrainian"))
+        XCTAssertNil(dictionary.cyrillicNameReading(original: source, acoustic: source, primary: primary.replacingOccurrences(of: "Эгиопой", with: "копию")))
+        XCTAssertNil(dictionary.cyrillicNameReading(original: source, acoustic: source, primary: source))
+        XCTAssertNil(dictionary.cyrillicNameReading(original: source, acoustic: source.replacingOccurrences(of: "геопий", with: "геологию"), primary: primary))
+        XCTAssertNil(SpokenVocabulary("Геопэй, Геопой").cyrillicNameReading(original: source, acoustic: source, primary: primary))
+        XCTAssertNil(SpokenVocabulary("Геопэй, Геопий").cyrillicNameReading(original: source, acoustic: source, primary: primary))
+    }
+
+    func testCyrillicNameRetainsInflectionsAndOrdinaryHomophones() throws {
+        let source = "Мы утром обсудили новую версию Токстрома после запуска."
+        let dictionary = SpokenVocabulary("Текстром")
+        let reading = try XCTUnwrap(dictionary.cyrillicNameReading(original: source, acoustic: source,
+            primary: source.replacingOccurrences(of: "Токстрома", with: "Такстрома")))
+        let expected = source.replacingOccurrences(of: "Токстрома", with: "Текстрома")
+        XCTAssertEqual(reading.confirmedText(expected, language: "Russian"), expected)
+        XCTAssertNil(reading.confirmedText(expected.replacingOccurrences(of: "Текстрома", with: "Текстром"), language: "Russian"))
+        let ordinary = "Мы видели как пеликан ловил рыбу."
+        XCTAssertNil(SpokenVocabulary("Пелекан").cyrillicNameReading(original: ordinary, acoustic: ordinary, primary: ordinary))
+        let literal = source.replacingOccurrences(of: "Токстрома", with: "«Токстрома»")
+        XCTAssertNil(dictionary.cyrillicNameReading(original: literal, acoustic: source, primary: source))
+    }
+
     func testQuarterNamesRequireMoreThanAFoldedSoundMatch() {
         let vocabulary = SpokenVocabulary("Q1, Q2")
         let question = "Can you tell me when I can leave?"

@@ -28,6 +28,7 @@ struct SpokenVocabulary {
     private let spelledInitialisms: [[String]: String]
     private let cyrillicInitialisms: [(term: String, latin: String)]
     private let nameInstrumentals: [String]
+    private let cyrillicNamesBySound: [String: [String]]
     private let technologyVocabulary: TechnologyVocabulary
     private static let standaloneWords: Set<String> = ["в", "во", "с", "со", "к", "и", "а", "у", "о", "на", "из", "от", "я", "ты", "мы", "он", "она", "они", "вы", "да", "но", "не", "же", "ли", "бы", "для", "по", "за"]
 
@@ -37,6 +38,13 @@ struct SpokenVocabulary {
         let terms = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         self.terms = terms
+        let names = terms.filter { term in
+            term.count >= 5 && Self.isRussianWord(term) && term.first?.isUppercase == true
+                && term.dropFirst().allSatisfy(\.isLowercase)
+                && !TranscriptTerms.isCommonRussianWord(term.lowercased()) && !TranscriptTerms.isKnownEntityForm(term)
+        }
+        cyrillicNamesBySound = Dictionary(grouping: names.flatMap { RecognitionVocabulary.cyrillicInflections(of: $0) },
+            by: { Self.cyrillicSound($0.lowercased()) })
         func key(_ value: String) -> String {
             value.lowercased().replacingOccurrences(of: "’", with: "'").replacingOccurrences(of: "'", with: "")
         }
@@ -197,6 +205,85 @@ struct SpokenVocabulary {
 
     func needsNumericEndingCheck(in text: String) -> Bool {
         RussianRecognition.needsNumericEndingCheck(in: text, vocabulary: vocabulary)
+    }
+
+    private static let russianVowels = Set("аеёиоуыэюя")
+
+    private static func cyrillicSound(_ word: String) -> String {
+        String(word.map { russianVowels.contains($0) ? Character("*") : $0 })
+    }
+
+    struct CyrillicNameReading {
+        fileprivate let original: String
+        fileprivate let vocabulary: String
+        fileprivate let range: NSRange
+        fileprivate let left: [String]
+        fileprivate let right: [String]
+        let form: String
+        let context: String
+
+        fileprivate func sites(_ keys: [String], bothSides: Bool) -> [Int] {
+            keys.indices.filter { i in
+                let before = i >= left.count && keys[(i - left.count)..<i].elementsEqual(left)
+                    && (!left.isEmpty || i == 0)
+                let after = i + 1 + right.count <= keys.count && keys[(i + 1)..<(i + 1 + right.count)].elementsEqual(right)
+                    && (!right.isEmpty || i + 1 == keys.count)
+                return bothSides ? before && after : (before && left.count == 2 || after && right.count == 2)
+            }
+        }
+
+        func confirmedText(_ reread: String, language: String?) -> String? {
+            guard language?.lowercased() == "russian", TranscriptOrthography.literalRanges(in: reread).isEmpty else { return nil }
+            let keys = RussianRecognition.words(reread)
+            let matches = sites(keys, bothSides: true)
+            guard matches.count == 1, keys[matches[0]] == form.lowercased().replacingOccurrences(of: "ё", with: "е") else { return nil }
+            let revised = (original as NSString).replacingCharacters(in: range, with: form)
+            return RecognitionVocabulary.apply(to: revised, vocabulary: vocabulary)
+        }
+    }
+
+    /// An explicit rare spelling is a verifier hint only. The Russian acoustic
+    /// model must hear the same single-vowel miss at the same site, and the
+    /// independent unprompted primary must retain its consonants and ending.
+    func cyrillicNameReading(original: String, acoustic: String, primary: String) -> CyrillicNameReading? {
+        guard !cyrillicNamesBySound.isEmpty else { return nil }
+        let words = Self.words(original)
+        guard words.count >= 4 else { return nil }
+        let keys = words.map { $0.text.lowercased().replacingOccurrences(of: "ё", with: "е") }
+        lazy var heard = RussianRecognition.words(acoustic)
+        lazy var independent = Self.words(primary)
+        lazy var rawKeys = independent.map { $0.text.lowercased().replacingOccurrences(of: "ё", with: "е") }
+        lazy var protected = TranscriptOrthography.literalRanges(in: original) + TranscriptOrthography.glossaryRanges(in: original,
+            vocabulary: vocabulary, range: NSRange(original.startIndex..., in: original))
+        var readings: [CyrillicNameReading] = []
+        for i in words.indices {
+            let old = keys[i], site = words[i].range
+            guard old.count >= 5, let forms = cyrillicNamesBySound[Self.cyrillicSound(old)], Self.isRussianWord(old),
+                  !words[i].isOrdinaryRussian, !TranscriptTerms.isKnownEntityForm(old),
+                  !Self.hasAdjacentSurname(at: i, words: words, text: original as NSString),
+                  !protected.contains(where: { NSIntersectionRange($0, site).length > 0 }) else { continue }
+            let matches = Set(forms.filter { form in
+                let key = form.lowercased().replacingOccurrences(of: "ё", with: "е")
+                return key.first == old.first && key.last == old.last && zip(key, old).filter({ $0.0 != $0.1 }).count == 1
+            })
+            guard matches.count == 1, let form = matches.first else { continue }
+            let adjacent = terms.filter { RecognitionVocabulary.contains($0, in: original) }.prefix(7)
+            let context = (Array(adjacent) + [form]).joined(separator: ", ")
+            let reading = CyrillicNameReading(original: original, vocabulary: vocabulary, range: site, left: Array(keys[..<i].suffix(2)),
+                right: Array(keys[(i + 1)...].prefix(2)), form: form, context: context)
+            guard reading.sites(keys, bothSides: true) == [i] else { continue }
+            let evidence = reading.sites(heard, bothSides: true)
+            guard evidence.count == 1, heard[evidence[0]] == old else { continue }
+            let close = reading.sites(rawKeys, bothSides: false).filter { j in
+                var word = rawKeys[j]
+                guard word != old, !independent[j].isOrdinaryRussian, !TranscriptTerms.isKnownEntityForm(word),
+                      !Self.hasAdjacentSurname(at: j, words: independent, text: primary as NSString) else { return false }
+                if word.count == old.count + 1, let first = word.first, Self.russianVowels.contains(first) { word.removeFirst() }
+                return word.first == old.first && word.last == old.last && Self.cyrillicSound(word) == Self.cyrillicSound(old)
+            }
+            if close.count == 1 { readings.append(reading) }
+        }
+        return readings.count == 1 ? readings.first : nil
     }
 
     /// Near misses are suggestions for a fresh audio decode, never direct text

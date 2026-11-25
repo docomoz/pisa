@@ -2,6 +2,39 @@ import XCTest
 @testable import PisaCore
 
 final class ParakeetRecognitionPolicyTests: XCTestCase {
+    func testStandaloneClosingCardsRequireAudioEvidenceAndPreserveSpeech() {
+        for card in ["Продолжение следует...", "Продолжение следует…", "Спасибо за просмотр!",
+                     "Благодарим за просмотр", "To be continued.", "Thank you for watching!"] {
+            XCTAssertTrue(RecognitionSubtitleCredit.needsVerification(card))
+            XCTAssertEqual(RecognitionSubtitleCredit.decision(for: card, primary: card,
+                verifier: "", language: "None", acoustic: ""), .silence)
+            XCTAssertEqual(RecognitionSubtitleCredit.decision(for: card, primary: card,
+                verifier: "Встречаемся завтра.", language: "Russian", acoustic: "встречаемся завтра"), .speech("Встречаемся завтра."))
+            XCTAssertEqual(RecognitionSubtitleCredit.decision(for: card, primary: card,
+                verifier: card.uppercased(), language: "Russian", acoustic: ""), .keep)
+            XCTAssertEqual(RecognitionSubtitleCredit.decision(for: card, primary: card,
+                verifier: nil, language: nil, acoustic: nil), .keep)
+        }
+        for speech in ["В титрах написано «Продолжение следует».", "Продолжение следует искать в следующем файле.",
+                       "Продолжение наше.", "Thanks for watching over us."] {
+            XCTAssertFalse(RecognitionSubtitleCredit.needsVerification(speech))
+        }
+    }
+
+    func testClosingCardPreservesAgreedSpeechAndMarksDisputedOpening() {
+        let card = "Продолжение следует..."
+        let acoustic = "Продолжение наше. Тут рабочая группа уже за многие годы превратилась в отдельный отдел."
+        let suffix = "тут рабочая группа уже за многие годы превратилась в отдельный отдел."
+        func choose(_ checked: String) -> RecognitionSubtitleCredit.Decision {
+            RecognitionSubtitleCredit.decision(for: card, primary: card, verifier: checked,
+                language: "Russian", acoustic: acoustic)
+        }
+        XCTAssertEqual(choose("Предложения наши " + suffix), .speech("… Тут рабочая группа уже за многие годы превратилась в отдельный отдел."))
+        XCTAssertEqual(choose("Якобы " + suffix), .unclear)
+        XCTAssertEqual(choose("Совсем другая новость, объявили отдельный отдел."), .unclear)
+        XCTAssertEqual(choose("Предложения наши " + suffix + " И тогда."), .unclear)
+    }
+
     func testIsolatedSubtitleAttributionsCanBeFalseOnSilenceOrMaskRealSpeech() {
         for credit in ["Субтитры сделал DimaTorzok", "Редактор субтитров — Анна Смирнова.",
                        "Субтитры подготовила Команда Север", "Captions by River Studio"] {
@@ -66,6 +99,39 @@ final class ParakeetRecognitionPolicyTests: XCTestCase {
         XCTAssertEqual(RecognitionSubtitleCredit.decision(for: credit, primary: credit, verifier: credit,
             language: "Russian", acoustic: acoustic, expandedPrimary: { widerReads += 1; return wide }), .keep)
         XCTAssertEqual(widerReads, 0)
+    }
+
+    func testWideSubtitleEvidenceRespectsSentenceAndLiteralBoundaries() {
+        let card = "Продолжение следует..."
+        let narrow = "Планируем встречу с командой"
+        func choose(_ wide: String) -> RecognitionSubtitleCredit.Decision {
+            RecognitionSubtitleCredit.decision(for: card, primary: card, verifier: "Встречу перенесли, командой займётся Олег.",
+                language: "Russian", acoustic: narrow, expandedPrimary: { wide })
+        }
+        for separator in [". ", "! ", "? ", "… ", "\n", ". — ", "», «", ": «", "; ", " — ", " / "] {
+            XCTAssertEqual(choose("На завтра планируем встречу" + separator + "с командой работает Иван."), .unclear, separator)
+        }
+        XCTAssertEqual(choose("На завтра планируем встречу с командой, дальше отпишусь."), .speech(narrow))
+        for previous in ["Не", "Нельзя", "Пять", "5", "Михаил"] {
+            XCTAssertEqual(choose(previous + " планируем встречу с командой завтра."), .unclear, previous)
+        }
+        XCTAssertEqual(choose("Совещание назначил Михаил. Планируем встречу с командой завтра."), .speech(narrow))
+    }
+
+    func testDisputedOpeningCannotRemoveModalityAmountOrSubject() {
+        let card = "Спасибо за просмотр."
+        let ending = "подписывать новые договоры по правилам без согласования."
+        func choose(_ acoustic: String, _ checked: String) -> RecognitionSubtitleCredit.Decision {
+            RecognitionSubtitleCredit.decision(for: card, primary: card, verifier: checked, language: "Russian", acoustic: acoustic)
+        }
+        for (a,b) in [("Нельзя","Можно"), ("Михаил","Иван"), ("Пять","Сто"), ("Нельзя.","Можно"),
+                      ("Михаил.","Иван"), ("Пять.","Сто"), ("Отдел","Предлагает")] {
+            XCTAssertEqual(choose(a + " " + ending, b + " " + ending), .unclear)
+        }
+        XCTAssertEqual(choose("Показатель изменился на −5%.", "Показатель изменился на 5%."), .unclear)
+        XCTAssertEqual(choose("Показатель изменился на 5%.", "Показатель изменился на 5."), .unclear)
+        XCTAssertEqual(choose("Показатель изменился на −5,5%.", "Показатель изменился на -5.5%."),
+            .speech("Показатель изменился на -5.5%."))
     }
 
     func testRussianEvidenceDoesNotComeFromDecoderLanguageDefault() {
