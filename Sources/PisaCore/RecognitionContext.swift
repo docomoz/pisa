@@ -271,7 +271,8 @@ struct RecognitionContext {
             guard !name || (exact == [key] && !right.isEmpty) else { return nil }
             let recognized = acoustic.words[i].text
             let punctuation = source.last.flatMap { ".!?…".contains($0) ? String($0) : nil } ?? "."
-            return Word(text: recognized.prefix(1).uppercased() + recognized.dropFirst() + punctuation,
+            let capitalized = recognized.prefix(1).uppercased() + String(recognized.dropFirst())
+            return Word(text: capitalized + punctuation,
                         key: key, left: left, right: right, name: name, needsBoth: oneSided || name || previouslyConfirmed)
         }
 
