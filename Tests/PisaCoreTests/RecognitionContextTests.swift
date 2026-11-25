@@ -8,6 +8,61 @@ final class RecognitionContextTests: XCTestCase {
         return segment
     }
 
+    func testDictionaryWordDoesNotVouchForTheRestOfAShortClause() throws {
+        let before = segment(0, 6, "Сегодня мы обсуждаем новый продукт.")
+        let target = segment(7, 8, "Product we do.")
+        let after = segment(8.2, 12, "Дальше мы обсудим новый план.")
+        let snapshot = RecognitionContext(segments: [before, target, after])
+        let clause = try XCTUnwrap(snapshot.glossaryClause(for: target, vocabulary: "Product, IT"))
+        let evidence = RecognitionAcousticResult(text: "группы новых идей чтобы продолжить", words: [
+            .init(text: "группы", start: 0.4, end: 0.9), .init(text: "новых", start: 1.0, end: 1.3),
+            .init(text: "идей", start: 1.4, end: 1.8), .init(text: "чтобы", start: 2.1, end: 2.4)
+        ])
+        func revised(_ core: String, _ wide: String, _ language: String? = "Russian") -> String? {
+            clause.revisedText(isolated: core, language: language, acoustic: evidence, interval: 1..<2, widePrimary: wide)
+        }
+        XCTAssertEqual(revised("Новых идей.", "группы новых идей чтобы продолжить"), "Новых идей.")
+        XCTAssertEqual(revised("новых людей", "группы новых идей чтобы продолжить"), "Неразборчиво")
+        XCTAssertNil(revised("новых людей", "группы Product we do чтобы продолжить"))
+        XCTAssertNil(revised("Product we do.", "группы новых идей чтобы продолжить", "English"))
+        XCTAssertNil(clause.revisedText(isolated: "новых идей", language: "Russian", acoustic: evidence,
+            interval: 3..<4, widePrimary: "группы новых идей чтобы продолжить"))
+        XCTAssertNil(snapshot.glossaryClause(for: target, vocabulary: "Product we do"))
+        XCTAssertNil(snapshot.glossaryClause(for: segment(7, 8, "«Product we do»."), vocabulary: "Product"))
+        XCTAssertNil(snapshot.glossaryClause(for: segment(7, 8, "Acme Product Studio."), vocabulary: "Product"))
+        let english = segment(0, 6, "Let us discuss the new product.")
+        XCTAssertNil(RecognitionContext(segments: [english, target, after]).glossaryClause(for: target, vocabulary: "Product"))
+        let overlapping = segment(7.1, 7.9, "Да, договорились.")
+        let sameTrack = RecognitionContext(segments: [before, target, overlapping, after])
+        XCTAssertNil(sameTrack.glossaryClause(for: target, vocabulary: "Product"))
+        let microphone = segment(7.1, 7.9, "Да, договорились.", track: "mic")
+        let separateTrack = RecognitionContext(segments: [before, target, microphone, after])
+        let available = try XCTUnwrap(separateTrack.glossaryClause(for: target, vocabulary: "Product"))
+        XCTAssertEqual(available.revisedText(isolated: "Новых идей.", language: "Russian", acoustic: evidence,
+            interval: 1..<2, widePrimary: "группы новых идей чтобы продолжить"), "Новых идей.")
+    }
+
+    func testGlossaryClauseKeepsANameConfirmedInTheRussianReading() throws {
+        let before = segment(0, 6, "Мы сегодня обсуждаем задачу.")
+        let target = segment(7, 8, "I use Figma.")
+        let after = segment(8.2, 12, "Дальше обсудим следующий проект.")
+        let context = RecognitionContext(segments: [before, target, after])
+        let clause = try XCTUnwrap(context.glossaryClause(for: target, vocabulary: "Figma"))
+        func revise(_ core: String, _ acoustic: String, _ wide: String) -> String? {
+            let words = RussianRecognition.words(acoustic).enumerated().map { index, word in
+                RecognitionTimedWord(text: word, start: Double(index) * 0.2, end: Double(index + 1) * 0.2)
+            }
+            return clause.revisedText(isolated: core, language: "Russian", acoustic: .init(text: acoustic, words: words),
+                interval: 0..<1, widePrimary: wide)
+        }
+        let mixed = "Мы используем Figma."
+        XCTAssertEqual(revise(mixed, "мы используем фигму", "В отделе мы используем Figma для проекта."), mixed)
+        XCTAssertEqual(revise(mixed, "мы используем почту", mixed), "Неразборчиво")
+        XCTAssertEqual(revise(mixed, "мы обсуждаем фигму", mixed), "Неразборчиво")
+        XCTAssertEqual(revise(mixed, "мы используем фигму", "В отделе обсуждают Figma."), "Неразборчиво")
+        XCTAssertEqual(revise("Мы закончили.", "мы закончили", "В отделе мы закончили работу в Figma."), "Мы закончили.")
+    }
+
     func testContextualScriptRepairRequiresTimeAlignedIndependentSpeech() throws {
         let target = segment(10, 12, "Провіряємо Т С П далі.")
         let before = segment(4, 9, "Сегодня мы будем проверять TCP.")
@@ -28,6 +83,82 @@ final class RecognitionContextTests: XCTestCase {
         XCTAssertNil(result("Давайте проверим свой TCP дальше вместе.", "Провіряємо Т С П далі.", language: "Ukrainian"))
         XCTAssertNil(plan.revised(acoustic: .init(text: evidence.text, words: []), target: 1..<3,
             primary: evidence.text, verifier: evidence.text, language: "Russian"))
+        var foreign = target
+        foreign.independentRecognitionLanguage = true
+        XCTAssertNil(RecognitionContext(segments: [before, foreign, after]).scriptRepair(for: foreign, vocabulary: "TCP"))
+    }
+
+    func testShortReplyUsesTheWordInsideItsOwnTimeAndAnchorsOnEachSide() throws {
+        let before = segment(1, 6, "Сегодня обсуждаем план нашей команды.")
+        let after = segment(9, 10, "Очень круто.")
+        for (original, core, word) in [("Uh фічі.", "", "фичи"), ("Oi.", "Ой!", "ой"),
+                                        ("Exactly.", "Запно.", "внезапно"), ("Exactly.", "Запа.", "внезапно")] {
+            let target = segment(7, 7.8, original)
+            let reply = try XCTUnwrap(RecognitionContext(segments: [before, target, after]).timedReply(for: target, vocabulary: ""))
+            let words = ["мы", "обсудили", "сегодня", word, "очень", "круто"]
+            let evidence = RecognitionAcousticResult(text: words.joined(separator: " "), words:
+                zip(words, [0.2, 0.6, 1.2, 3.46, 4.9, 5.1]).map { .init(text: $0.0, start: $0.1, end: $0.1 + 0.4) })
+            let interval = 3.5..<4.3
+            let heard = try XCTUnwrap(reply.candidate(acoustic: evidence, interval: interval, isolated: core))
+            let result = word.capitalized + "."
+            XCTAssertEqual(reply.confirmedText(heard, verifier: evidence.text, language: "Russian") {
+                XCTFail("Matching timed and multilingual evidence already confirms the word"); return ""
+            }, result)
+            XCTAssertEqual(reply.confirmedText(heard, verifier: "Мы обсудили сегодня другое. Очень круто.", language: "Russian") {
+                evidence.text
+            }, result)
+            XCTAssertNil(reply.confirmedText(heard, verifier: "Мы обсудили сегодня " + original + " Очень круто.", language: "Russian") {
+                evidence.text
+            })
+            XCTAssertNil(reply.confirmedText(heard, verifier: word + " очень круто.", language: "Russian") { "" })
+            XCTAssertNil(reply.confirmedText(heard, verifier: evidence.text, language: "Ukrainian") { evidence.text })
+            XCTAssertNil(reply.candidate(acoustic: evidence, interval: 3.95..<4.9, isolated: core))
+            XCTAssertNil(reply.candidate(acoustic: evidence, interval: interval, isolated: "кошки"))
+        }
+    }
+
+    func testTimedReplyPreservesForeignConversationQuotedWordsAndGlossary() {
+        let before = segment(1, 6, "Мы сегодня обсуждали план.")
+        let after = segment(9, 14, "Дальше мы вернёмся к этому вопросу.")
+        let target = segment(7, 7.8, "Oi.")
+        func plan(_ source: TranscriptSegment, _ anchors: [TranscriptSegment], vocabulary: String = "") -> RecognitionContext.TimedReply? {
+            RecognitionContext(segments: anchors + [source]).timedReply(for: source, vocabulary: vocabulary)
+        }
+        XCTAssertNil(plan(target, [before, after], vocabulary: "Oi"))
+        XCTAssertNil(plan(segment(7, 7.8, "«Oi»."), [before, after]))
+        XCTAssertNil(plan(segment(7, 7.8, "Figma."), [before, after]))
+        XCTAssertNil(plan(target, [before, segment(9, 14, "Please check the appendix.")]))
+        XCTAssertNil(plan(target, []))
+        XCTAssertNil(plan(target, [before, after, segment(7.1, 7.5, "Параллельный разговор.")]))
+    }
+
+    func testOneSidedShortReplyRequiresTheExactIsolatedWordAndAllThreeWideReads() throws {
+        for (original, core, wide) in [("Max.", "Макс.", "Макс, что за бутылки?"),
+                                       ("No.", "Ну", "Ну, да-да, я начал тестировать варианты.")] {
+            var target = segment(7, 7.8, original)
+            target.independentRecognitionLanguage = true
+            let after = segment(8.1, 10, "Что за бутылки?")
+            let snapshot = RecognitionContext(segments: [target, after])
+            let plan = try XCTUnwrap(snapshot.timedReply(for: target, vocabulary: ""))
+            let keys = RussianRecognition.words(wide)
+            let evidence = RecognitionAcousticResult(text: wide, words: keys.enumerated().map {
+                let start = $0.offset == 0 ? 3.52 : 4.5 + 0.2 * Double($0.offset)
+                return .init(text: $0.element, start: start, end: start + 0.2)
+            })
+            let word = try XCTUnwrap(plan.candidate(acoustic: evidence, interval: 3.5..<4.3, isolated: core))
+            XCTAssertEqual(plan.confirmedText(word, verifier: wide, language: "Russian") { wide }, keys[0].capitalized + ".")
+            XCTAssertNil(plan.confirmedText(word, verifier: wide, language: "Russian") { "Другое слово." })
+            XCTAssertNil(plan.confirmedText(word, verifier: "Другое слово.", language: "Russian") { wide })
+            XCTAssertNil(plan.confirmedText(word, verifier: wide, language: "Russian") { original + " " + wide })
+            XCTAssertNil(plan.candidate(acoustic: evidence, interval: 3.5..<4.3, isolated: ""))
+            XCTAssertNil(snapshot.timedReply(for: target, vocabulary: original))
+            if original == "Max." {
+                let label = "Макс. Что за бутылки?"
+                XCTAssertNil(plan.confirmedText(word, verifier: label, language: "Russian") { label })
+                let object = "Мы купили Макс, что за бутылки?"
+                XCTAssertNil(plan.confirmedText(word, verifier: object, language: "Russian") { object })
+            }
+        }
     }
 
     func testScriptRepairChangesOnlyOneAnchoredWordConfirmedOnItsOwnAudio() throws {
@@ -150,6 +281,24 @@ final class RecognitionContextTests: XCTestCase {
         XCTAssertNil(context.shortReplyAnchor(for: reply, vocabulary: "An"))
         for spelling in ["Yes.", "GPU", "«An»"] {
             XCTAssertNil(context.shortReplyAnchor(for: segment(9, 9.7, spelling), vocabulary: ""))
+        }
+    }
+
+    func testDisputedShortForeignClauseRequiresBothAudibleNeighborsAndEveryReplyWord() throws {
+        let previous = segment(1, 5, "Сегодня мы проверим новую настройку.")
+        let next = segment(11, 18, "Теперь можно проверить этот режим.")
+        for text in ["Exactly.", "Product we do.", "Sí, perdón.", "Let's eat."] {
+            var reply = segment(7, 9.2, text)
+            reply.independentRecognitionLanguage = false
+            let context = RecognitionContext(segments: [previous, reply, next])
+            let plan = try XCTUnwrap(context.shortReplyAnchor(for: reply, vocabulary: ""))
+            let accepted = try XCTUnwrap(plan.candidate(isolated: "Пока рано", wide: "Пока рано. Теперь можно проверить этот режим.", language: "Russian"))
+            XCTAssertEqual(accepted, "Пока рано.")
+            XCTAssertTrue(plan.confirmsPreceding(accepted, wide: "Мы проверим новую настройку. Пока рано.", language: "Russian"))
+            XCTAssertFalse(plan.confirmsPreceding(accepted, wide: "Мы проверим новую настройку. Рано.", language: "Russian"))
+            XCTAssertNil(plan.candidate(isolated: "Пока рано", wide: "Пока. Теперь можно проверить этот режим.", language: "Russian"))
+            reply.independentRecognitionLanguage = true
+            XCTAssertNil(context.shortReplyAnchor(for: reply, vocabulary: ""), text)
         }
     }
 

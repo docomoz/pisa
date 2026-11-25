@@ -2,6 +2,75 @@ import XCTest
 @testable import PisaCore
 
 final class RussianRecognitionTests: XCTestCase {
+    func testDistinctCyrillicSpeechUsesIndependentReadsAtTheEdgesAndRetainsOtherText() {
+        func decision(_ original: String, _ reread: String, _ acoustic: String) -> RussianRecognition.CyrillicAudioReading? {
+            RussianRecognition.cyrillicAudioReading(original: original, reread: reread, language: "Russian", heard: acoustic, vocabulary: "")
+        }
+        XCTAssertEqual(decision("Ми вибіраємо нашу кнопку.", "Мы выбираем нашу кнопку.", "мы выбираем нашу кнопку"),
+            .russian("Мы выбираем нашу кнопку."))
+        XCTAssertEqual(decision("Наш рисунок оказался без полезнїм.", "Ваш рисунок оказался бесполезным.", "наш рисунок оказался бесполезным"),
+            .russian("Наш рисунок оказался бесполезным."))
+        XCTAssertEqual(decision("Ми всі задачи проверили. Вчера ми проверили ответы.",
+            "Мы все задачи проверили. Вчера мы проверили ответы.", "мы все задачи проверили вчера мы проверили ответы"),
+            .russian("Мы все задачи проверили. Вчера мы проверили ответы."))
+        XCTAssertEqual(decision("Ми перевіряємо нашу кнопку сьогодні.", "Мы проверяем нашу кнопку вечером.",
+            "мы проверяем нашу кнопку утром"), .russian("Мы проверяем нашу кнопку…"))
+        XCTAssertEqual(decision("В марці мі перевірили макет тоді.", "Марте мы проверили макет вечером.",
+            "в марте мы проверили макет позже"), .russian("В марте мы проверили макет…"))
+    }
+
+    func testDistinctCyrillicSpeechPreservesConfirmedLanguagesQuotesAndUncertainNames() {
+        let original = "Ми перевіряємо нашу кнопку."
+        for language in ["Ukrainian", "Belarusian"] {
+            XCTAssertEqual(RussianRecognition.cyrillicAudioReading(original: original, reread: "Мы там.", language: language,
+                heard: "мы проверяем нашу кнопку", vocabulary: ""), .source)
+        }
+        XCTAssertNil(RussianRecognition.cyrillicAudioReading(original: original, reread: "Мы проверяем нашу кнопку.",
+            language: "Russian", heard: nil, vocabulary: ""))
+        XCTAssertNil(RussianRecognition.cyrillicAudioReading(original: "«Дарія».", reread: "Дарья.", language: "Russian", heard: "Дарья", vocabulary: ""))
+        XCTAssertNil(RussianRecognition.cyrillicAudioReading(original: "Дарія.", reread: "Дарья.", language: "Russian", heard: "Дарья", vocabulary: "Дарія"))
+        XCTAssertEqual(RussianRecognition.cyrillicAudioReading(original: "Дарія.", reread: "Mario.", language: "Italian", heard: "Дальше.", vocabulary: ""), .disputed)
+        let heard = "В новом каталоге."
+        XCTAssertEqual(RussianRecognition.cyrillicAudioReading(original: "В новом каталоґі.", reread: "В новом каталоги.",
+            language: "Russian", heard: heard, vocabulary: "", isolatedPrimary: { heard }), .russian(heard))
+    }
+
+    func testIndependentReadingsCanConfirmLocalEditsBesideADisputedTerm() {
+        let source = "А ми всі папки открыли. Ну все новые папки ми открыли для Ивана, а не для отчёта после обеда."
+        let heard = "А мы все папки открыли, ну, все новые папки мы открыли для Ивана, а не для отчёта после обеда."
+        let checked = "А мы все палки открыли, ну все новые палки мы открыли для Ивана, а не для отсчёта после обеда."
+        func decide(_ reread: String, language: String = "Russian") -> RussianRecognition.CyrillicAudioReading? {
+            RussianRecognition.cyrillicAudioReading(original: source, reread: reread, language: language, heard: heard, vocabulary: "")
+        }
+        let expected = "А мы все папки открыли. Ну все новые папки мы открыли для Ивана, а не для отчёта после обеда."
+        XCTAssertEqual(decide(checked), .russian(expected))
+        XCTAssertEqual(decide(checked.replacingOccurrences(of: "палки мы", with: "палки вы")),
+            .russian(expected.replacingOccurrences(of: "папки мы", with: "папки ми")))
+        XCTAssertEqual(decide(source, language: "Ukrainian"), .source)
+    }
+
+    func testPartialCyrillicReadingRequiresCoverageAndACorroboratedSpellingChange() {
+        func decision(_ source: String, _ qwen: String, _ giga: String) -> RussianRecognition.CyrillicAudioReading? {
+            RussianRecognition.cyrillicAudioReading(original: source, reread: qwen, language: "Russian", heard: giga, vocabulary: "")
+        }
+        XCTAssertNil(decision("Давайте обсудим сьогодні розклад роботи нашої крамниці біля вокзалу.",
+            "Давайте обсудим сегодня проект нового магазина около большой станции.",
+            "Давайте обсудим завтра отчёт старого склада после рабочей встречи."))
+        XCTAssertNil(decision("Давайте сегодня подробно обсудим план роботи біля вокзалу.",
+            "Давайте сегодня подробно обсудим план нового магазина завтра.",
+            "Давайте сегодня подробно обсудим план летнего отпуска позже."))
+        XCTAssertNil(decision("Ми перевіряємо нову пропозицію місцевої крамниці біля нашого вокзалу.",
+            "Мы проверяем новую концепцию небольшого магазина около большой станции.",
+            "Мы проверяем новую систему оплаты билетов после рабочей встречи."))
+
+        let qwen = "Мы проверили новую витрину вечером.", giga = "мы проверили новую витрину утром"
+        XCTAssertEqual(decision("Мі перевірили нову вітрину сьогодні.", qwen, giga), .russian("Мы проверили новую витрину…"))
+        for source in ["Мі перевірили нову вітрину три рази.", "Мі перевірили нову вітрину 3 рази.",
+                       "Мі перевірили нову вітрину. Лариса зателефонує."] {
+            XCTAssertNil(decision(source, qwen, giga), source)
+        }
+    }
+
     func testLocalScriptSpellingUsesTheSameSpokenPairAcrossBothIndependentReadings() throws {
         for (source, acoustic, checked, expected) in [
             ("Нам нужен точно ізмеримый результат.", "нужен измеримый результат",

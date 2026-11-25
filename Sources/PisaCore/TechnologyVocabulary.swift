@@ -256,8 +256,11 @@ struct TechnologyVocabulary {
     }
 
     static func isCanonical(_ term: String) -> Bool {
+        isCuratedTerm(term) || TechnologyCompanyVocabulary.isCanonical(term)
+    }
+
+    static func isCuratedTerm(_ term: String) -> Bool {
         (index[words(in: term).first ?? ""] ?? []).contains { $0.term == term }
-            || TechnologyCompanyVocabulary.isCanonical(term)
     }
 
     static func canonicalNumericSpelling(_ term: String) -> String? {

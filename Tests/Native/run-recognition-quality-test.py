@@ -49,6 +49,7 @@ def synthetic_corpus(root):
         ("json-and-name", "Джейсон предложил сохранить ответ в формате JSON. Потом Джейсон прислал файл.", 166, ""),
         ("cyrillic-acronym", "Мы познакомились с руководителем ЦРТС. Мы можем сделать встречу.", 170, "ЦРТС, Анжела"),
         ("cyrillic-name", "Обсудим с Анжелой детали и вернёмся с ответом.", 170, "ЦРТС, Анжела"),
+        ("spoken-subtitle-credit", "Субтитры сделал Михаил.", 170, ""),
     ]
     fixtures = []
     for name, reference, rate, context in phrases:
@@ -89,7 +90,7 @@ def synthetic_corpus(root):
     anchor = next(fixture for fixture in fixtures if fixture["name"] == "numeric-vocabulary")
     replies = [(f"english-reply-{index}", reply, {"Okay.": "Окей.", "Yes.": "Да.", "Sorry.": "Сорри."}.get(reply, reply), "Samantha", "2ГИС")
                for index, reply in enumerate(["Thank you.", "All right.", "And what?", "Friends.", "Okay.", "Yes.",
-                                               "Sorry.", "Sorry, I cannot attend the meeting today."])]
+                                               "Sorry.", "Sorry, I cannot attend the meeting today.", "Exactly.", "Let's eat."])]
     replies.append(("short-dictionary-name", "Конфлюенс.", "Confluence.", "Milena (Russian (Russia))", "2ГИС, Confluence"))
     for name, spoken, reply, voice, context in replies:
         aiff, wav = root / f"{name}.aiff", root / f"{name}.wav"

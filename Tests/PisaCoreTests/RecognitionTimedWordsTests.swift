@@ -2,6 +2,16 @@ import XCTest
 @testable import PisaCore
 
 final class RecognitionTimedWordsTests: XCTestCase {
+    func testIsolatedWordTimesAreStoredRelativeToThePaddedAudio() {
+        let evidence = RecognitionAcousticResult(text: "Мы здесь.", words: [
+            .init(text: "Мы", start: 0, end: 0.125), .init(text: "здесь", start: 0.125, end: 0.75)])
+        let shifted = evidence.offsettingWords(by: 0.25)
+        XCTAssertEqual(shifted.text, evidence.text)
+        XCTAssertEqual(shifted.words, [.init(text: "Мы", start: 0.25, end: 0.375),
+                                       .init(text: "здесь", start: 0.375, end: 1)])
+        XCTAssertEqual(evidence.offsettingWords(by: 0).words, evidence.words)
+    }
+
     func testSentencePieceAndPunctuationMatchOriginalWords() {
         let words = RecognitionTimedWords.map(text: "Привет, мир!", tokens: ["▁При", "вет", ",", "▁мир", "!"],
             timestamps: [0.1, 0.3, 0.5, 0.7, 1.1], duration: 1.3)

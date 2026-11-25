@@ -3,6 +3,14 @@ import Foundation
 struct RecognitionAcousticResult: Codable {
     let text: String
     let words: [RecognitionTimedWord]
+
+    /// Put an isolated read's word times back on its parent audio interval.
+    func offsettingWords(by offset: Double) -> Self {
+        guard offset != 0 else { return self }
+        return Self(text: text, words: words.map {
+            RecognitionTimedWord(text: $0.text, start: $0.start + offset, end: $0.end + offset)
+        })
+    }
 }
 
 struct RecognitionTimedWord: Equatable, Codable {

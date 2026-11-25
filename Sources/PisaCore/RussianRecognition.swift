@@ -257,6 +257,240 @@ enum RussianRecognition {
         })
     }
 
+    /// Dialogue only. Quotes, paths, abbreviations with digits and mixed-script
+    /// names have other contracts and cannot license an edit to the whole turn.
+    static func isCyrillicSpeech(_ text: String) -> Bool {
+        ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text)
+            && text.unicodeScalars.allSatisfy {
+                (0x400...0x52F).contains($0.value) || CharacterSet.whitespacesAndNewlines.contains($0)
+                    || ",.!?…-‐‑–—".unicodeScalars.contains($0)
+            }
+            && TranscriptOrthography.literalRanges(in: text).isEmpty
+    }
+
+    enum CyrillicAudioReading: Equatable {
+        case source, russian(String), disputed
+    }
+
+    /// Compare the exact same unprompted audio in a multilingual and a Russian
+    /// decoder. A sentence can start or end with the damaged span. Every edit
+    /// must agree in its own position even when other parts of the two reads differ.
+    static func cyrillicAudioReading(original: String, reread: String, language: String?,
+                                     heard: String?, vocabulary: String, isolatedPrimary: () -> String? = { nil }) -> CyrillicAudioReading? {
+        guard isCyrillicSpeech(original) else { return nil }
+        let detected = language?.lowercased()
+        if (["ukrainian", "belarusian"].contains(detected ?? "") && reread.unicodeScalars.contains(where: { (0x400...0x52F).contains($0.value) }))
+            || BackchannelLanguage.confirmsCyrillicSource(original: original, reread: reread, language: language) { return .source }
+        guard let heard, !heard.isEmpty else { return nil }
+        if detected != "russian", let detected, detected != "none", !reread.isEmpty,
+           words(original).count == 1, BackchannelLanguage.isLatinSpeech(reread),
+           ParakeetRecognitionPolicy.hasRussianTextEvidence(heard),
+           preservesVocabulary(candidate: "", original: original, vocabulary: vocabulary) { return .disputed }
+        guard detected == "russian", !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(reread),
+              !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(heard),
+              ParakeetRecognitionPolicy.hasRussianTextEvidence(reread), ParakeetRecognitionPolicy.hasRussianTextEvidence(heard),
+              TranscriptOrthography.literalRanges(in: reread).isEmpty else { return nil }
+        var verifiedText = reread
+        let read = words(reread), acoustic = words(heard)
+        if read.count >= 2, read.count == acoustic.count {
+            let different = read.indices.filter { read[$0] != acoustic[$0] }
+            if different.count == 1, let i = different.first, min(read[i].count, acoustic[i].count) >= 5,
+               distance(read[i], acoustic[i]) <= 2, let primary = isolatedPrimary(),
+               words(primary) == acoustic { verifiedText = primary }
+        }
+        let source = tokens(in: original), checked = tokens(in: verifiedText)
+        guard (1...100).contains(source.count), (1...120).contains(checked.count), !acoustic.isEmpty else { return nil }
+        let before = source.map(\.key)
+        var after = checked.map(\.key)
+        let protected = TranscriptOrthography.glossaryRanges(in: original, vocabulary: vocabulary,
+            range: NSRange(original.startIndex..., in: original))
+        let originalAnchors = alignedWords(before, after)
+        let anchors: [(Int, Int)]
+        if before.count >= 4, before.count == after.count, after.count == acoustic.count,
+           originalAnchors.allSatisfy({ $0.0 == $0.1 }),
+           before.indices.filter({ before[$0] == acoustic[$0] }).count * 2 > before.count,
+           after.indices.filter({ after[$0] == acoustic[$0] }).count * 4 >= after.count * 3,
+           [before, after].allSatisfy({ alignedWords($0, acoustic).allSatisfy { $0.0 == $0.1 } }) {
+            // The primary and acoustic model can agree on a term next to the
+            // damage while the multilingual model misses one letter. Keep
+            // that word from the source as a boundary, never as a replacement.
+            for i in before.indices where before[i] == acoustic[i] && before[i] != after[i]
+                && min(before[i].count, after[i].count) >= 4 && withinOneEdit(before[i], after[i]) {
+                after[i] = before[i]
+            }
+            anchors = before.indices.compactMap { before[$0] == after[$0] ? ($0, $0) : nil }
+        } else {
+            anchors = originalAnchors
+        }
+        let edges = [(-1, -1)] + anchors + [(before.count, after.count)]
+        // A shared-alphabet syllable can repeat both beside and apart from
+        // the visibly damaged word. Reuse only a positionally verified pair.
+        var repeatedPairs = Set<[String]>()
+        for (left, right) in zip(edges, edges.dropFirst()) {
+            let old = (left.0 + 1)..<right.0, new = (left.1 + 1)..<right.1
+            guard old.count == new.count, old.count > 1, before[old].contains(where: ParakeetRecognitionPolicy.hasDistinctCyrillicLetters),
+                  acoustic.indices.contains(where: { acoustic[$0...].starts(with: after[new]) }) else { continue }
+            for (a, b) in zip(before[old], after[new]) where a.count <= 3 && withinOneEdit(a, b) {
+                repeatedPairs.insert([a, b])
+            }
+        }
+        let result = NSMutableString(string: original)
+        let sensitive: Set<String> = ["не", "ни", "ні", "нет", "нельзя", "никогда", "без", "или", "либо"]
+        func unique(_ phrase: ArraySlice<String>, in words: [String]) -> Bool {
+            words.indices.filter { words[$0...].starts(with: phrase) }.count == 1
+        }
+        func cased(_ replacement: String, like sourceWord: String) -> String {
+            guard let first = replacement.first, sourceWord.first?.isUppercase == true else { return replacement }
+            return first.uppercased() + replacement.dropFirst()
+        }
+        for (left, right) in zip(edges, edges.dropFirst()).reversed() {
+            let old = (left.0 + 1)..<right.0, new = (left.1 + 1)..<right.1
+            guard !old.isEmpty, !new.isEmpty else { continue }
+            let originalWord = before[old.lowerBound], checkedWord = after[new.lowerBound]
+            let shortFunction = old.count == 1 && new.count == 1 && repeatedPairs.contains([originalWord, checkedWord])
+            // Both decoders may join a detached без- prefix to the damaged
+            // following word. A separate negative particle remains protected.
+            let joinedPrefix = old.count == 2 && new.count == 1 && originalWord == "без"
+                && (checkedWord.hasPrefix("бес") || checkedWord.hasPrefix("без")) && checkedWord.count >= 7
+                && distance(russianLetters(before[old].joined()), checkedWord) <= 3
+            guard shortFunction || before[old].contains(where: ParakeetRecognitionPolicy.hasDistinctCyrillicLetters),
+                  joinedPrefix || before[old].filter(sensitive.contains) == after[new].filter(sensitive.contains),
+                  before[old].filter(RecognitionConsensus.isNumberWord) == after[new].filter(RecognitionConsensus.isNumberWord),
+                  after[new].allSatisfy(isCyrillic),
+                  abs(old.count - new.count) <= max(2, old.count / 2) else { continue }
+            let oldRange = source[old.lowerBound].range.lowerBound..<source[old.upperBound - 1].range.upperBound
+            let newRange = checked[new.lowerBound].range.lowerBound..<checked[new.upperBound - 1].range.upperBound
+            let nsRange = NSRange(oldRange, in: original)
+            guard !protected.contains(where: { NSIntersectionRange($0, nsRange).length > 0 }),
+                  [original[oldRange], verifiedText[newRange]].allSatisfy({ $0.allSatisfy { letter in
+                      letter.isLetter || letter.isWhitespace || ",-‐‑".contains(letter)
+                  } }),
+                  !old.contains(where: { i in
+                      guard source[i].text.first?.isUppercase == true, i > 0 else { return false }
+                      return !original[source[i - 1].range.upperBound..<source[i].range.lowerBound].contains(where: { ".!?…".contains($0) })
+                  }) else { continue }
+            let leftWidth = left.0 >= 0 ? 1 : 0, rightWidth = right.0 < source.count ? 1 : 0
+            let phrase = after[(new.lowerBound - leftWidth)..<(new.upperBound + rightWidth)]
+            // Without an anchor on one side, the two reads must place the
+            // changed phrase on the same physical edge of the turn.
+            guard unique(before[(old.lowerBound - leftWidth)..<(old.upperBound + rightWidth)], in: before),
+                  unique(phrase, in: after), unique(phrase, in: acoustic),
+                  leftWidth > 0 || acoustic.starts(with: phrase),
+                  rightWidth > 0 || acoustic.suffix(phrase.count).elementsEqual(phrase) else { continue }
+            if leftWidth == 0 && rightWidth == 0 {
+                guard acoustic == after, similarLength(before, after) else { continue }
+            }
+            // Keep the source's commas, hesitations and emphasis when tokens align.
+            if old.count == new.count {
+                for (i, j) in zip(old, new).reversed() where before[i] != after[j] {
+                    result.replaceCharacters(in: NSRange(source[i].range, in: original),
+                        with: cased(checked[j].text, like: source[i].text))
+                }
+            } else {
+                result.replaceCharacters(in: nsRange, with: cased(String(verifiedText[newRange]), like: source[old.lowerBound].text))
+            }
+        }
+        let repaired = result as String
+        let named = source.indices.dropFirst().contains { i in
+            source[i].text.first?.isUppercase == true
+                && !original[source[i - 1].range.upperBound..<source[i].range.lowerBound].contains(where: { ".!?…".contains($0) })
+        }
+        if ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(repaired), source.count >= 4, protected.isEmpty, !named,
+           let partial = corroboratedCyrillicFragments(source: source, read: verifiedText, checked: checked, acoustic: acoustic,
+                sensitive: sensitive), preservesVocabulary(candidate: partial, original: original, vocabulary: vocabulary) {
+            return .russian(partial)
+        }
+        if repaired != original { return .russian(repaired) }
+        // Keep an entire substantive sentence available for narrower repairs.
+        // Only a disputed, isolated word can become unclear in Russian context.
+        return source.count == 1 && protected.isEmpty ? .disputed : nil
+    }
+
+    private static func alignedWords(_ left: [String], _ right: [String]) -> [(Int, Int)] {
+        let difference = right.difference(from: left)
+        let removed = Set(difference.removals.compactMap { if case .remove(let i, _, _) = $0 { return i }; return nil })
+        let inserted = Set(difference.insertions.compactMap { if case .insert(let i, _, _) = $0 { return i }; return nil })
+        return Array(zip(left.indices.filter { !removed.contains($0) }, right.indices.filter { !inserted.contains($0) }))
+    }
+
+    private static func corroboratedCyrillicFragments(source: [Token], read: String, checked: [Token],
+                                                      acoustic: [String], sensitive: Set<String>) -> String? {
+        let original = source.map(\.key), keys = checked.map(\.key)
+        guard similarLength(original, keys), similarLength(acoustic, keys), keys.allSatisfy(isCyrillic) else { return nil }
+        // Retain an original Russian word which the multilingual decoder
+        // also heard unchanged when the acoustic decoder differs only in its
+        // ending beside a shared anchor. This word is never a new insertion.
+        let sourceAlignment = alignedWords(original, keys)
+        let sourceMatches = Set(sourceAlignment.map { $0.1 })
+        var comparable = acoustic
+        for (a, b) in alignedWords(keys, acoustic) {
+            for direction in [-1, 1] {
+                let k = a + direction, h = b + direction
+                guard keys.indices.contains(k), acoustic.indices.contains(h), sourceMatches.contains(k),
+                      keys[k] != acoustic[h], keys[k].count >= 5, keys[k].prefix(4) == acoustic[h].prefix(4),
+                      withinOneEdit(keys[k], acoustic[h]), TranscriptTerms.isCommonRussianWord(keys[k]),
+                      TranscriptTerms.isCommonRussianWord(acoustic[h]) else { continue }
+                comparable[h] = keys[k]
+            }
+        }
+        let pairs = alignedWords(keys, comparable)
+        var runs: [[(Int, Int)]] = []
+        for pair in pairs {
+            if let last = runs.last?.last, pair.0 == last.0 + 1 && pair.1 == last.1 + 1 {
+                runs[runs.count - 1].append(pair)
+            } else { runs.append([pair]) }
+        }
+        let confirmed = runs.filter { run in
+            let phrase = run.map { keys[$0.0] }
+            let content = phrase.contains { $0.count >= 4 && TranscriptTerms.isCommonRussianWord($0) }
+                || (phrase.count >= 3 && phrase.allSatisfy(TranscriptTerms.isCommonRussianWord))
+            let quantity = phrase.contains(where: RecognitionConsensus.isNumberWord)
+            return (phrase.count >= 2 && content || quantity)
+                && [keys, comparable].allSatisfy { sequence in sequence.indices.filter { sequence[$0...].starts(with: phrase) }.count == 1 }
+        }
+        guard let first = confirmed.first?.first, let last = confirmed.last?.last,
+              confirmed.contains(where: { $0.count >= 3 || ($0.count == 2 && $0.first?.0 == 0 && $0.first?.1 == 0) }) else { return nil }
+        let retained = confirmed.flatMap { $0.map { $0.0 } }
+        guard retained.count * 2 > max(original.count, max(keys.count, acoustic.count)) else { return nil }
+        // An unchanged introduction can be heard perfectly even when the decoders
+        // disagree about every damaged word. Require a corroborated spelling in
+        // the corresponding gap of the source, before discarding any of its words.
+        let edges = [(-1, -1)] + sourceAlignment + [(original.count, keys.count)]
+        let repairsSpelling = zip(edges, edges.dropFirst()).contains { left, right in
+            let old = (left.0 + 1)..<right.0, new = (left.1 + 1)..<right.1
+            return retained.contains { i in
+                new.contains(i) && old.contains { j in
+                    let word = original[j]
+                    let length = min(word.count, keys[i].count)
+                    guard length >= 3, ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(word),
+                          old.count != new.count || i - new.lowerBound == j - old.lowerBound else { return false }
+                    let tolerance = min(4, (length - 1) / 2)
+                    return abs(word.count - keys[i].count) <= tolerance && distance(russianLetters(word), keys[i]) <= tolerance
+                }
+            }
+        }
+        guard repairsSpelling else { return nil }
+        let kept = retained.map { keys[$0] }
+        let names = Set(source.filter { $0.text.first?.isUppercase == true && TranscriptTerms.isKnownEntityForm($0.key) }.map(\.key))
+        let important: (String) -> Bool = { sensitive.contains($0) || RecognitionConsensus.isNumberWord($0) || names.contains($0) }
+        guard original.filter(important) == kept.filter(important),
+              original.filter({ $0.count >= 4 && keys.contains($0) && TranscriptTerms.isCommonRussianWord($0) }).allSatisfy(kept.contains)
+        else { return nil }
+        var pieces = confirmed.map { run in
+            String(read[checked[run[0].0].range.lowerBound..<checked[run[run.count - 1].0].range.upperBound])
+        }
+        let missingStart = first.0 > 0 || first.1 > 0
+        let missingEnd = last.0 + 1 < keys.count || last.1 + 1 < acoustic.count
+        guard pieces.count > 1 || missingStart || missingEnd else { return nil }
+        if missingStart {
+            if first.0 == 0, first.1 == 1, let leading = original.first, acoustic.first == leading,
+               AbbreviationFamilies.isRussianFunctionWord(leading), !sensitive.contains(leading) {
+                pieces[0] = leading.capitalized + " " + pieces[0].prefix(1).lowercased() + pieces[0].dropFirst()
+            } else { pieces[0] = "… " + pieces[0] }
+        }
+        return pieces.joined(separator: " … ") + (missingEnd ? "…" : "")
+    }
+
     /// A clipped beginning can differ between decoders while both agree on
     /// the damaged word and each of its immediate neighbors.
     static func shortCyrillicSpelling(original: String, reread: String, heard: String) -> String? {
@@ -1112,12 +1346,20 @@ extension RussianRecognition {
     struct EmbeddedLatinRepair {
         fileprivate var original: String
         fileprivate var span: Range<String.Index>
-        fileprivate var left: String
-        fileprivate var right: String
-        fileprivate var heard: [String]
+        fileprivate enum Evidence {
+            case phrase(left: String, right: String, heard: [String])
+            case word(index: Int, heard: String)
+        }
+        fileprivate var evidence: Evidence
 
         func confirmedText(language: String?, reread: String) -> String? {
-            guard language?.lowercased() == "russian",
+            guard language?.lowercased() == "russian" else { return nil }
+            if case let .word(index, heard) = evidence {
+                guard let word = singleRussianWord(in: reread, matching: tokens(in: original), at: index),
+                      word.key == heard else { return nil }
+                return original.replacingCharacters(in: span, with: word.text)
+            }
+            guard case let .phrase(left, right, heard) = evidence,
                   let phrase = anchoredRussianPhrase(in: reread, left: left, right: right) else { return nil }
             let candidate = tokens(in: phrase)
             guard candidate.count == heard.count else { return nil }
@@ -1148,8 +1390,10 @@ extension RussianRecognition {
     }
 
     static func embeddedLatinRepair(original: String, heard: String, vocabulary: String) -> EmbeddedLatinRepair? {
+        guard original.utf8.contains(where: { (65...90).contains($0) || (97...122).contains($0) }) else { return nil }
         let full = NSRange(original.startIndex..., in: original)
         let matches = embeddedLatin.matches(in: original, range: full)
+        if matches.isEmpty { return singleEmbeddedLatinRepair(original: original, heard: heard, vocabulary: vocabulary) }
         guard matches.count == 1, let match = matches.first,
               let span = Range(match.range(at: 2), in: original),
               let leftRange = Range(match.range(at: 1), in: original),
@@ -1169,7 +1413,75 @@ extension RussianRecognition {
         // Exclude only these isolated sounds, keeping particles and negation.
         let evidence = words(phrase).filter { !["э", "ээ", "эм", "м"].contains($0) }
         guard (4...24).contains(evidence.count) else { return nil }
-        return EmbeddedLatinRepair(original: original, span: span, left: left, right: right, heard: evidence)
+        return EmbeddedLatinRepair(original: original, span: span, evidence: .phrase(left: left, right: right, heard: evidence))
+    }
+
+    struct FormattedLatinWord {
+        fileprivate let original: String
+        fileprivate let primaryWord: String
+        fileprivate let index: Int
+        fileprivate let vocabulary: String
+
+        func proposal(heard: String) -> EmbeddedLatinRepair? {
+            guard let word = singleRussianWord(in: heard, matching: tokens(in: original), at: index),
+                  withinOneEdit(russianLetters(primaryWord), word.key) else { return nil }
+            return singleEmbeddedLatinRepair(original: original, heard: heard, vocabulary: vocabulary, formattedIndex: index)
+        }
+    }
+
+    /// The glossary formatter, rather than the recognizer, can introduce a
+    /// Latin name. Compare the unformatted word with the actual clip before
+    /// considering that spelling established.
+    static func formattedLatinWord(primary: String, formatted: String, vocabulary: String) -> FormattedLatinWord? {
+        guard primary != formatted, formatted.utf8.contains(where: { (65...90).contains($0) || (97...122).contains($0) }) else { return nil }
+        let raw = tokens(in: primary), rendered = tokens(in: formatted)
+        guard raw.count >= 3, raw.count == rendered.count else { return nil }
+        let changes = raw.indices.filter { raw[$0].key != rendered[$0].key }
+        guard changes.count == 1, let index = changes.first, index > 0, index + 1 < raw.count,
+              raw[index].key.count >= 4, isCyrillic(russianLetters(raw[index].key)),
+              rendered[index].key.utf8.allSatisfy({ (97...122).contains($0) }) else { return nil }
+        let phrases = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n")).map(words)
+        guard phrases.contains([rendered[index].key]) else { return nil }
+        let protected = TranscriptOrthography.literalRanges(in: primary)
+            + TranscriptOrthography.glossaryRanges(in: primary, vocabulary: vocabulary, range: NSRange(primary.startIndex..., in: primary))
+        guard !protected.contains(where: { NSIntersectionRange($0, NSRange(raw[index].range, in: primary)).length > 0 }) else { return nil }
+        return FormattedLatinWord(original: formatted, primaryWord: raw[index].key, index: index, vocabulary: vocabulary)
+    }
+
+    /// A single title-case Latin word can be a real name. Require the two
+    /// audio reads to agree on the word and every Russian word around it.
+    private static func singleEmbeddedLatinRepair(original: String, heard: String, vocabulary: String,
+                                                 formattedIndex: Int? = nil) -> EmbeddedLatinRepair? {
+        let source = tokens(in: original)
+        guard formattedIndex != nil || (4...12).contains(source.count) else { return nil }
+        let foreign = source.indices.filter { !isCyrillic(source[$0].key) }
+        guard foreign.count == 1, let index = foreign.first, index > 0, index + 1 < source.count else { return nil }
+        let token = source[index]
+        let introduced = formattedIndex == index
+        guard token.key.count >= 3, token.key.utf8.allSatisfy({ (97...122).contains($0) }),
+              introduced || (token.text.dropFirst().allSatisfy(\.isLowercase) && !TechnologyVocabulary.isCuratedTerm(token.text)),
+              original[source[index - 1].range.upperBound..<token.range.lowerBound].allSatisfy(\.isWhitespace),
+              original[token.range.upperBound..<source[index + 1].range.lowerBound].allSatisfy(\.isWhitespace),
+              let word = singleRussianWord(in: heard, matching: source, at: index),
+              TranscriptTerms.isCommonRussianWord(word.key), !RecognitionConsensus.isNumberWord(word.key),
+              !AbbreviationFamilies.isRussianFunctionWord(word.key), !TranscriptTerms.isKnownEntityForm(word.key),
+              let romanized = word.key.applyingTransform(.toLatin, reverse: false)?.applyingTransform(.stripDiacritics, reverse: false),
+              !withinOneEdit(romanized, token.key) else { return nil }
+        let protected = TranscriptOrthography.literalRanges(in: original) + TranscriptOrthography.glossaryRanges(
+            in: original, vocabulary: vocabulary, range: NSRange(original.startIndex..., in: original),
+            minimumWordCount: introduced ? 2 : 1)
+        let range = NSRange(token.range, in: original)
+        guard !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }),
+              !TechnologyVocabulary.hasPrecedingCompanyCue(in: original, before: range, protecting: protected) else { return nil }
+        return EmbeddedLatinRepair(original: original, span: token.range, evidence: .word(index: index, heard: word.key))
+    }
+
+    private static func singleRussianWord(in reading: String, matching source: [Token], at index: Int) -> Token? {
+        let checked = tokens(in: reading)
+        guard checked.count == source.count, source.indices.allSatisfy({ $0 == index || checked[$0].key == source[$0].key }),
+              checked[index].key.count >= 4, isCyrillic(checked[index].key), checked[index].text.dropFirst().allSatisfy(\.isLowercase),
+              TranscriptOrthography.literalRanges(in: reading).isEmpty else { return nil }
+        return checked[index]
     }
 
     private static func anchoredRussianPhrase(in text: String, left: String, right: String) -> String? {
