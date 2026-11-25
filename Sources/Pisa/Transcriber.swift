@@ -5,6 +5,7 @@ import MLXAudioSTT
 
 /// All inference stays on one actor. A model is released after each meeting.
 actor Transcriber {
+    private typealias IsolatedScriptReading = RecognitionContext.ContextualScriptRepair.IsolatedReading
     enum WindowBoundaryCheck: Sendable {
         case lookahead(LiveTranscriptionSchedule.Window)
         case nominal(LiveTranscriptionSchedule.Window, isMic: Bool)
@@ -217,6 +218,7 @@ actor Transcriber {
             }
         } else { checkpoint = nil }
         let firstPass = checkpoint?.recognition ?? BatchTranscriptionCheckpoint.FirstPass()
+        var scriptReadings: [UUID: IsolatedScriptReading] = [:]
         var committedSegmentCount = firstPass.segments.count
         defer {
             if Task.isCancelled, let checkpoint, let checkpointURL {
@@ -488,10 +490,12 @@ actor Transcriber {
                                 expandedSamples = expanded.map { Array(samples[$0]) }
                             } else { expandedSamples = nil }
                             let inferenceStarted = ContinuousClock.now
+                            var scriptReading: IsolatedScriptReading?
                             let recognized = try await recognize(regionSamples, speechStart: region.start - Double(lower) / 16000,
                                 expandedSamples: expandedSamples, model: model,
                                 russian: russian, vocabulary: context, duration: region.end - region.start, isMic: isMic,
-                                diagnostic: collectDiagnostics ? (speech.lowerBound, url.lastPathComponent) : nil)
+                                diagnostic: collectDiagnostics ? (speech.lowerBound, url.lastPathComponent) : nil,
+                                saveScriptReading: { scriptReading = $0 })
                             try await performance.pace(after: inferenceStarted)
                             guard let recognized else { continue }
                             let speaker = isMic ? "Я" : TranscriptSegment.unidentifiedSpeaker
@@ -510,6 +514,7 @@ actor Transcriber {
                                 segment.embeddingDuration = evidence?.duration
                             }
                             recognized.recordEvidence(for: segment.id, in: firstPass)
+                            scriptReadings[segment.id] = scriptReading
                             firstPass.bounds[segment.id] = (start + Double(lower) / 16000)..<(start + Double(upper) / 16000)
                             if let gap = region.recoveryRange {
                                 firstPass.recoveredAudio[segment.id] = .init(
@@ -555,7 +560,7 @@ actor Transcriber {
         if contextualVerification {
             sorted = try await contextualRevision(sorted, preceding: preceding,
                 files: preparedFiles, bounds: firstPass.bounds, hypotheses: firstPass.hypotheses, model: model, russian: russian,
-                vocabulary: context,
+                vocabulary: context, scriptReadings: scriptReadings,
                 performance: performance, collectDiagnostics: collectDiagnostics,
                 checkpoint: checkpoint, checkpointURL: checkpointURL, progress: report)
         }
@@ -703,6 +708,7 @@ actor Transcriber {
         var segments = frozen.sorted { $0.start < $1.start }
         var bounds = suppliedBounds
         let firstPass = BatchTranscriptionCheckpoint.FirstPass()
+        var scriptReadings: [UUID: IsolatedScriptReading] = [:]
         for (url, offset) in files {
             let name = url.lastPathComponent
             let track = segments.indices.filter { segments[$0].audioFile == name }
@@ -720,7 +726,8 @@ actor Transcriber {
                    let recognized = try await recognize(samples, speechStart: segment.start - offset - interval.lowerBound,
                                                   expandedSamples: nil, model: model, russian: russian,
                                                   vocabulary: vocabulary, duration: segment.end - segment.start,
-                                                  isMic: name.contains("-mic."), diagnostic: (segment.start, name)) {
+                                                  isMic: name.contains("-mic."), diagnostic: (segment.start, name),
+                                                  saveScriptReading: { scriptReadings[segment.id] = $0 }) {
                     segments[index].text = recognized.text
                     segments[index].independentRecognitionLanguage = recognized.independentLanguage
                     recognized.recordEvidence(for: segment.id, in: firstPass)
@@ -732,7 +739,7 @@ actor Transcriber {
         firstPass.segments = segments
         let revised = try await contextualRevision(segments, preceding: [], files: files, bounds: bounds,
             hypotheses: firstPass.hypotheses, model: model, russian: russian, vocabulary: vocabulary,
-            performance: TranscriptionPerformance(), collectDiagnostics: true, selected: selected) { _, _ in }
+            scriptReadings: scriptReadings, performance: TranscriptionPerformance(), collectDiagnostics: true, selected: selected) { _, _ in }
         let resolved = repeatFirstPass ? BackchannelLanguage.resolve(revised, evidence: firstPass, preceding: [], vocabulary: vocabulary) : revised
         return try await verifySubtitleCredits(resolved, files: files, model: model, russian: russian, vocabulary: vocabulary,
             performance: TranscriptionPerformance(), diagnostics: true, selected: selected)
@@ -817,7 +824,8 @@ actor Transcriber {
     /// correction never becomes evidence for a later correction in this pass.
     private func contextualRevision(_ segments: [TranscriptSegment], preceding: [TranscriptSegment],
         files: [(URL, Double)], bounds: [UUID: Range<Double>], hypotheses: [UUID: RecognitionAcousticResult], model: ParakeetRecognitionSession,
-        russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance, collectDiagnostics: Bool,
+        russian: RussianSpeechRecognizer?, vocabulary: String, scriptReadings: [UUID: IsolatedScriptReading],
+        performance: TranscriptionPerformance, collectDiagnostics: Bool,
         selected: Set<UUID>? = nil, checkpoint: BatchTranscriptionCheckpoint? = nil, checkpointURL: URL? = nil,
         progress: @escaping @Sendable (Double, String) async -> Void) async throws -> [TranscriptSegment] {
         let contextTiming = beginPerformanceInterval()
@@ -1021,7 +1029,8 @@ actor Transcriber {
                                duration: duration, sampleCount: core.count, includeAlreadyIsolated: true) {
                             isolated = range.count == core.count ? coreRead : autoRead(Array(core[range]))
                         }
-                        let candidate = repair.revised(acoustic: evidence, target: (start - lower)..<(end - lower),
+                        let interval = (start - lower)..<(end - lower)
+                        var candidate = repair.revised(acoustic: evidence, target: interval,
                             primary: primary, verifier: check.text, language: check.language,
                             isolated: isolated.map { ($0.text, $0.language) }, confirmWord: { range in
                                 guard let clip = SpeechCoverage.unpaddedTurn(start: range.lowerBound,
@@ -1030,6 +1039,21 @@ actor Transcriber {
                                 let local = autoRead(Array(wide[clip]))
                                 return (local.text, local.language)
                             })
+                        if candidate == nil, repair.scriptMismatch, repair.terms.isEmpty,
+                           let range = SpeechCoverage.unpaddedTurn(start: start - audioRange.lowerBound,
+                               duration: duration, sampleCount: core.count, minimumPadding: 0) {
+                            let sameAudio = range.count == core.count
+                            lazy var clip = sameAudio ? core : Array(core[range])
+                            candidate = repair.timedPrefix(acoustic: evidence, target: interval,
+                                primary: primary, verifier: check.text, language: check.language, exact: {
+                                    if let cached = scriptReadings[segment.id] { return cached }
+                                    guard let heard = acousticRecognition(clip, using: russian) else { return nil }
+                                    let decoded = isolated ?? (sameAudio ? coreRead : autoRead(clip))
+                                    return IsolatedScriptReading(acoustic: heard, verifier: decoded.text, language: decoded.language)
+                                }, exactPrimary: {
+                                    measureRecognition("parakeet") { model.generate(clip).text }
+                                })
+                        }
                         if collectDiagnostics {
                             contextDiagnostics.append(["kind": "wide-script", "start": String(segment.start),
                                 "source": segment.text, "independent": evidence.text, "primary": primary,
@@ -1408,7 +1432,8 @@ actor Transcriber {
     }
 
     private func recognize(_ samples: [Float], speechStart: Double, expandedSamples: [Float]?, model: ParakeetRecognitionSession, russian: RussianSpeechRecognizer?, vocabulary: String, duration: Double, isMic: Bool,
-                           diagnostic: (start: Double, track: String)? = nil) async throws -> RecognizedSpeech? {
+                           diagnostic: (start: Double, track: String)? = nil,
+                           saveScriptReading: (IsolatedScriptReading) -> Void = { _ in }) async throws -> RecognizedSpeech? {
         let recognitionTiming = beginPerformanceInterval()
         defer { endPerformanceInterval(recognitionTiming, kind: "recognizeTotal") }
         let maxTokens = min(768, max(64, Int(duration * 16)))
@@ -1455,6 +1480,7 @@ actor Transcriber {
                 let evidence = sameAudio ? spellingEvidence : acousticRecognition(core, using: russian)
                 do {
                     let reread = try await generate(language: nil, context: "", audioSamples: core)
+                    if let evidence { saveScriptReading(.init(acoustic: evidence, verifier: reread.text, language: reread.language)) }
                     let reading = RussianRecognition.cyrillicAudioReading(original: primaryText, reread: reread.text,
                         language: reread.language, heard: evidence?.text, vocabulary: vocabulary) {
                             sameAudio ? primaryText : measureRecognition("parakeet") { model.generate(core).text }

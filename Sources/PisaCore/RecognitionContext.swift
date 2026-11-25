@@ -255,7 +255,7 @@ struct RecognitionContext {
             let spelling = original.last?.replacingOccurrences(of: "і", with: "и")
             let incomplete = exact.count == 1 && exact[0].count >= 3 && !TranscriptTerms.isCommonRussianWord(exact[0])
                 && (key.hasPrefix(exact[0]) || key.hasSuffix(exact[0]) ||
-                    (exact[0].count >= 4 && key.contains(exact[0].dropLast())))
+                    (exact[0].count >= 4 && key.contains(String(exact[0].dropLast()))))
             guard exact == [key] || incomplete || (exact.isEmpty && spelling == key) else { return nil }
             let left = hasLeft ? Array(keys[..<i].suffix(4)) : [], right = hasRight ? Array(keys[(i + 1)...].prefix(4)) : []
             let oneSided = left.isEmpty || right.isEmpty
@@ -1940,6 +1940,116 @@ extension RecognitionContext {
             return (0...(text.count - phrase.count)).filter { text[$0..<($0 + phrase.count)].elementsEqual(phrase) }.count == 1
         }
 
+        struct IsolatedReading {
+            let acoustic: RecognitionAcousticResult
+            let verifier: String
+            let language: String?
+        }
+
+        /// Recover only the beginning of a turn. Agreement later in a padded
+        /// window can come from the next utterance, even on the same channel.
+        func timedPrefix(acoustic: RecognitionAcousticResult, target: Range<Double>, primary: String,
+                         verifier: String, language: String?, exact: () -> IsolatedReading?,
+                         exactPrimary: () -> String) -> String? {
+            guard scriptMismatch, terms.isEmpty, language?.lowercased() == "russian",
+                  RussianRecognition.isCyrillicSpeech(source),
+                  !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(verifier) else { return nil }
+            let tokens = RecognitionContext.tokens(acoustic.text)
+            guard tokens.map(\.text) == acoustic.words.map(\.text),
+                  let first = acoustic.words.firstIndex(where: {
+                      $0.start >= target.lowerBound - 0.15 && $0.end > target.lowerBound
+                  }), acoustic.words[first].start <= target.lowerBound + 0.3 else { return nil }
+            let indices = acoustic.words.indices[first...].prefix { acoustic.words[$0].start < target.upperBound - 0.03 }
+            let keys = indices.map { tokens[$0].key }
+            let wide = [normalized(primary), normalized(verifier)]
+            guard keys.count >= 2, let width = (2...keys.count).reversed().first(where: { count in
+                let prefix = Array(keys.prefix(count))
+                return prefix.allSatisfy(RecognitionContext.isRussianWord) && wide.allSatisfy { Self.containsOnce(prefix, in: $0) }
+            }), let core = exact(), core.language?.lowercased() == "russian",
+                  !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(core.verifier),
+                  !BackchannelLanguage.confirmsCyrillicSource(original: source, reread: core.verifier, language: core.language)
+            else { return nil }
+            let narrow = core.acoustic.words, narrowKeys = normalized(core.acoustic.text)
+            guard !narrow.isEmpty, RecognitionContext.tokens(core.acoustic.text).map(\.text) == narrow.map(\.text) else { return nil }
+            let checked = normalized(core.verifier)
+            var independentPrimary: [String]?
+            func supports(_ i: Int, in reading: [String]) -> Bool {
+                // An exact crop can omit its first short word. Anchor each
+                // match with an adjacent word, allowing a one-word displacement.
+                for a in [i - 1, i] where a >= 0 && a + 1 < width {
+                    let pair = Array(keys[a...a+1])
+                    if Self.containsOnce(pair, in: reading), reading.indices.contains(where: {
+                        abs($0 - a) <= 1 && reading[$0...].starts(with: pair)
+                    }) { return true }
+                }
+                return false
+            }
+            var count = 0
+            for i in 0..<width {
+                let word = acoustic.words[first + i], middle = (word.start + word.end) / 2 - target.lowerBound
+                let sites = narrow.indices.filter { abs((narrow[$0].start + narrow[$0].end) / 2 - middle) <= 0.25 }
+                let same = sites.contains { narrowKeys[$0] == keys[i] }
+                let qwen = supports(i, in: checked)
+                if !same || !qwen {
+                    if independentPrimary == nil { independentPrimary = normalized(exactPrimary()) }
+                    guard supports(i, in: independentPrimary ?? []) else { break }
+                }
+                if !same {
+                    guard qwen, keys[i].count >= 4, i > 0, i + 1 < keys.count, sites.contains(where: { j in
+                        j > 0 && j + 1 < narrow.count && narrowKeys[j - 1] == keys[i - 1] && narrowKeys[j + 1] == keys[i + 1]
+                            && narrowKeys[j].count == keys[i].count && narrowKeys[j].prefix(2) == keys[i].prefix(2)
+                            && RecognitionContext.editDistance(keys[i], narrowKeys[j]) <= 2
+                    }) else { break }
+                }
+                count += 1
+            }
+            let original = RecognitionContext.tokens(source), kept = Array(keys.prefix(count))
+            guard count >= 2 else { return nil }
+            let common = min(count, original.count)
+            let edits = (0..<common).filter { i in
+                let old = original[i].key
+                let folded = old.replacingOccurrences(of: "і", with: "и").replacingOccurrences(of: "є", with: "е")
+                    .replacingOccurrences(of: "ї", with: "и")
+                return ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(old) && min(old.count, kept[i].count) >= 3
+                    && !protectedKeys.contains(old) && !TranscriptTerms.isKnownEntityForm(old)
+                    && RecognitionContext.editDistance(folded, kept[i]) <= min(2, kept[i].count / 2)
+            }
+            guard let edit = edits.first else { return nil }
+            let last = first + count - 1
+            let strong = count >= 4 && count * 3 >= max(original.count, narrow.count) * 2
+                && acoustic.words[last].end - max(target.lowerBound, acoustic.words[first].start)
+                    >= (target.upperBound - target.lowerBound) * 2 / 3
+            if strong, count < narrow.count, count <= original.count + 3 {
+                let names = Set(original.enumerated().filter { i, token in
+                    token.text.first?.isUppercase == true && (i > 0 || TranscriptTerms.isKnownEntityForm(token.key)
+                        || (token.key.count >= 3 && !TranscriptTerms.isCommonRussianWord(token.key)))
+                }.map { $0.element.key })
+                let important: (String) -> Bool = { key in
+                    protectedKeys.contains(key) || names.contains(key) || RecognitionContext.markers.contains(key)
+                        || key == "ні" || RecognitionConsensus.isNumberWord(key) || key.contains(where: \.isNumber)
+                }
+                let old = original.map(\.key), attested = Set(wide.flatMap { $0 } + checked + narrowKeys)
+                let retain = old.filter { important($0) || ($0.count >= 3 && attested.contains($0)) }
+                var remaining = kept[...]
+                guard old.filter(important) == kept.filter(important) else { return nil }
+                for word in retain {
+                    guard let index = remaining.firstIndex(of: word) else { return nil }
+                    remaining = remaining[remaining.index(after: index)...]
+                }
+                let range = RecognitionContext.range(in: tokens, first..<(last + 1))
+                var prefix = String(acoustic.text[range])
+                if source.first?.isUppercase == true { prefix = prefix.prefix(1).uppercased() + prefix.dropFirst() }
+                return prefix + "…"
+            }
+            // A short opening licenses a spelling edit only at its own source
+            // position. Keep the rest, even if the two wider decoders diverge.
+            guard edits.count == 1, count <= original.count,
+                  (0..<count).allSatisfy({ $0 == edit || original[$0].key == kept[$0] }),
+                  !RecognitionContext.markers.contains(kept[edit]), !RecognitionConsensus.isNumberWord(kept[edit]),
+                  original[edit].text.first?.isLowercase == true else { return nil }
+            return source.replacingCharacters(in: original[edit].range, with: kept[edit])
+        }
+
         // The acoustic decoder can skip a short word beside a run of spelled
         // letters. Keep it only if both multilingual reads agree on the full
         // phrase. A one-letter competing abbreviation does not change the
@@ -2077,7 +2187,10 @@ extension RecognitionContext {
         let script = ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text)
         // An independent multilingual reading of the isolated turn already
         // confirmed this spelling. Neighbors can be in a different language.
-        if script, target.independentRecognitionLanguage == true { return nil }
+        if script, target.independentRecognitionLanguage == true || target.speakerEvidenceIsMixed == true
+            || byEnd[partition(byEnd) { $0.end <= target.start }...].contains(where: {
+                $0.segment.id != target.id && $0.segment.audioFile == target.audioFile && $0.segment.start < target.end
+            }) { return nil }
         let split = zip(words, words.dropFirst()).contains { a, b in
             min(a.text.count, b.text.count) == 1 && max(a.text.count, b.text.count) <= 3
                 && (a.text.first?.isUppercase == true || b.text.first?.isUppercase == true)

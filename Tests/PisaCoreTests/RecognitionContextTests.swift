@@ -186,6 +186,62 @@ final class RecognitionContextTests: XCTestCase {
         XCTAssertNil(confirm("Уже включаем эту.", primary: wide + " " + wide))
     }
 
+    func testTimedScriptPrefixRestoresOnlyAudioSupportedWords() throws {
+        let before = segment(2, 8, "Мы сегодня обсуждаем план работ.")
+        let original = "В новій студії ми зібрали нашу групу біля вікна."
+        let prefix = "В новой студии мы собрали нашу группу"
+        func timed(_ text: String, offset: Double) -> RecognitionAcousticResult {
+            .init(text: text, words: text.split(separator: " ").enumerated().map { i, word in
+                .init(text: String(word), start: offset + Double(i) * 0.3, end: offset + Double(i + 1) * 0.3)
+            })
+        }
+        func recover(_ source: String, narrow: String = "В новой студии мы сограли нашу группу перед перерывом",
+                     checked: String = "Новой студии мы собрали нашу группу после объявления",
+                     primary: String = "В новой студии мы собрали нашу группу после выступления",
+                     language: String = "Russian", offset: Double = 0) throws -> String? {
+            let target = segment(10, 12.7, source)
+            let plan = try XCTUnwrap(RecognitionContext(segments: [before, target]).scriptRepair(for: target, vocabulary: ""))
+            return plan.timedPrefix(acoustic: timed(prefix + " перед перерывом", offset: offset), target: 0..<2.7,
+                primary: "Раньше. " + prefix + " после выступления.", verifier: prefix + " затем разошлись.",
+                language: "Russian", exact: { .init(acoustic: timed(narrow, offset: 0), verifier: checked, language: language) },
+                exactPrimary: { primary })
+        }
+        XCTAssertEqual(try recover(original), prefix + "…")
+        XCTAssertNil(try recover(original, language: "Ukrainian"))
+        XCTAssertNil(try recover(original, language: "Belarusian"))
+        XCTAssertNil(try recover(original, offset: 3))
+        // The disputed word and the remaining tail cannot pass on either
+        // wide context or the exact multilingual verifier alone.
+        XCTAssertNotEqual(try recover(original, primary: "В новой студии мы открыли нашу группу."), prefix + "…")
+        for suffix in [" Ивана.", " пять.", " не.", " перерывом."] {
+            XCTAssertNil(try recover(original + suffix), suffix)
+        }
+    }
+
+    func testShortTimedScriptOpeningPreservesTheDisputedRemainderAndRejectsOverlap() throws {
+        let before = segment(1, 8, "Давайте теперь обсудим план работ.")
+        let target = segment(10, 13, "Мы собираєм ті речи біля вокзалу.")
+        let context = RecognitionContext(segments: [before, target])
+        let plan = try XCTUnwrap(context.scriptRepair(for: target, vocabulary: ""))
+        let words = ["Мы", "собираем", "посылки", "перед", "обедом"]
+        let audio = RecognitionAcousticResult(text: words.joined(separator: " "), words: words.enumerated().map { i, word in
+            .init(text: word, start: Double(i) * 0.6, end: Double(i + 1) * 0.6)
+        })
+        let exact = RecognitionContext.ContextualScriptRepair.IsolatedReading(acoustic: audio,
+            verifier: "Мы собираем заявки по телефону.", language: "Russian")
+        func result(_ plan: RecognitionContext.ContextualScriptRepair) -> String? {
+            plan.timedPrefix(acoustic: audio, target: 0..<3, primary: "Мы собираем заявки для почты.",
+                verifier: "Мы собираем письма для почты.", language: "Russian", exact: { exact }, exactPrimary: { "" })
+        }
+        XCTAssertEqual(result(plan), "Мы собираем ті речи біля вокзалу.")
+        let unchanged = segment(10, 13, "Мы собираем ті речи біля вокзалу.")
+        XCTAssertNil(result(try XCTUnwrap(RecognitionContext(segments: [before, unchanged]).scriptRepair(for: unchanged, vocabulary: ""))))
+        let overlap = segment(12, 14, "Вторая реплика.")
+        XCTAssertNil(RecognitionContext(segments: [before, target, overlap]).scriptRepair(for: target, vocabulary: ""))
+        let separate = segment(12, 14, "Вторая реплика.", track: "mic")
+        XCTAssertNotNil(RecognitionContext(segments: [before, target, separate]).scriptRepair(for: target, vocabulary: ""))
+    }
+
     func testScriptRepairUsesExactIsolatedWordsWhenWideReadsDisagreeOnACaseEnding() throws {
         let target = segment(10, 11.4, "Каталога й табліца.")
         let previous = segment(4, 9, "Сегодня мы проверим новую версию.")
