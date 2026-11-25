@@ -135,18 +135,19 @@ class PretestRunnerTests(unittest.TestCase):
         first, second = self.run_suite([check]), self.run_suite([check])
         self.assertNotEqual(first["directory"], second["directory"])
 
-    def test_native_evidence_and_swift_scratch_are_isolated_per_run(self):
+    def test_swift_reuses_package_build_directory_and_native_renders_are_per_run(self):
         commands = []
         checks = [pretest.Check("swift-core", ("swift", "test")),
                   pretest.Check("native-interface-controls", ("bash", "fixture.sh"))]
         def execute(check, *args):
             commands.append(check.command)
             return pretest.Execution(0, 0)
-        report = self.run_suite(checks, command_runner=execute)
-        directory = Path(report["directory"])
-        self.assertEqual(commands[0], ("swift", "test", "--scratch-path", str(directory / "swift-build")))
-        self.assertEqual(commands[1][-2:], ("--render", str(directory / "renders/native-interface-controls")))
-        self.assertEqual(report["status"], "PASS")
+        for _ in range(2):
+            report = self.run_suite(checks, command_runner=execute)
+            directory = Path(report["directory"])
+            self.assertEqual(commands[-2], ("swift", "test"))
+            self.assertEqual(commands[-1][-2:], ("--render", str(directory / "renders/native-interface-controls")))
+            self.assertEqual(report["status"], "PASS")
 
     def test_real_process_logs_and_timeout_are_preserved(self):
         logs = self.repo / "logs"

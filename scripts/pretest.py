@@ -342,9 +342,7 @@ def run_suite(repo: Path, output_root: Path, *, portable: bool = False, timeout:
         pass
     results = []
     for check in selected:  # Native probes must never contend for the GUI.
-        if check.id.startswith("swift-core"):
-            check = replace(check, command=check.command + ("--scratch-path", str(directory / "swift-build")))
-        elif check.id in {"native-interface-controls", "native-status-menu"}:
+        if check.id in {"native-interface-controls", "native-status-menu"}:
             check = replace(check, command=check.command + ("--render", str(directory / "renders" / check.id)))
         if progress:
             progress(f"RUN     {check.id}")
