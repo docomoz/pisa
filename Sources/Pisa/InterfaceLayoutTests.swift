@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import os
 import ServiceManagement
+import Sparkle
 import SwiftUI
 
 // Attach passive measurements only when a test host supplies the named space.
@@ -587,6 +588,7 @@ private final class LayoutSuite {
                 checkRecordingLevels(state.recordingMonitor, scale: scale)
             }
             try checkForms(state: state, meeting: ready, scale: scale)
+            try checkSettingsUpdateFooter(state: state, scale: scale)
             try checkIntegrationSettings(state: state, scale: scale)
             try checkScreenFields(state: state, meeting: ready, voiceMeeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
         }
@@ -1126,6 +1128,23 @@ private final class LayoutSuite {
             check(clicks == 2, "clicking the icon also opens the update action")
             try saveScreenshot("update-footer-\(Int(size.width))-\(Int(scale * 100))", in: host)
         }
+    }
+
+    private func checkSettingsUpdateFooter(state: AppState, scale: CGFloat) throws {
+        scenario = "settings with an available update, \(Int(scale * 100))%"
+        let updates = AppUpdates.shared
+        let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+        // The delegate only needs a non-information-only item to set the presentation state.
+        updates.updater(controller.updater, didFindValidUpdate: SUAppcastItem.empty())
+        defer { updates.updaterDidNotFindUpdate(controller.updater) }
+        check(updates.hasInstallableUpdate, "the settings render while an update is available")
+
+        let host = LayoutHost(SettingsView(initialSection: "Обновления").environmentObject(state),
+                              size: CGSize(width: 900, height: 700), scale: scale)
+        defer { host.close() }
+        guard frames([.settingsCheckbox(.automaticUpdates)], in: host) != nil else { return }
+        check(host.frames[.updateFooterLink] == nil, "settings never show the install link next to Done")
+        try saveScreenshot("settings-update-available-\(Int(scale * 100))", in: host)
     }
 
     private func checkScreenFields(state: AppState, meeting: Meeting, voiceMeeting: Meeting,

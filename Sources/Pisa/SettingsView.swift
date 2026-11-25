@@ -70,9 +70,6 @@ struct SettingsView: View {
                     .textStyle(PisaDesign.Typography.footnote)
                     .foregroundStyle(Color.mutedInk)
                 Spacer()
-                if updates.hasInstallableUpdate {
-                    UpdateInstallLink(canInstall: updates.canCheck, action: updates.check)
-                }
                 screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
             }
         }.dialogContent().frame(width: 900, height: 700)
