@@ -97,6 +97,25 @@ actor Transcriber {
         return try await session.verifier()
     }
 
+    private func verify(_ samples: [Float], with verifier: Qwen3ASRModel, session: ParakeetRecognitionSession,
+                        maxTokens: Int, context: String, language: String?) -> STTOutput {
+        let cache = session.verificationCache
+        let previousHits = cache.hitCount
+        let result = cache.value(samples: samples, context: context, language: language, maxTokens: maxTokens,
+            prepare: { Qwen3ASRReusableAudio(MLXArray(samples)) }, generate: { clip in
+                let previousReuses = clip.reuseCount
+                defer {
+                    performanceDiagnostics?["qwenEncoderReuses", default: 0] += Double(clip.reuseCount - previousReuses)
+                }
+                return measureRecognition("qwen") {
+                    verifier.generate(reusing: clip, maxTokens: maxTokens, context: context, language: language,
+                                      chunkDuration: 30, repetitionPenalty: 1.1)
+                }
+            }, completedTokens: { $0.segments?.count == 1 ? $0.generationTokens : nil })
+        performanceDiagnostics?["qwenCacheHits", default: 0] += Double(cache.hitCount - previousHits)
+        return result
+    }
+
     /// Used by the local synthetic integration fixture to check session reuse.
     func liveModelIdentity() -> ObjectIdentifier? { liveModel.map { ObjectIdentifier($0.primary) } }
     func liveRussianModelIdentity() -> ObjectIdentifier? { liveRussian.map(ObjectIdentifier.init) }
@@ -614,10 +633,8 @@ actor Transcriber {
                 let verifier: Qwen3ASRModel
                 do { verifier = try await verificationModel(model) }
                 catch is ParakeetRecognitionSession.VerifierUnavailable { continue }
-                let reread = measureRecognition("qwen") {
-                    verifier.generate(audio: MLXArray(samples), maxTokens: maxTokens, context: "", language: "Russian",
-                        chunkDuration: 30, repetitionPenalty: 1.1)
-                }
+                let reread = verify(samples, with: verifier, session: model, maxTokens: maxTokens,
+                                    context: "", language: "Russian")
                 try await performance.pace(after: replayBegan)
                 try Task.checkCancellation()
                 guard reread.language?.lowercased() == "russian",
@@ -792,10 +809,8 @@ actor Transcriber {
                     let verifier = try await verificationModel(model)
                     func readAnchor(_ clip: [Float]) throws -> STTOutput {
                         try Task.checkCancellation()
-                        return measureRecognition("qwen") {
-                            verifier.generate(audio: MLXArray(clip), maxTokens: 384, context: "", language: nil,
-                                              chunkDuration: 30, repetitionPenalty: 1.1)
-                        }
+                        return verify(clip, with: verifier, session: model, maxTokens: 384,
+                                      context: "", language: nil)
                     }
                     let checked = try readAnchor(wide)
                     var accepted: String?
@@ -829,13 +844,10 @@ actor Transcriber {
                     let began = ContinuousClock.now
                     let verifier = try await verificationModel(model)
                     func reread(_ samples: [Float]) throws -> String? {
-                        let audio = MLXArray(samples)
                         func generate(_ language: String?) throws -> STTOutput {
                             try Task.checkCancellation()
-                            return measureRecognition("qwen") {
-                                verifier.generate(audio: audio, maxTokens: 96, context: "", language: language,
-                                    chunkDuration: 30, repetitionPenalty: 1.1)
-                            }
+                            return verify(samples, with: verifier, session: model, maxTokens: 96,
+                                          context: "", language: language)
                         }
                         let detected = try generate(nil)
                         guard !overlap.confirmsSource(detected.text) else { return nil }
@@ -860,8 +872,6 @@ actor Transcriber {
                     [segment.text, hypotheses[segment.id]?.text ?? ""] + neighbors.preceding + neighbors.following)
                 return (neighbors, vocabulary)
             }
-            let decodeCache = RecognitionDecodeCache<STTOutput>()
-            defer { performanceDiagnostics?["qwenCacheHits", default: 0] += Double(decodeCache.hitCount) }
             var regionSamples: [Float]?
             func readRegion() -> [Float]? {
                 if let regionSamples { return regionSamples }
@@ -881,12 +891,8 @@ actor Transcriber {
                     let verifier = try await verificationModel(model)
                     func autoRead(_ samples: [Float]) -> STTOutput {
                         let maxTokens = max(96, Int(Double(samples.count) / 16000 * 24))
-                        return decodeCache.value(samples: samples, context: "", language: nil, maxTokens: maxTokens) {
-                            measureRecognition("qwen") {
-                                verifier.generate(audio: MLXArray(samples), maxTokens: maxTokens, context: "", language: nil,
-                                                  chunkDuration: 30, repetitionPenalty: 1.1)
-                            }
-                        }
+                        return verify(samples, with: verifier, session: model, maxTokens: maxTokens,
+                                      context: "", language: nil)
                     }
                     let coreRead = autoRead(core)
                     if !["ukrainian", "belarusian"].contains(coreRead.language?.lowercased() ?? ""),
@@ -935,18 +941,13 @@ actor Transcriber {
                       (4...6).contains(RussianRecognition.words(heard).count),
                       RussianRecognition.words(heard) != RussianRecognition.words(segment.text) else { continue }
                 let hints = spokenVocabulary.relevantTerms(in: [segment.text, heard])
-                let audio = MLXArray(samples)
                 for prompt in (hints.isEmpty ? [""] : [hints, ""]) {
                     try Task.checkCancellation()
                     let verifier = try await verificationModel(model)
                     let output = RecognitionPromptEcho.decode(context: prompt, vocabulary: prompt, text: { $0.text }) {
                         let prompt = $0
-                        return decodeCache.value(samples: samples, context: prompt, language: "Russian", maxTokens: 96) {
-                            measureRecognition("qwen") {
-                                verifier.generate(audio: audio, maxTokens: 96, context: prompt, language: "Russian",
-                                               chunkDuration: 30, repetitionPenalty: 1.1)
-                            }
-                        }
+                        return verify(samples, with: verifier, session: model, maxTokens: 96,
+                                      context: prompt, language: "Russian")
                     }
                     let candidate = spokenVocabulary.apply(to: output.text.trimmingCharacters(in: .whitespacesAndNewlines))
                     if collectDiagnostics {
@@ -970,15 +971,10 @@ actor Transcriber {
                let samples = readRegion(), !samples.isEmpty {
                 let began = ContinuousClock.now
                 try Task.checkCancellation()
-                let audio = MLXArray(samples)
                 let verifier = try await verificationModel(model)
                 let tokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
-                let output = decodeCache.value(samples: samples, context: "", language: nil, maxTokens: tokens) {
-                    measureRecognition("qwen") {
-                        verifier.generate(audio: audio, maxTokens: tokens, context: "", language: nil,
-                            chunkDuration: 30, repetitionPenalty: 1.1)
-                    }
-                }
+                let output = verify(samples, with: verifier, session: model, maxTokens: tokens,
+                                    context: "", language: nil)
                 try await performance.pace(after: began)
                 try Task.checkCancellation()
                 if let confirmed = word.confirmedText(language: output.language, reread: output.text) {
@@ -1000,15 +996,10 @@ actor Transcriber {
                !samples.isEmpty {
                 let boundaryBegan = ContinuousClock.now
                 try Task.checkCancellation()
-                let audio = MLXArray(samples)
                 let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
                 let verifier = try await verificationModel(model)
-                let output = decodeCache.value(samples: samples, context: "", language: "Russian", maxTokens: maxTokens) {
-                    measureRecognition("qwen") {
-                        verifier.generate(audio: audio, maxTokens: maxTokens, context: "", language: "Russian",
-                            chunkDuration: 30, repetitionPenalty: 1.1)
-                    }
-                }
+                let output = verify(samples, with: verifier, session: model, maxTokens: maxTokens,
+                                    context: "", language: "Russian")
                 let candidate = spokenVocabulary.apply(to: output.text.trimmingCharacters(in: .whitespacesAndNewlines))
                 if collectDiagnostics {
                     contextDiagnostics.append(["start": String(segment.start), "kind": "boundary-consensus",
@@ -1060,16 +1051,11 @@ actor Transcriber {
             func decode(_ prompt: String, samples: [Float], retry: RecognitionContext.Retry,
                         applyVocabulary: Bool = true) async throws -> String {
                 let verifier = try await verificationModel(model)
-                let audio = MLXArray(samples)
                 func generate(_ context: String) throws -> STTOutput {
                     try Task.checkCancellation()
                     let maxTokens = min(768, max(96, Int(Double(samples.count) / 16000 * 20)))
-                    return decodeCache.value(samples: samples, context: context, language: "Russian", maxTokens: maxTokens) {
-                        measureRecognition("qwen") {
-                            verifier.generate(audio: audio, maxTokens: maxTokens, context: context,
-                                language: "Russian", chunkDuration: 30, repetitionPenalty: 1.1)
-                        }
-                    }
+                    return verify(samples, with: verifier, session: model, maxTokens: maxTokens,
+                                  context: context, language: "Russian")
                 }
                 let result = try RecognitionPromptEcho.decode(context: prompt, vocabulary: retry.hints,
                     text: { $0.text }, generate: generate)
@@ -1316,30 +1302,22 @@ actor Transcriber {
                            diagnostic: (start: Double, track: String)? = nil) async throws -> RecognizedSpeech? {
         let recognitionTiming = beginPerformanceInterval()
         defer { endPerformanceInterval(recognitionTiming, kind: "recognizeTotal") }
-        let audio = MLXArray(samples)
         let maxTokens = min(768, max(64, Int(duration * 16)))
-        let decodeCache = RecognitionDecodeCache<STTOutput>()
-        defer { performanceDiagnostics?["qwenCacheHits", default: 0] += Double(decodeCache.hitCount) }
         // On brief replies the vocabulary can be longer than the speech itself.
         let decodingVocabulary = spokenVocabulary.decodingVocabulary
         let context = duration >= 2 ? vocabulary : ""
         func generate(language: String?, context: String, audioSamples: [Float]? = nil, promptVocabulary: String? = nil) async throws -> STTOutput {
             let verifier = try await verificationModel(model)
-            let input = audioSamples.map { MLXArray($0) } ?? audio
             return try RecognitionPromptEcho.decode(context: context, vocabulary: promptVocabulary ?? vocabulary, text: { $0.text }) { prompt in
                 try Task.checkCancellation()
-                return decodeCache.value(samples: audioSamples ?? samples, context: prompt, language: language, maxTokens: maxTokens) {
-                    measureRecognition("qwen") {
-                        verifier.generate(audio: input, maxTokens: maxTokens, context: prompt,
-                                       language: language, chunkDuration: 30, repetitionPenalty: 1.1)
-                    }
-                }
+                return verify(audioSamples ?? samples, with: verifier, session: model, maxTokens: maxTokens,
+                              context: prompt, language: language)
             }
         }
         let shortMic = isMic && duration <= 1.5
         var result: STTOutput
         if shortMic {
-            result = try await decodeShortMicrophone(model.primary, audio: audio)
+            result = try await decodeShortMicrophone(model.primary, audio: MLXArray(samples))
         } else {
             result = measureRecognition("parakeet") { model.generate(samples) }
         }
@@ -1454,7 +1432,7 @@ actor Transcriber {
             var alternative = decoded.language?.lowercased() == "russian"
                 ? BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
                     corroboration: independent.text, vocabulary: vocabulary) : nil
-            if alternative == nil {
+            if alternative == nil, BackchannelLanguage.canVerifyAlternative(original: text, corroboration: independent.text) {
                 let checked = try await generate(language: "Russian", context: "")
                 alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: checked.text),
                     corroboration: independent.text, vocabulary: vocabulary)
@@ -1662,14 +1640,17 @@ actor Transcriber {
             }
         }
         if BackchannelLanguage.shouldRecheck(text, duration: duration) {
-            let decoded = try await generate(language: "Russian", context: "")
             acoustic = acoustic ?? acousticRecognition(samples, using: russian)
-            var alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
-                corroboration: acoustic?.text, vocabulary: vocabulary)
+            var alternative: String?
+            if BackchannelLanguage.canVerifyAlternative(original: text, corroboration: acoustic?.text) {
+                let decoded = try await generate(language: "Russian", context: "")
+                alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
+                    corroboration: acoustic?.text, vocabulary: vocabulary)
+            }
             if alternative == nil, let russian {
                 let retry = BackchannelLanguage.retryAudio(samples)
                 let independent = acousticRecognition(retry, using: russian)?.text
-                if independent != nil {
+                if let independent, BackchannelLanguage.canVerifyAlternative(original: text, corroboration: independent) {
                     let checked = try await generate(language: "Russian", context: "", audioSamples: retry)
                     alternative = BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: checked.text),
                         corroboration: independent, vocabulary: vocabulary)
