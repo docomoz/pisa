@@ -1,0 +1,235 @@
+diff --git a/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift b/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift
+--- a/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift
++++ b/Sources/MLXAudioSTT/Models/Qwen3ASR/Qwen3ASR.swift
+@@ -16,6 +16,35 @@
+ struct UncheckedSendableBox<T>: @unchecked Sendable {
+     let value: T
+     init(_ value: T) { self.value = value }
++}
++
++/// One immutable waveform for sequential rereads using different prompts.
++/// Keep this object local to the clip and the lifetime of the loaded inference weights.
++public final class Qwen3ASRReusableAudio {
++    fileprivate let waveform: MaterializedArray
++    private weak var encoderModel: Qwen3ASRModel?
++    private var paddedLength = 0
++    private(set) var encoded: (features: MLXArray, tokenCount: Int)?
++    public private(set) var reuseCount = 0
++
++    public init(_ audio: MLXArray) {
++        waveform = audio.materialized()
++    }
++
++    fileprivate func encodeSingleChunk(_ chunk: MLXArray, using model: Qwen3ASRModel)
++        -> (features: MLXArray, tokenCount: Int)
++    {
++        // On the unsplit path the immutable waveform can only differ by right padding.
++        if encoderModel === model, paddedLength == chunk.dim(0), let encoded {
++            reuseCount += 1
++            return encoded
++        }
++        let result = model.encodeAudioChunk(chunk)
++        encoderModel = model
++        paddedLength = chunk.dim(0)
++        encoded = result
++        return result
++    }
+ }
+
+ // MARK: - Helper Functions
+@@ -1050,6 +1079,13 @@
+
+     // MARK: - Audio Preprocessing
+
++    fileprivate func encodeAudioChunk(_ audio: MLXArray) -> (features: MLXArray, tokenCount: Int) {
++        let (input, mask, tokenCount) = preprocessAudio(audio)
++        let features = getAudioFeatures(input, featureAttentionMask: mask)
++        eval(features)
++        return (features, tokenCount)
++    }
++
+     public func preprocessAudio(_ audio: MLXArray) -> (MLXArray, MLXArray, Int) {
+         // Compute mel spectrogram (must match transformers' WhisperFeatureExtractor:
+         // slaney mel scale + periodic hann window)
+@@ -1223,6 +1259,7 @@
+
+     private func generateSingleChunk(
+         audio: MLXArray,
++        reusing reusableAudio: Qwen3ASRReusableAudio?,
+         maxTokens: Int,
+         temperature: Float,
+         context: String,
+@@ -1237,21 +1274,18 @@
+         let eosTokenIds = [151645, 151643]
+         let prefillStepSize = 2048
+
+-        let (inputFeatures, featureAttentionMask, numAudioTokens) = preprocessAudio(audio)
++        let encoded = reusableAudio?.encodeSingleChunk(audio, using: self) ?? encodeAudioChunk(audio)
+         let inputIds = buildPrompt(
+-            numAudioTokens: numAudioTokens,
++            numAudioTokens: encoded.tokenCount,
+             context: context,
+             language: language
+         )
+         let promptTokenCount = inputIds.dim(1)
+-
+-        let audioFeatures = getAudioFeatures(inputFeatures, featureAttentionMask: featureAttentionMask)
+-        eval(audioFeatures)
+
+         let embeds = model.embedTokens(inputIds)
+         let inputsEmbeds = mergeAudioFeatures(
+             inputsEmbeds: embeds,
+-            audioFeatures: audioFeatures.asType(embeds.dtype),
++            audioFeatures: encoded.features.asType(embeds.dtype),
+             inputIds: inputIds
+         )
+
+@@ -1364,6 +1398,35 @@
+         repetitionPenalty: Float = 1.0,
+         repetitionContextSize: Int = 32
+     ) -> STTOutput {
++        generate(audio: audio, reusableAudio: nil, maxTokens: maxTokens, temperature: temperature,
++                 context: context, language: language, chunkDuration: chunkDuration,
++                 minChunkDuration: minChunkDuration, repetitionPenalty: repetitionPenalty,
++                 repetitionContextSize: repetitionContextSize)
++    }
++
++    /// Reuse only acoustic features for an unsplit clip. Each call builds a fresh prompt and decoder cache.
++    public func generate(
++        reusing audio: Qwen3ASRReusableAudio,
++        maxTokens: Int = 8192,
++        temperature: Float = 0.0,
++        context: String = "",
++        language: String? = nil,
++        chunkDuration: Float = 1200.0,
++        minChunkDuration: Float = 1.0,
++        repetitionPenalty: Float = 1.0,
++        repetitionContextSize: Int = 32
++    ) -> STTOutput {
++        generate(audio: audio.waveform, reusableAudio: audio, maxTokens: maxTokens, temperature: temperature,
++                 context: context, language: language, chunkDuration: chunkDuration,
++                 minChunkDuration: minChunkDuration, repetitionPenalty: repetitionPenalty,
++                 repetitionContextSize: repetitionContextSize)
++    }
++
++    private func generate(
++        audio: MLXArray, reusableAudio: Qwen3ASRReusableAudio?, maxTokens: Int, temperature: Float,
++        context: String, language: String?, chunkDuration: Float, minChunkDuration: Float,
++        repetitionPenalty: Float, repetitionContextSize: Int
++    ) -> STTOutput {
+         let startTime = Date()
+         let forcedLanguage = normalizeLanguageName(language)
+
+@@ -1374,6 +1437,9 @@
+             chunkDuration: chunkDuration,
+             minChunkDuration: minChunkDuration
+         )
++        // The unsplit branch preserves the waveform (and pads short clips). A longer
++        // input can have different cut points, even if the splitter returns one chunk.
++        let clipCache = Float(audio.dim(0)) / Float(sampleRate) <= chunkDuration ? reusableAudio : nil
+
+         var allTexts: [String] = []
+         var segments: [[String: Any]] = []
+@@ -1386,6 +1452,7 @@
+
+             let result = generateSingleChunk(
+                 audio: chunkAudio,
++                reusing: clipCache,
+                 maxTokens: maxTokens,
+                 temperature: temperature,
+                 context: context,
+diff --git a/Tests/Qwen3ASRAudioReuseTests.swift b/Tests/Qwen3ASRAudioReuseTests.swift
+new file mode 100644
+--- /dev/null
++++ b/Tests/Qwen3ASRAudioReuseTests.swift
+@@ -0,0 +1,90 @@
++import Foundation
++import MLX
++import Testing
++import Tokenizers
++
++@testable import MLXAudioSTT
++
++@Suite(.serialized)
++struct Qwen3ASRAudioReuseTests {
++    private func tinyModel() throws -> Qwen3ASRModel {
++        let model = Qwen3ASRModel(Qwen3ASRConfig(
++            audioConfig: Qwen3AudioEncoderConfig(numMelBins: 16, encoderLayers: 1,
++                encoderAttentionHeads: 2, encoderFfnDim: 32, dModel: 16, outputDim: 16,
++                downsampleHiddenSize: 4),
++            textConfig: Qwen3TextConfig(vocabSize: 8, hiddenSize: 16, intermediateSize: 32,
++                numHiddenLayers: 1, numAttentionHeads: 2, numKeyValueHeads: 1, headDim: 8),
++            audioTokenId: 2, audioStartTokenId: 1, audioEndTokenId: 3))
++        model.tokenizer = try AutoTokenizer.from(
++            tokenizerConfig: ["tokenizer_class": "GPT2Tokenizer", "unk_token": "?", "fuse_unk": true],
++            tokenizerData: [
++                "model": ["type": "BPE", "unk_token": "?", "merges": [],
++                          "vocab": ["?": 0, "<|audio_start|>": 1, "<|audio_pad|>": 2,
++                                    "<|audio_end|>": 3, "name": 4, "Russian": 5, "a": 6, "b": 7]],
++                "added_tokens": [
++                    ["id": 1, "content": "<|audio_start|>", "special": true],
++                    ["id": 2, "content": "<|audio_pad|>", "special": true],
++                    ["id": 3, "content": "<|audio_end|>", "special": true],
++                    ["id": 4, "content": "name", "special": false],
++                    ["id": 5, "content": "Russian", "special": false],
++                ],
++            ])
++        return model
++    }
++
++    private func compare(_ result: STTOutput, to reference: STTOutput) throws {
++        #expect(Data(result.text.utf8) == Data(reference.text.utf8))
++        #expect(result.language == reference.language)
++        #expect(result.promptTokens == reference.promptTokens)
++        #expect(result.generationTokens == reference.generationTokens)
++        let actualSegments = try JSONSerialization.data(withJSONObject: result.segments ?? [], options: .sortedKeys)
++        let referenceSegments = try JSONSerialization.data(withJSONObject: reference.segments ?? [], options: .sortedKeys)
++        #expect(actualSegments == referenceSegments)
++    }
++
++    @Test func repeatedPromptsPreserveAudioBytesAndDecodeIndependently() throws {
++        let model = try tinyModel()
++        let samples = (0..<6_400).map { sin(Float($0) * 0.07) }
++        let waveform = MLXArray(samples)
++        let clip = Qwen3ASRReusableAudio(waveform)
++        waveform[0] = MLXArray(Float(30)) // The clip keeps its original on-device snapshot.
++
++        for (prompt, language) in [("", nil), ("name", "Russian")] as [(String, String?)] {
++            let output = model.generate(reusing: clip, maxTokens: 3, context: prompt, language: language)
++            let reference = model.generate(audio: MLXArray(samples), maxTokens: 3, context: prompt, language: language)
++            try compare(output, to: reference)
++        }
++        #expect(clip.reuseCount == 1)
++        let encoded = try #require(clip.encoded)
++        let padded = splitAudioIntoChunks(MLXArray(samples), sampleRate: model.sampleRate)[0].0
++        let (input, mask, tokenCount) = model.preprocessAudio(padded)
++        let expected = model.getAudioFeatures(input, featureAttentionMask: mask)
++        #expect(encoded.tokenCount == tokenCount)
++        #expect(encoded.features.shape == expected.shape)
++        #expect(encoded.features.dtype == expected.dtype)
++        #expect(encoded.features.asData(access: .copy).data == expected.asData(access: .copy).data)
++
++        let shorter = model.generate(reusing: clip, maxTokens: 2, minChunkDuration: 0.5)
++        try compare(shorter, to: model.generate(audio: MLXArray(samples), maxTokens: 2, minChunkDuration: 0.5))
++        #expect(clip.reuseCount == 1)
++        #expect(try #require(clip.encoded).tokenCount < tokenCount)
++
++        let other = try tinyModel()
++        let reread = other.generate(reusing: clip, maxTokens: 2, minChunkDuration: 0.5)
++        try compare(reread, to: other.generate(audio: MLXArray(samples), maxTokens: 2, minChunkDuration: 0.5))
++        #expect(clip.reuseCount == 1)
++    }
++
++    @Test func splitAudioNeverCachesOneChunksFeaturesForAnother() throws {
++        let model = try tinyModel()
++        let waveform = MLXArray((0..<33_600).map { sin(Float($0) * 0.013) })
++        let clip = Qwen3ASRReusableAudio(waveform)
++        let reference = model.generate(audio: waveform, maxTokens: 2, chunkDuration: 1)
++        try #require((reference.segments?.count ?? 0) > 1)
++        for _ in 0..<2 {
++            try compare(model.generate(reusing: clip, maxTokens: 2, chunkDuration: 1), to: reference)
++        }
++        #expect(clip.reuseCount == 0)
++        #expect(clip.encoded == nil)
++    }
++}

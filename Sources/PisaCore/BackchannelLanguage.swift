@@ -538,6 +538,16 @@ enum BackchannelLanguage {
         }
     }
 
+    private static let alternativeParticles: Set<String> = ["я", "ну", "а", "и"]
+
+    /// A vocalization can be verified by Qwen alone. A lexical reply needs
+    /// the same one to three substantive words in the independent reading.
+    static func canVerifyAlternative(original: String, corroboration: String?) -> Bool {
+        if isVocalization(original) { return true }
+        let independent = RussianRecognition.words(corroboration ?? "").filter { !alternativeParticles.contains($0) }
+        return (1...3).contains(independent.count)
+    }
+
     /// A forced language decode may translate real English. For lexical replies,
     /// require the independent acoustic recognizer to hear the same Russian words.
     /// A vocal acknowledgment may include a brief affirmative in either decode.
@@ -558,9 +568,8 @@ enum BackchannelLanguage {
         guard (1...3).contains(words.count), words.joined().unicodeScalars.allSatisfy({ (0x0400...0x052F).contains($0.value) }),
               let corroboration,
               RussianRecognition.preservesVocabulary(candidate: russian, original: original, vocabulary: vocabulary) else { return nil }
-        let particles: Set<String> = ["я", "ну", "а", "и"]
-        let substantive = words.filter { !particles.contains($0) }
-        let independent = RussianRecognition.words(corroboration).filter { !particles.contains($0) }
+        let substantive = words.filter { !alternativeParticles.contains($0) }
+        let independent = RussianRecognition.words(corroboration).filter { !alternativeParticles.contains($0) }
         return !substantive.isEmpty && substantive == independent ? russian : nil
     }
 

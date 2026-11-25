@@ -14,6 +14,17 @@ enum RecognitionBoundaryOverlap {
     private static func token(_ match: NSTextCheckingResult, in text: String) -> String {
         canonical((text as NSString).substring(with: match.range))
     }
+    // Acoustic decoding can omit ё before final transcript spelling is applied.
+    // Only dictionary forms without a competing е spelling are interchangeable.
+    private static func sameAcousticWord(_ lhs: String, _ rhs: String) -> Bool {
+        let a = canonical(lhs), b = canonical(rhs)
+        if a == b { return true }
+        guard a.contains("ё") || b.contains("ё"),
+              a.replacingOccurrences(of: "ё", with: "е") == b.replacingOccurrences(of: "ё", with: "е") else { return false }
+        let firstSpelling = TranscriptOrthography.yoSpelling(for: a[...]) ?? a
+        let secondSpelling = TranscriptOrthography.yoSpelling(for: b[...]) ?? b
+        return firstSpelling == secondSpelling
+    }
 
     static func candidate(left: String, right: String) -> String? {
         let a = matches(left), b = matches(right)
@@ -46,8 +57,8 @@ enum RecognitionBoundaryOverlap {
               sharedAudio.lowerBound.isFinite, sharedAudio.upperBound.isFinite,
               sharedAudio.lowerBound < cut, sharedAudio.upperBound > cut,
               leftWords.count >= 2, rightWords.count >= 2,
-              let a = leftWords.last, let b = rightWords.first,
-              canonical(a.text) == word, canonical(b.text) == word else { return nil }
+              let a = leftWords.last, let b = rightWords.first else { return nil }
+        guard sameAcousticWord(a.text, word), sameAcousticWord(b.text, word) else { return nil }
         func overlaps(_ token: RecognitionTimedWord, _ range: Range<Double>) -> Bool {
             token.start.isFinite && token.end.isFinite && token.end > token.start &&
             token.start < range.upperBound && token.end > range.lowerBound
@@ -55,15 +66,15 @@ enum RecognitionBoundaryOverlap {
         guard overlaps(a, sharedAudio), overlaps(b, sharedAudio) else { return nil }
         let neighborhood = min(a.start, b.start)..<max(a.end, b.end)
         let occurrences = unionWords.indices.filter {
-            canonical(unionWords[$0].text) == word && overlaps(unionWords[$0], neighborhood)
+            overlaps(unionWords[$0], neighborhood) && sameAcousticWord(unionWords[$0].text, word)
         }
         guard occurrences.count == 1, let index = occurrences.first,
               index > 0, index + 1 < unionWords.count else { return nil }
         let actual = unionWords[index]
         guard actual.start < cut, actual.end > cut,
               overlaps(a, actual.start..<actual.end), overlaps(b, actual.start..<actual.end),
-              canonical(unionWords[index - 1].text) == canonical(leftWords[leftWords.count - 2].text),
-              canonical(unionWords[index + 1].text) == canonical(rightWords[1].text) else { return nil }
+              sameAcousticWord(unionWords[index - 1].text, leftWords[leftWords.count - 2].text),
+              sameAcousticWord(unionWords[index + 1].text, rightWords[1].text) else { return nil }
         guard let first = matches(right).first, let range = Range(first.range, in: right) else { return nil }
         var suffix = right[range.upperBound...]
         let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;:.!?—–-»”\")]}"))

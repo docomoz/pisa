@@ -36,10 +36,10 @@ struct TechnologyVocabulary {
             options: .caseInsensitive)
     ]
     private static let precedingCues: [String: NSRegularExpression] = [
-        "JSON": #"формат[а-яё]*|схем[а-яё]*|в\p{Zs]+формате|парсим|распарсить"#,
+        "JSON": #"формат(?:а|е|ом|у)?|схем(?:а|у|ы|е|ой)|парсим|распарсить"#,
         "Kotlin": #"языке|язык|языком|код\p{Zs}+на|переписать\p{Zs}+на"#,
         "Android": #"под|для\p{Zs}+платформы|платформ[а-яё]*|верси[а-яё]*\p{Zs}+для"#,
-    ].compactMapValues { try? NSRegularExpression(pattern: #"\b(?:"# + $0 + #")[ \u00A0]+\z"#, options: .caseInsensitive) }
+    ].mapValues { try! NSRegularExpression(pattern: #"\b(?:"# + $0 + #")\p{Zs}+\z"#, options: .caseInsensitive) }
     private static let companyCue = try? NSRegularExpression(pattern:
         #"\b(?:компани[яиюей]|компанией|компаний|корпораци[яиюей]|сервис(?:а|ом|у|е)?|платформ[аыуе]|платформой|банк(?:а|ом|у|е)?|вендор(?:а|ом|у|е)?|маркетплейс(?:а|ом|у|е)?|стартап(?:а|ом|у|е)?|company|vendor|platform)[ \u00A0]+\z"#,
         options: .caseInsensitive)

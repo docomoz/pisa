@@ -111,4 +111,26 @@ final class RecognitionPromptEchoTests: XCTestCase {
         XCTAssertEqual(result, hypothesis)
         XCTAssertEqual(prompts, [hypothesis])
     }
+
+    func testEntireShortGlossaryCopiedWithoutTheAppendedSpeechRetriesFromAudio() {
+        let vocabulary = "Вега, Лунный маяк, Орион"
+        let context = RussianRecognition.context(vocabulary: vocabulary, hypothesis: "Когда сможем увидеть звёзды?")
+        let copied = "Вега. Лунный маяк. Орион."
+        for heard in ["Дождёмся вечера.", copied] {
+            var prompts: [String] = []
+            let result = RecognitionPromptEcho.decode(context: context, vocabulary: vocabulary, text: { $0 }) { prompt in
+                prompts.append(prompt)
+                return prompt.isEmpty ? heard : copied
+            }
+            XCTAssertEqual(prompts, [context, ""])
+            XCTAssertEqual(result, heard)
+        }
+
+        for speech in ["Орион.", "Вега и Орион.", "Когда сможем увидеть звёзды?"] {
+            XCTAssertFalse(RecognitionPromptEcho.isEcho(speech, context: context, vocabulary: vocabulary))
+        }
+        for singleHint in ["Лунный маяк", "Вега, Вега"] {
+            XCTAssertFalse(RecognitionPromptEcho.isEcho(singleHint, context: singleHint + "\nЧто видно?", vocabulary: singleHint))
+        }
+    }
 }

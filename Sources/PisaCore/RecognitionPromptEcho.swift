@@ -18,12 +18,18 @@ enum RecognitionPromptEcho {
         guard !decoded.isEmpty, !glossary.isEmpty, prompt.starts(with: glossary) else { return false }
         if decoded == prompt { return true }
 
-        // Only the actual glossary can yield a partial match. The acoustic
-        // hypothesis appended to it may itself be valid conversational speech.
+        let minimumTerms = 5
+        let entireGlossary = decoded == glossary
+        guard entireGlossary || decoded.count >= minimumTerms else { return false }
         let entries = vocabulary.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
             .map(RussianRecognition.words).filter { !$0.isEmpty }
-        let minimumTerms = 5
-        guard decoded.count >= minimumTerms, Set(entries).count >= minimumTerms,
+        // A decoder can copy the whole list and omit the appended speech hint.
+        // One term in isolation can also be a valid short answer.
+        if entireGlossary { return Set(entries).count > 1 }
+
+        // Only the actual glossary can yield a partial match. The acoustic
+        // hypothesis appended to it may itself be valid conversational speech.
+        guard Set(entries).count >= minimumTerms,
               prompt.starts(with: entries.joined()) else { return false }
 
         // Speech can continue after the copied glossary. Inspect every possible

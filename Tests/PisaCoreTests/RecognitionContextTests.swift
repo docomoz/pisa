@@ -260,6 +260,56 @@ final class RecognitionContextTests: XCTestCase {
         XCTAssertNil(probe([earlier, later, segment(7, 10, "Вот новая таблица."), segment(15, 19, "Новая таблица готова.")]))
     }
 
+    func testRecurringPhraseCanResolveOneWordDespiteAnotherDistantDisagreement() throws {
+        let source = "Вчера мы решили, что новая таблица пригодится для нашего сада."
+        let target = segment(30, 35, source)
+        let earlier = segment(1, 5, "На участке появится новая теплица.")
+        let later = segment(50, 55, "Новая теплица выдержит заморозки.")
+        let context = RecognitionContext(segments: [earlier, target, later])
+        let expected = source.replacingOccurrences(of: "таблица", with: "теплица")
+        let independent = expected.replacingOccurrences(of: "Вчера", with: "Сегодня")
+        let repair = try XCTUnwrap(context.recurringWord(for: target, independent: independent, vocabulary: ""))
+        XCTAssertEqual(repair.confirmedText(language: "Russian", reread: independent), expected)
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: source))
+        let keepingUnrelatedTerm = try XCTUnwrap(context.recurringWord(for: target, independent: independent,
+            vocabulary: "Вчера мы решили"))
+        XCTAssertEqual(keepingUnrelatedTerm.confirmedText(language: "Russian", reread: independent), expected)
+        let interrupted = independent.replacingOccurrences(of: "новая теплица", with: "новая. Теплица")
+        XCTAssertNil(repair.confirmedText(language: "Russian", reread: interrupted))
+        XCTAssertNil(context.recurringWord(for: target, independent: interrupted, vocabulary: ""))
+        XCTAssertNil(context.recurringWord(for: target,
+            independent: independent.replacingOccurrences(of: "новая", with: "большая"), vocabulary: ""))
+    }
+
+    func testRecurringPhraseMustBeContinuousAtTheSiteOfTheProposedChange() {
+        let source = "Скажи, какая именно новая, таблица или схема для отчёта?"
+        let target = segment(30, 35, source)
+        let context = RecognitionContext(segments: [segment(1, 5, "Там стоит новая теплица."),
+            target, segment(50, 55, "Новая теплица уже готова.")])
+        let independent = source.replacingOccurrences(of: "таблица", with: "теплица")
+        XCTAssertNil(context.recurringWord(for: target, independent: independent, vocabulary: ""))
+    }
+
+    func testTwoLocallySupportedRecurringChangesDoNotTriggerASingleWordReread() {
+        let source = "До обеда новая таблица была открыта, а вечером новая таблица уже пропала."
+        let target = segment(30, 35, source)
+        let context = RecognitionContext(segments: [segment(1, 5, "Там стоит новая теплица."),
+            target, segment(50, 55, "Новая теплица уже готова.")])
+        let independent = source.replacingOccurrences(of: "таблица", with: "теплица")
+        XCTAssertNil(context.recurringWord(for: target, independent: independent, vocabulary: ""))
+    }
+
+    func testRecurringCorrectionPreservesDictionaryTermAtItsOriginalPosition() {
+        let source = "До обеда новая таблица была готова, а к вечеру исчезла теплица."
+        let independent = "До обеда новая теплица была готова, а к вечеру исчезла таблица."
+        let target = segment(30, 35, source)
+        let context = RecognitionContext(segments: [segment(1, 5, "Там стоит новая теплица."),
+            target, segment(50, 55, "Новая теплица уже готова.")])
+        XCTAssertNotNil(context.recurringWord(for: target, independent: independent, vocabulary: ""))
+        XCTAssertNil(context.recurringWord(for: target, independent: independent, vocabulary: "таблица"))
+        XCTAssertNil(context.recurringWord(for: target, independent: independent, vocabulary: "новая таблица"))
+    }
+
     func testSecondWordCanUseUniqueThreeWordOppositeAnchor() throws {
         let original = "В Конторе мы обсуждали этот проект сегодня."
         let candidate = "В Контуре мы обсуждали этот проект сегодня."

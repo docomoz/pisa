@@ -44,6 +44,51 @@ final class RecognitionBoundaryOverlapTests: XCTestCase {
         XCTAssertNil(RecognitionBoundaryOverlap.candidate(left: "Самым первым", right: "Первоу у нас нет"))
     }
 
+    private func resolveSpelling(leftText: String, rightText: String, acoustic: String,
+                                 unionSpellings: [String]) -> String? {
+        var leftEvidence = left, rightEvidence = right
+        leftEvidence[1] = RecognitionTimedWord(text: acoustic, start: 1.9, end: 2.15)
+        rightEvidence[0] = RecognitionTimedWord(text: acoustic, start: 2, end: 2.4)
+        let union = [whole[0]] + unionSpellings.map {
+            RecognitionTimedWord(text: $0, start: 1.95, end: 2.3)
+        } + [whole[2]]
+        return resolve(union, leftText: leftText, rightText: rightText,
+                       leftWords: leftEvidence, rightWords: rightEvidence)
+    }
+
+    func testOrthographyAndVocabularySpellingDoNotDuplicateOneSpokenWord() {
+        for (vocabulary, written, acoustic) in [("", "отчёты", "отчеты"), ("отчеты", "отчеты", "отчёты")] {
+            let leftText = TranscriptOrthography.normalize("Все эти отчеты", vocabulary: vocabulary)
+            let rightText = TranscriptOrthography.normalize("Отчеты уже готовы", vocabulary: vocabulary)
+            XCTAssertEqual(leftText, "Все эти " + written)
+            XCTAssertEqual(resolveSpelling(leftText: leftText, rightText: rightText, acoustic: acoustic,
+                                           unionSpellings: [acoustic]), "уже готовы")
+        }
+    }
+
+    func testOrthographicComparisonPreservesAmbiguityAndRepetitions() {
+        XCTAssertNil(resolveSpelling(leftText: "Эти озёра", rightText: "Озёра уже замёрзли", acoustic: "озера",
+                                     unionSpellings: ["озера"]))
+        XCTAssertNil(resolveSpelling(leftText: "Все эти отчёты", rightText: "Отчеты уже готовы", acoustic: "отчеты",
+                                     unionSpellings: ["отчеты"]))
+        XCTAssertNil(resolveSpelling(leftText: "Все эти отчёты", rightText: "Отчёты уже готовы", acoustic: "отчёты",
+                                     unionSpellings: ["отчёты", "отчеты"]))
+    }
+
+    func testNeighboringAcousticWordsMayOmitOnlyUnambiguousYo() {
+        var leftEvidence = left, rightEvidence = right, union = whole
+        leftEvidence[0] = RecognitionTimedWord(text: "даёт", start: 1.5, end: 1.9)
+        rightEvidence[1] = RecognitionTimedWord(text: "ещё", start: 2.4, end: 2.6)
+        union[0] = RecognitionTimedWord(text: "дает", start: 1.5, end: 1.95)
+        union[2] = RecognitionTimedWord(text: "еще", start: 2.3, end: 2.6)
+        XCTAssertEqual(resolve(union, leftText: "Датчик даёт данные", rightText: "Данные ещё проверяют",
+                               leftWords: leftEvidence, rightWords: rightEvidence), "ещё проверяют")
+        leftEvidence[0] = RecognitionTimedWord(text: "берёт", start: 1.5, end: 1.9)
+        union[0] = RecognitionTimedWord(text: "берет", start: 1.5, end: 1.95)
+        XCTAssertNil(resolve(union, leftText: "Датчик берёт данные", rightText: "Данные ещё проверяют",
+                             leftWords: leftEvidence, rightWords: rightEvidence))
+    }
+
     func testMissingOrContradictoryAcousticEvidencePreservesText() {
         XCTAssertNil(resolve([]))
         XCTAssertNil(resolve(whole, leftWords: []))

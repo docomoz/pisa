@@ -10,6 +10,7 @@ final class ParakeetRecognitionSession {
     let verifierDirectory: URL
     private let scopedVerifierDirectory: URL
     private let verifierScopeGranted: Bool
+    let verificationCache = RecognitionDecodeCache<Qwen3ASRReusableAudio, STTOutput>()
     private var loadedVerifier: Qwen3ASRModel?
     private(set) var verifierLoadCount = 0
     private(set) var verifierLoadSeconds: Double = 0

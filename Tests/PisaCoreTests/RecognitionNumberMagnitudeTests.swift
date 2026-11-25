@@ -24,6 +24,24 @@ final class RecognitionNumberMagnitudeTests: XCTestCase {
             reread: verifier), expected)
     }
 
+    func testVerifierCanConfirmTheGrammaticalGenderOfOneAndTwo() {
+        for (unit, digits, spoken, different) in [
+            ("Заявок", "2", "две", "одна"),
+            ("Заявок", "21", "двадцать одна", "двадцать одна тысяча"),
+            ("Обращений", "21", "двадцать одно", "двадцать два"),
+            ("Заявок", "122", "сто двадцать две", "сто двенадцать")
+        ] {
+            func sentence(_ amount: String) -> String { "\(unit) поступило \(amount), включая повторные." }
+            let primary = sentence(digits + " 000")
+            let acoustic = sentence(digits)
+            XCTAssertEqual(RecognitionNumberMagnitude.revisedText(original: primary, acoustic: acoustic,
+                reread: sentence(spoken)), acoustic, spoken)
+            XCTAssertNil(RecognitionNumberMagnitude.revisedText(original: primary, acoustic: acoustic,
+                reread: sentence(different)), different)
+        }
+        XCTAssertNil(RecognitionNumberMagnitude.revisedText(original: "2 000", acoustic: "2", reread: "Две."))
+    }
+
     func testCorrectLargeAmountsSurviveOneDisagreeingModel() {
         XCTAssertFalse(RecognitionNumberMagnitude.hasShorterReading(original: original, acoustic: original))
         for (first, second) in [(original, original), (acoustic, original), (original, acoustic),

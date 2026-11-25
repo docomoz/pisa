@@ -2,6 +2,17 @@ import XCTest
 @testable import PisaCore
 
 final class BackchannelLanguageTests: XCTestCase {
+    func testLexicalRereadRequiresIndependentWordsAndVocalizationsCanStandAlone() {
+        for heard in [nil, "", "ну, а я?", "четыре слова для проверки"] {
+            XCTAssertFalse(BackchannelLanguage.canVerifyAlternative(original: "Yeah.", corroboration: heard))
+            XCTAssertNil(BackchannelLanguage.alternative(original: "Yeah.", russian: "Да.", corroboration: heard))
+        }
+        for (original, candidate, heard) in [("Yeah.", "Да.", "Ну да."), ("Uh-huh.", "Угу.", nil)] {
+            XCTAssertTrue(BackchannelLanguage.canVerifyAlternative(original: original, corroboration: heard))
+            XCTAssertEqual(BackchannelLanguage.alternative(original: original, russian: candidate, corroboration: heard), candidate)
+        }
+    }
+
     func testRepeatedOnsetUsesActualRepeatCountAndRussianConversation() throws {
         let source = "Dá, dá, dá, gotóvo."
         let hearing = "Да-да-да, готово."

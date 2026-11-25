@@ -46,6 +46,7 @@ def synthetic_corpus(root):
         ("spoken-english-vocabulary", "Передадим данные в YClients и обсудим Retail Media.", 170, "YClients, Retail Media"),
         ("spoken-acronyms", "Это B2C продукт. Посчитаем PNL'ку.", 170, "B2C, PNL"),
         ("dictionary-near-misses", "Покажите панель. Эти клиенты уже пришли. Откройте пенал.", 170, "YClients, Retail Media, B2C, PNL"),
+        ("json-and-name", "Джейсон предложил сохранить ответ в формате JSON. Потом Джейсон прислал файл.", 166, ""),
         ("cyrillic-acronym", "Мы познакомились с руководителем ЦРТС. Мы можем сделать встречу.", 170, "ЦРТС, Анжела"),
         ("cyrillic-name", "Обсудим с Анжелой детали и вернёмся с ответом.", 170, "ЦРТС, Анжела"),
     ]
@@ -62,6 +63,8 @@ def synthetic_corpus(root):
             spoken = reference.replace("B2C", "би ту си").replace("PNL'ку", "пи эн эльку")
         if name == "cyrillic-acronym":
             spoken = reference.replace("ЦРТС", "цэ эр тэ эс")
+        if name == "json-and-name":
+            spoken = reference.replace("JSON", "джейсон")
         subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", str(aiff), spoken], check=True)
         subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(aiff), str(wav)], check=True)
         with wave.open(str(wav), "rb") as audio:
@@ -70,7 +73,8 @@ def synthetic_corpus(root):
         if sys.byteorder != "little":
             pcm.byteswap()
         samples = [0.] * 4000 + [value / 32768 for value in pcm] + [0.] * 4000
-        required = {"spoken-english-vocabulary": ["YClients", "Retail Media"],
+        required = {"json-and-name": ["JSON", "Джейсон"],
+                    "spoken-english-vocabulary": ["YClients", "Retail Media"],
                     "spoken-acronyms": ["B2C", "PNL"],
                     "cyrillic-acronym": ["ЦРТС"],
                     "cyrillic-name": ["с Анжелой"]}.get(name, [])
