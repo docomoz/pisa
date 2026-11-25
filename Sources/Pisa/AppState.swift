@@ -51,9 +51,13 @@ final class AppState: ObservableObject {
     @Published var recordingStarted: Date?
     @Published var processingID: UUID? {
         didSet {
-            if processingID != oldValue { setTurboEnabled(false) }
+            if processingID != oldValue {
+                if isStoppingProcessing { isStoppingProcessing = false }
+                setTurboEnabled(false)
+            }
         }
     }
+    @Published private(set) var isStoppingProcessing = false
     @Published private(set) var turboTranscriptionEnabled = false
     @Published var progress: Double = 0
     @Published var phase = ""
@@ -1253,10 +1257,14 @@ final class AppState: ObservableObject {
         return profiles
     }
 
-    func cancelProcessing() {
-        setTurboEnabled(false)
-        processingTask?.cancel()
-        if processingID != recordingMeetingID { liveTask?.cancel() }
+    func cancelProcessing(for id: UUID) {
+        guard processingID == id, recordingMeetingID != id, !isStoppingProcessing else { return }
+        let task = processingTask ?? liveTask
+        isStoppingProcessing = true
+        // Cancellation handlers may run synchronously on the caller's thread.
+        if let task {
+            Task.detached(priority: .userInitiated) { task.cancel() }
+        }
     }
     func canReviewTerms(_ meeting: Meeting) -> Bool {
         meeting.status == .ready && meeting.liveCommittedUntil == nil && meeting.deletedAt == nil &&

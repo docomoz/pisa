@@ -229,7 +229,7 @@ public enum LivePipelineTests {
         var initialFraction: Double?
         let progress = state.$progress.dropFirst().sink { fraction in
             if fraction > 0, initialFraction == nil { initialFraction = fraction }
-            if mode == "stop", fraction > 0.45 { state.cancelProcessing() }
+            if mode == "stop", fraction > 0.45 { state.cancelProcessing(for: meeting.id) }
             if mode == "crash", fraction >= 0.90 { _exit(77) }
         }
         defer { progress.cancel() }
@@ -251,7 +251,7 @@ public enum LivePipelineTests {
             // process-wide state while a synchronous load/decode is still active.
             // This independent task also drains when the test task was cancelled.
             let drain = Task { @MainActor in
-                state.cancelProcessing()
+                state.cancelProcessing(for: meeting.id)
                 while state.processingID != nil {
                     try? await Task.sleep(for: .milliseconds(30))
                 }

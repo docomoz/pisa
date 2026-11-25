@@ -10,7 +10,8 @@ enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
     case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
     case recognitionFooterLabel, recognitionFooterIcon, updateFooterLink, updateFooterIcon
-    case transcriptionStatusHeading, transcriptionStatusAction, transcriptionProgressCaption, transcriptionProgressRow
+    case transcriptionStatusHeading, transcriptionStatusAction, transcriptionStoppingAction
+    case transcriptionProgressCaption, transcriptionProgressRow
     case savedAudioTranscriptionAction(String)
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
@@ -562,12 +563,29 @@ private final class LayoutSuite {
                         equal(preparing.progress.minY, processingPositions.progress.minY, "preparing keeps the progress bar in place")
                     }
                     state.liveStatus = ""
+                    if let processingPositions {
+                        host.settle()
+                        try saveScreenshot("processing-\(Int(size.width))-\(Int(scale * 100))", in: host)
+                        host.click(processingPositions.action.center)
+                        check(state.isStoppingProcessing && state.processingID == processing.id,
+                              "click acknowledges the stop while the current recording is still processing")
+                        if let stopping = checkTranscriptionProgress(in: host, stopping: true) {
+                            check(host.bounds.contains(stopping.action), "stopping button fits in the window")
+                            equal(stopping.action.maxX, processingPositions.action.maxX, "stopping button stays right-aligned")
+                            equal(stopping.progress.minY, processingPositions.progress.minY, "stopping keeps the progress bar in place")
+                        }
+                        try saveScreenshot("stopping-\(Int(size.width))-\(Int(scale * 100))", in: host)
+                        state.processingID = nil
+                        check(!state.isStoppingProcessing, "finishing the stop clears the pending state")
+                        state.processingID = processing.id
+                    }
                 } else if meeting.id == interrupted.id,
                           let interruptedPositions = checkTranscriptionProgress(in: host),
                           let processingPositions {
                     equal(interruptedPositions.heading.minY, processingPositions.heading.minY, "status heading starts at the same height")
                     equal(interruptedPositions.action.minY, processingPositions.action.minY, "action starts at the same height")
                     equal(interruptedPositions.progress.minY, processingPositions.progress.minY, "progress stays at the same height when transcription stops")
+                    try saveScreenshot("interrupted-\(Int(size.width))-\(Int(scale * 100))", in: host)
                 }
             }
             if let output = ProcessInfo.processInfo.environment["PISA_SIDEBAR_TEST_SCREENSHOTS"] {
@@ -790,8 +808,9 @@ private final class LayoutSuite {
         return measured[0]
     }
 
-    private func checkTranscriptionProgress(in host: LayoutHost) -> (heading: CGRect, action: CGRect, progress: CGRect)? {
-        let elements: [InterfaceLayoutElement] = [.transcriptionStatusHeading, .transcriptionStatusAction,
+    private func checkTranscriptionProgress(in host: LayoutHost, stopping: Bool = false) -> (heading: CGRect, action: CGRect, progress: CGRect)? {
+        let actionElement: InterfaceLayoutElement = stopping ? .transcriptionStoppingAction : .transcriptionStatusAction
+        let elements: [InterfaceLayoutElement] = [.transcriptionStatusHeading, actionElement,
                                                    .transcriptionProgressCaption, .transcriptionProgressRow]
         guard let measured = frames(elements, in: host) else { return nil }
         let (heading, action, caption, progress) = (measured[0], measured[1], measured[2], measured[3])
