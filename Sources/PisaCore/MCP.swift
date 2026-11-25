@@ -52,6 +52,7 @@ public final class MCPHandler {
                 Follow next_offset while has_more is true. Each page reflects the live library for that request.
                 Changes between calls can shift offsets. complete means this response includes all matches from offset zero.
                 Inspect quality on meetings and segments. transcript_complete means processing finished.
+                processing_status distinguishes stopped (cancelled, including manual stops), interrupted (detected on next app launch), and failed (an error or unknown cause).
                 recording_coverage and human_verification are unknown. recognition_confidence is reported as not_measured.
                 audio_availability describes the stored file inventory. Playback and time-range coverage are unknown.
                 A named speaker is a saved label, not verified identity.
@@ -188,7 +189,7 @@ public final class MCPHandler {
     private func summary(_ meeting: Meeting) -> [String: Any] {
         ["id": meeting.id.uuidString, "title": meeting.title,
          "date": ISO8601DateFormatter().string(from: meeting.date), "source": meeting.source,
-         "duration": meeting.duration, "status": meeting.status.rawValue, "speakers": meeting.speakers,
+         "duration": meeting.duration, "status": TranscriptEvidence.ProcessingStatus(meeting).rawValue, "speakers": meeting.speakers,
          "folder_id": meeting.folderID.map { $0.uuidString as Any } ?? NSNull(),
          "quality": TranscriptEvidence.meeting(meeting, library: library)]
     }

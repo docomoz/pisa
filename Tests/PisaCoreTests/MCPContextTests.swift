@@ -238,6 +238,59 @@ final class MCPContextTests: XCTestCase {
         XCTAssertEqual(result["complete"] as? Bool, true, "A complete response can contain an unfinished transcript")
     }
 
+    func testListMeetingsDistinguishesSavedStopsFromFailures() throws {
+        let cases: [(message: String?, status: String)] = [
+            ("Обработка остановлена. Аудио сохранено.", "stopped"),
+            ("Обработка остановлена. Аудио сохранено", "stopped"),
+            ("Обработка прервалась. Аудио сохранено — можно повторить", "interrupted"),
+            ("Обработка остановлена. Не удалось открыть private-track.caf", "failed"),
+            (nil, "failed"),
+        ]
+        for (message, status) in cases {
+            var meeting = Meeting(title: "Запись", source: "Тест")
+            meeting.status = .failed
+            meeting.error = message
+            try library.save(meeting)
+
+            let result = try payload("list_meetings", ["meeting_id": meeting.id.uuidString])
+            let meetings = try XCTUnwrap(result["meetings"] as? [[String: Any]])
+            let summary = try XCTUnwrap(meetings.first)
+            XCTAssertEqual(summary["status"] as? String, status, message ?? "no saved error")
+            try assertProcessingQuality(summary, status: status, state: status)
+
+            let encoded = String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+            XCTAssertFalse(encoded.contains("private-track.caf"))
+        }
+    }
+
+    func testReadTranscriptReportsAStoppedLiveDraftAsPartial() throws {
+        var meeting = try fixture()
+        meeting.status = .failed
+        meeting.error = "Обработка остановлена. Аудио сохранено."
+        meeting.liveCommittedUntil = 25
+        try library.save(meeting)
+
+        let result = try payload("read_transcript", ["meeting_id": meeting.id.uuidString])
+        let summary = try XCTUnwrap(result["meeting"] as? [String: Any])
+        XCTAssertEqual(summary["status"] as? String, "stopped")
+        try assertProcessingQuality(summary, status: "stopped", state: "partial")
+        XCTAssertEqual((summary["quality"] as? [String: Any])?["live_committed_until_seconds"] as? Double, 25)
+
+        let segments = try XCTUnwrap(result["segments"] as? [[String: Any]])
+        XCTAssertEqual(segments.count, 3)
+        try assertProcessingQuality(XCTUnwrap(segments.first), status: "stopped", state: "partial")
+    }
+
+    private func assertProcessingQuality(_ object: [String: Any], status: String, state: String,
+                                         file: StaticString = #filePath, line: UInt = #line) throws {
+        let quality = try XCTUnwrap(object["quality"] as? [String: Any], file: file, line: line)
+        XCTAssertEqual(quality["processing_status"] as? String, status, file: file, line: line)
+        XCTAssertEqual(quality["transcript_state"] as? String, state, file: file, line: line)
+        XCTAssertEqual(quality["transcript_complete"] as? Bool, false, file: file, line: line)
+        let warnings = try XCTUnwrap(quality["warnings"] as? [String], file: file, line: line)
+        XCTAssertEqual(warnings.filter { $0.hasPrefix("processing_") }, ["processing_\(status)"], file: file, line: line)
+    }
+
     func testInvalidArgumentsAreRejectedRatherThanSilentlyBroadeningAccess() throws {
         let cases: [(String, [String: Any])] = [
             ("list_meetings", ["limit": 0]),

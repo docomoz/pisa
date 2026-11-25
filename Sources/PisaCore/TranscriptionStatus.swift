@@ -1,7 +1,8 @@
 import Foundation
 
 public enum TranscriptionStatus {
-    static let stoppedMessage = "Обработка остановлена. Аудио сохранено."
+    static let legacyStoppedMessage = "Обработка остановлена. Аудио сохранено"
+    static let stoppedMessage = legacyStoppedMessage + "."
     static let interruptedMessage = "Обработка прервалась. Аудио сохранено — можно повторить"
 
     public static func title(fraction: Double?, roundsDown: Bool = false) -> String {

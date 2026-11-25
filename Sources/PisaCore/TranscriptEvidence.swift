@@ -2,6 +2,27 @@ import Foundation
 
 /// Evidence from the saved meeting and its current audio inventory, for MCP readers.
 public enum TranscriptEvidence {
+    enum ProcessingStatus: String {
+        case recorded, processing, ready, stopped, interrupted, failed
+
+        init(_ meeting: Meeting) {
+            switch meeting.status {
+            case .recorded: self = .recorded
+            case .processing: self = .processing
+            case .ready: self = .ready
+            case .failed:
+                switch meeting.error {
+                case TranscriptionStatus.stoppedMessage, TranscriptionStatus.legacyStoppedMessage:
+                    self = .stopped
+                case TranscriptionStatus.interruptedMessage:
+                    self = .interrupted
+                default:
+                    self = .failed
+                }
+            }
+        }
+    }
+
     public static func meeting(_ meeting: Meeting, library: MeetingLibrary) -> [String: Any] {
         let unidentifiedCount = meeting.segments.count { speakerIdentification($0.speaker) == "unidentified" }
         let audio = meetingAudio(meeting, library: library)
@@ -37,23 +58,25 @@ public enum TranscriptEvidence {
     private static func base(_ meeting: Meeting, audio: AudioAvailability, hasText: Bool,
                              hasUnidentifiedSpeaker: Bool) -> [String: Any] {
         let checkpoint = meeting.liveCommittedUntil.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        let processingStatus = ProcessingStatus(meeting)
         let state: String
-        switch meeting.status {
+        var warnings = ["recording_coverage_not_measured"]
+        switch processingStatus {
         case .recorded: state = "pending"
         case .processing: state = meeting.liveCommittedUntil == nil ? "processing" : "draft"
         case .ready: state = meeting.liveCommittedUntil == nil ? "final" : "draft"
-        case .failed: state = (checkpoint ?? 0) > 0 ? "partial" : "failed"
+        case .stopped, .interrupted, .failed:
+            state = (checkpoint ?? 0) > 0 ? "partial" : processingStatus.rawValue
+            warnings.append("processing_\(processingStatus.rawValue)")
         }
 
-        var warnings = ["recording_coverage_not_measured"]
-        if meeting.status == .failed { warnings.append("processing_failed") }
         if meeting.liveCommittedUntil != nil && checkpoint == nil { warnings.append("invalid_live_checkpoint") }
         if !hasText { warnings.append("no_transcript_text") }
         if hasUnidentifiedSpeaker { warnings.append("unidentified_speaker") }
         if let warning = audio.warning { warnings.append(warning) }
 
         var evidence: [String: Any] = [
-            "processing_status": meeting.status.rawValue,
+            "processing_status": processingStatus.rawValue,
             "transcript_state": state,
             // A finished pipeline can still have missed speech or produced no text.
             "transcript_complete": state == "final",
