@@ -255,6 +255,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-o
   line-height: 1.55;
 }
 
+.lead + .lead { margin-top: 12px; }
+
 .text-link {
   display: inline-flex;
   gap: 6px;
