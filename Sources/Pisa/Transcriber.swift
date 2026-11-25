@@ -1434,6 +1434,23 @@ actor Transcriber {
             if BackchannelLanguage.confirmsFillerSequence(original: text, reread: decoded.text, corroboration: independent.text) {
                 return RecognizedSpeech(text: text, acoustic: independent)
             }
+            // Residual microphone noise can produce a filler even when both
+            // speech verifiers abstain. Give a quiet reply a second chance
+            // with additional audio context before marking it unclear.
+            if shortMic, BackchannelLanguage.hasNoSpeechEvidence(language: decoded.language,
+                text: decoded.text, corroboration: independent.text) {
+                let retry = expandedSamples ?? BackchannelLanguage.retryAudio(samples)
+                let checked = try await generate(language: nil, context: "", audioSamples: retry)
+                let confirmation = acousticRecognition(retry, using: russian)
+                if BackchannelLanguage.hasNoSpeechEvidence(language: checked.language,
+                    text: checked.text, corroboration: confirmation?.text) {
+                    if let diagnostic {
+                        contextDiagnostics.append(["kind": "short-filler-unconfirmed", "start": String(diagnostic.start),
+                            "track": diagnostic.track, "source": text])
+                    }
+                    return RecognizedSpeech(text: "Неразборчиво", independentLanguage: false, acoustic: independent)
+                }
+            }
             var alternative = decoded.language?.lowercased() == "russian"
                 ? BackchannelLanguage.alternative(original: text, russian: spokenVocabulary.apply(to: decoded.text),
                     corroboration: independent.text, vocabulary: vocabulary) : nil
@@ -1449,7 +1466,7 @@ actor Transcriber {
             if let diagnostic {
                 contextDiagnostics.append(["kind": "backchannel-language", "start": String(diagnostic.start),
                     "track": diagnostic.track, "source": text, "reread": decoded.text, "independent": independent.text,
-                    "candidate": alternative ?? ""])
+                    "language": decoded.language ?? "", "candidate": alternative ?? ""])
             }
             return RecognizedSpeech(text: text, russianBackchannel: alternative, acoustic: independent)
         }
