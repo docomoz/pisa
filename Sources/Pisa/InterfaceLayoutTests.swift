@@ -430,7 +430,8 @@ private final class LayoutSuite {
 
     func checkActiveRecordingFolder(state: AppState) throws {
         state.modelSetup.phase = .ready
-        let meeting = Meeting(title: "Текущая запись", source: "Системный звук")
+        var meeting = Meeting(title: "Текущая запись", source: "Системный звук")
+        meeting.audioFiles = ["\(meeting.id)-mic.caf"]
         let folderName = "Документы и рабочие созвоны"
         guard let folder = state.saveFolder(folderName, symbol: "pisa.necktie") else {
             throw PisaError.message("Не удалось создать папку для проверки переноса")
@@ -455,6 +456,8 @@ private final class LayoutSuite {
             host.settle()
             check(host.frames[folderLabel] == nil, "unfiled recording has no folder indicator")
             let unfiledRow = frames([recordingRow], in: host)?.first
+            check(host.frames[.sidebarTranscriptionStatus(meeting.id, "Ещё не расшифрована")] == nil,
+                  "an active recording with a journaled audio path has no pending transcription label")
             submenu.performActionForItem(at: submenu.index(of: destination))
             let saved = try state.library.read(meeting.id)
             check(saved.folderID == folder && state.recordingMeetingID == meeting.id, "the folder move was saved while recording continued")
@@ -504,6 +507,7 @@ private final class LayoutSuite {
         processing.duration = 3_670
         processing.folderID = state.saveFolder("Документы и рабочие созвоны")
         processing.status = .processing
+        saved.folderID = processing.folderID
         var interrupted = ready
         interrupted.id = UUID()
         interrupted.title = "Разбор прототипа"
@@ -525,7 +529,7 @@ private final class LayoutSuite {
             let host = LayoutHost(MainView().environmentObject(state), size: size, scale: scale)
             defer { host.close() }
             checkWelcome(in: host)
-            checkSidebarStatuses(in: host, state: state, queued: queued.id, processing: processing.id,
+            checkSidebarStatuses(in: host, state: state, saved: saved.id, queued: queued.id, processing: processing.id,
                                  interrupted: interrupted)
             state.select(ready.id)
             guard let reference = checkMeetingHeader(in: host) else { continue }
@@ -666,13 +670,18 @@ private final class LayoutSuite {
         }
     }
 
-    private func checkSidebarStatuses(in host: LayoutHost, state: AppState, queued: UUID,
+    private func checkSidebarStatuses(in host: LayoutHost, state: AppState, saved: UUID, queued: UUID,
                                       processing: UUID, interrupted: Meeting) {
         func checkStatus(_ id: UUID, _ label: String) {
             let element = InterfaceLayoutElement.sidebarTranscriptionStatus(id, label)
             guard let measured = frames([.sidebarRecording(id), element], in: host) else { return }
             check(measured[0].insetBy(dx: -0.5, dy: -0.5).contains(measured[1]), "full status fits inside the recording row")
         }
+        checkStatus(saved, "Ещё не расшифрована")
+        checkStatus(queued, "В очереди")
+        state.cancelQueued(queued)
+        checkStatus(queued, "Ещё не расшифрована")
+        state.enqueue(queued)
         checkStatus(queued, "В очереди")
         checkStatus(processing, "Расшифровка · 99%")
         checkStatus(interrupted.id, "Остановлена")

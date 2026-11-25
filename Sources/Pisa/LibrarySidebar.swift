@@ -163,6 +163,10 @@ struct LibrarySidebar: View {
     private func transcriptionLabel(for meeting: Meeting) -> String? {
         guard meeting.deletedAt == nil else { return nil }
         if state.isQueued(meeting.id) { return "В очереди" }
+        if meeting.status == .recorded, !meeting.audioFiles.isEmpty,
+           state.recordingMeetingID != meeting.id, state.savingMeetingID != meeting.id {
+            return "Ещё не расшифрована"
+        }
         // Existing entries persist the interruption message, including stops before the first checkpoint.
         if meeting.status == .failed,
            meeting.error == TranscriptionStatus.stoppedMessage || meeting.error == TranscriptionStatus.interruptedMessage {
