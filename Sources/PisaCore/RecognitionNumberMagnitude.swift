@@ -80,6 +80,7 @@ enum RecognitionNumberMagnitude {
 
     private static let words = try! NSRegularExpression(pattern: #"[\p{L}\p{M}\p{N}_]+"#)
     private static let standaloneScales: Set<String> = ["тысяча", "миллион", "миллиард", "триллион", "квадриллион", "квинтиллион"]
+    private static let genderedUnits: [Substring: [String]] = ["один": ["одна", "одно"], "два": ["две"]]
     private static let cardinals = Set("""
         ноль один одна одно два две три четыре пять шесть семь восемь девять десять одиннадцать двенадцать
         тринадцать четырнадцать пятнадцать шестнадцать семнадцать восемнадцать девятнадцать двадцать тридцать
@@ -162,6 +163,13 @@ enum RecognitionNumberMagnitude {
         // Russian permits the leading one to be implicit in an exact scale.
         if spelled.hasPrefix("один ") || spelled.hasPrefix("одна ") {
             forms.append(String(spelled.dropFirst(5)))
+        }
+        // The formatter spells bare integers in the masculine. Only the final
+        // unit agrees with the counted noun, including in a compound numeral.
+        if let unit = spelled.split(separator: " ").last, let variants = genderedUnits[unit] {
+            forms += forms.flatMap { form in
+                variants.map { form.dropLast(unit.count) + $0 }
+            }
         }
         // In “два миллиона пятьсот” the hundreds refer to the next group.
         // Accept that reading only for the value independently written in digits.

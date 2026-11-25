@@ -58,6 +58,7 @@ struct RecognitionContext {
     private final class Turn {
         let segment: TranscriptSegment
         lazy var plainText = RecognitionContext.withoutLiterals(segment.text)
+        lazy var wordPairs = RecognitionContext.wordPairs(in: segment.text)
         lazy var exactMentions = RecognitionContext.tokens(plainText).map(\.text)
         lazy var head = RecognitionContext.excerpt(segment.text, plainText: plainText, useTail: false)
         lazy var tail = RecognitionContext.excerpt(segment.text, plainText: plainText, useTail: true)
@@ -254,30 +255,55 @@ struct RecognitionContext {
         return Neighbors(preceding: previous.reversed(), following: Array(next))
     }
 
-    /// Recurrence is counted across separate frozen turns, never repetitions
-    /// within a single turn or a correction produced during the current pass.
-    func establishedPhrases(around target: TranscriptSegment) -> Set<String> {
+    private func nearbyTurns(for target: TranscriptSegment) -> [Turn] {
         let previous = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 120 }).prefix(40)
         let next = startingAtOrAfter(target.end).lazy.prefix(while: { $0.segment.start <= target.end + 120 }).prefix(40)
-        let nearby = (Array(previous) + Array(next)).map(\.segment).filter { $0.id != target.id && $0.independentRecognitionLanguage != false }
-        var occurrences: [String: Set<UUID>] = [:]
-        for segment in nearby {
-            let words = Self.tokens(segment.text)
-            guard words.count >= 2 else { continue }
-            let literals = TranscriptOrthography.literalRanges(in: segment.text)
-            for index in 0..<(words.count - 1) {
-                let pair = words[index...(index + 1)]
-                let separator = segment.text[words[index].range.upperBound..<words[index + 1].range.lowerBound]
-                let interval = words[index].range.lowerBound..<words[index + 1].range.upperBound
-                guard !separator.isEmpty, separator.allSatisfy({ $0.isWhitespace && !$0.isNewline }),
-                      pair.allSatisfy({ Self.isRussianWord($0.text) && $0.key.count >= 4 && !Self.markers.contains($0.key) }),
-                      !literals.contains(where: {
-                          NSIntersectionRange($0, NSRange(interval, in: segment.text)).length > 0
-                      }) else { continue }
-                occurrences[pair.map(\.key).joined(separator: " "), default: []].insert(segment.id)
-            }
+        return (Array(previous) + Array(next)).filter { $0.segment.id != target.id && $0.segment.independentRecognitionLanguage != false }
+    }
+
+    private static func joinedInPhrase(_ first: Token, _ second: Token, in text: String) -> Bool {
+        let separator = text[first.range.upperBound..<second.range.lowerBound]
+        return !separator.isEmpty && separator.allSatisfy { $0.isWhitespace && !$0.isNewline }
+    }
+
+    private static func localPhrases(at index: Int, key: String, words: [Token], in text: String) -> Set<String> {
+        var phrases = Set<String>()
+        if index > 0, joinedInPhrase(words[index - 1], words[index], in: text) {
+            phrases.insert(words[index - 1].key + " " + key)
         }
-        return Set(occurrences.filter { $0.value.count >= 2 }.map(\.key))
+        if index + 1 < words.count, joinedInPhrase(words[index], words[index + 1], in: text) {
+            phrases.insert(key + " " + words[index + 1].key)
+        }
+        return phrases
+    }
+
+    private static func wordPairs(in text: String) -> Set<String> {
+        let words = tokens(text)
+        let literals = TranscriptOrthography.literalRanges(in: text)
+        return Set(zip(words, words.dropFirst()).compactMap { first, second in
+            guard joinedInPhrase(first, second, in: text),
+                  [first, second].allSatisfy({ isRussianWord($0.text) && $0.key.count >= 4 && !markers.contains($0.key) }),
+                  !literals.contains(where: {
+                      NSIntersectionRange($0, NSRange(first.range.lowerBound..<second.range.upperBound, in: text)).length > 0
+                  }) else { return nil }
+            return first.key + " " + second.key
+        })
+    }
+
+    /// Count a phrase once per frozen turn, even when it repeats within that turn.
+    func establishedPhrases(around target: TranscriptSegment) -> Set<String> {
+        Self.establishedPhrases(in: nearbyTurns(for: target))
+    }
+
+    private static func establishedPhrases(in turns: [Turn], matching candidates: Set<String>? = nil) -> Set<String> {
+        var seen = Set<String>(), repeated = Set<String>()
+        var counted = Set<UUID>()
+        for turn in turns where counted.insert(turn.segment.id).inserted {
+            let phrases = candidates.map { turn.wordPairs.intersection($0) } ?? turn.wordPairs
+            repeated.formUnion(seen.intersection(phrases))
+            seen.formUnion(phrases)
+        }
+        return repeated
     }
 
     struct RecurringWord {
@@ -286,6 +312,7 @@ struct RecognitionContext {
         fileprivate let key: String
         fileprivate let left: [String]
         fileprivate let right: [String]
+        fileprivate let requiredPhrases: Set<String>
 
         func confirmedText(language: String?, reread: String) -> String? {
             guard language?.lowercased() == "russian" else { return nil }
@@ -293,6 +320,8 @@ struct RecognitionContext {
             let sites = RecognitionContext.matches(in: words, left: left, right: right, maximumWidth: 1)
             guard sites.count == 1, let site = sites.first, words[site.lowerBound].key == key,
                   RecognitionContext.safe(site, in: words, text: reread) else { return nil }
+            if !requiredPhrases.isEmpty, requiredPhrases.isDisjoint(with:
+                RecognitionContext.localPhrases(at: site.lowerBound, key: key, words: words, in: reread)) { return nil }
             return original.replacingCharacters(in: range, with: words[site.lowerBound].text)
         }
     }
@@ -300,42 +329,49 @@ struct RecognitionContext {
     /// An unfamiliar word in running Russian can be a misspelling of a term
     /// used elsewhere. Locate a reread using the independent audio first.
     func recurringWord(for target: TranscriptSegment, independent: String, vocabulary: String) -> RecurringWord? {
+        guard target.text != independent else { return nil }
         let source = Self.tokens(target.text), heard = Self.tokens(independent)
         guard source.count == heard.count, source.count >= 4, Self.isMostlyRussian(source) else { return nil }
         let changed = source.indices.filter { source[$0].key != heard[$0].key }
-        guard changed.count == 1, let index = changed.first else { return nil }
-        let old = source[index], new = heard[index], span = index..<(index + 1)
-        guard old.text == old.text.lowercased(), Self.isRussianWord(old.text), Self.isRussianWord(new.text),
-              min(old.key.count, new.key.count) >= 5,
-              abs(old.key.count - new.key.count) <= 2,
-              Self.safe(span, in: source, text: target.text), Self.safe(span, in: heard, text: independent),
-              let distance = Self.phoneticDistance(old.key, new.key, term: new.key), distance <= 2,
-              RussianRecognition.preservesVocabulary(candidate: independent, original: target.text, vocabulary: vocabulary),
-              let (left, right) = Self.anchors(around: span, in: source),
-              Self.matches(in: source, left: left, right: right, maximumWidth: 1) == [span] else { return nil }
-        let earlier = endingAtOrBefore(target.start).lazy.prefix(while: { $0.segment.end >= target.start - 120 }).prefix(40)
-        let later = startingAtOrAfter(target.end).lazy.prefix(while: { $0.segment.start <= target.end + 120 }).prefix(40)
-        var witnesses = Set<UUID>()
-        for turn in Array(earlier) + Array(later) where turn.segment.id != target.id && turn.segment.independentRecognitionLanguage != false {
-            if turn.exactMentions.contains(where: { $0.caseInsensitiveCompare(new.text) == .orderedSame }) {
+        guard (1...2).contains(changed.count) else { return nil }
+
+        lazy var neighbors = nearbyTurns(for: target)
+        lazy var lexicon = Self.terms(in: vocabulary)
+        var result: RecurringWord?
+        for index in changed {
+            let old = source[index], new = heard[index], span = index..<(index + 1)
+            guard old.text == old.text.lowercased(), Self.isRussianWord(old.text), Self.isRussianWord(new.text),
+                  min(old.key.count, new.key.count) >= 5, abs(old.key.count - new.key.count) <= 2,
+                  let distance = Self.phoneticDistance(old.key, new.key, term: new.key), distance <= 2,
+                  let (left, right) = Self.anchors(around: span, in: source),
+                  Self.matches(in: source, left: left, right: right, maximumWidth: 1) == [span],
+                  changed.count == 1 || Self.matches(in: heard, left: left, right: right, maximumWidth: 1) == [span],
+                  Self.safe(span, in: source, text: target.text), Self.safe(span, in: heard, text: independent)
+            else { continue }
+
+            var witnesses = Set<UUID>()
+            for turn in neighbors where turn.exactMentions.contains(where: { $0.caseInsensitiveCompare(new.text) == .orderedSame }) {
                 witnesses.insert(turn.segment.id)
-                if witnesses.count == 2 {
-                    // Two valid words can both belong in the conversation.
-                    // Require the candidate's actual collocation to recur and
-                    // abstain if the original collocation is established too.
-                    if TranscriptTerms.isCommonRussianWord(old.key) {
-                        let established = establishedPhrases(around: target)
-                        func collocations(_ word: String) -> Set<String> {
-                            Set([left.last.map { $0 + " " + word }, right.first.map { word + " " + $0 }].compactMap { $0 })
-                        }
-                        guard !established.isDisjoint(with: collocations(new.key)),
-                              established.isDisjoint(with: collocations(old.key)) else { return nil }
-                    }
-                    return RecurringWord(original: target.text, range: old.range, key: new.key, left: left, right: right)
-                }
+                if witnesses.count == 2 { break }
             }
+            guard witnesses.count == 2, Self.preservesTerms(source, span, text: target.text, lexicon: lexicon) else { continue }
+            var requiredPhrases = Set<String>()
+            if changed.count > 1 || TranscriptTerms.isCommonRussianWord(old.key) {
+                // The recurring expression must also be a continuous phrase at
+                // this exact site in both decodes, and again in the fresh reread.
+                let proposed = Self.localPhrases(at: index, key: new.key, words: source, in: target.text)
+                    .intersection(Self.localPhrases(at: index, key: new.key, words: heard, in: independent))
+                guard !proposed.isEmpty else { continue }
+                let existing = Self.localPhrases(at: index, key: old.key, words: source, in: target.text)
+                let established = Self.establishedPhrases(in: neighbors, matching: proposed.union(existing))
+                requiredPhrases = proposed.intersection(established)
+                guard !requiredPhrases.isEmpty, established.isDisjoint(with: existing) else { continue }
+            }
+            guard result == nil else { return nil }
+            result = RecurringWord(original: target.text, range: old.range, key: new.key, left: left, right: right,
+                                   requiredPhrases: requiredPhrases)
         }
-        return nil
+        return result
     }
 
     struct Continuation {
@@ -1447,7 +1483,7 @@ struct RecognitionContext {
     }
 
     private static func preservesTerms(_ words: [Token], _ span: Range<Int>, text: String,
-                                       lexicon: [String], replacing term: String) -> Bool {
+                                       lexicon: [String], replacing term: String? = nil) -> Bool {
         for other in lexicon where other != term {
             let width = tokens(other).count
             guard width > 0, width <= words.count else { continue }

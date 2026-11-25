@@ -90,6 +90,18 @@ final class SpokenVocabularyTests: XCTestCase {
         XCTAssertEqual(vocabulary.relevantTerms(in: ["Сравнили ASP.NET, C++11 и CI/CD_internal."]), "")
     }
 
+    func testJSONPronunciationUsesTheLocalMeaningOnEachOccurrence() {
+        let vocabulary = SpokenVocabulary("")
+        let source = "Джейсон предложил сохранить ответ в формате джейсон. Потом Джейсон прислал файл."
+        XCTAssertEqual(vocabulary.apply(to: source),
+                       "Джейсон предложил сохранить ответ в формате JSON. Потом Джейсон прислал файл.")
+        XCTAssertEqual(vocabulary.relevantTerms(in: ["Распарсить джейсон."]), "JSON")
+        for protected in ["Мы выбрали формат. Джейсон прислал файл.", "Обсудили формат «Джейсон».",
+                          "Отчёт форматировал Джейсон."] {
+            XCTAssertEqual(vocabulary.apply(to: protected), protected)
+        }
+    }
+
     func testBranchTargetBufferAndBusinessToBusinessKeepDistinctPronunciations() {
         let vocabulary = SpokenVocabulary("")
         let text = "Для процессора нужен би ти би, а для продаж — би ту би. Сверили BTB и B2B."

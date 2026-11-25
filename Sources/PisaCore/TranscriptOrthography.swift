@@ -136,7 +136,7 @@ public enum TranscriptOrthography {
         return result as String
     }
 
-    private static func yoSpelling(for word: Substring) -> String? {
+    static func yoSpelling(for word: Substring) -> String? {
         let lower = word.lowercased()
         guard lower.contains("ё") else { return yoSpellings[lower] }
         guard let canonical = yoSpellings[lower.replacingOccurrences(of: "ё", with: "е")], canonical != lower,
