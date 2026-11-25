@@ -535,6 +535,104 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertFalse(BackchannelLanguage.confirmsLatinSource(original: "Can we?", reread: "Can you?"))
     }
 
+    func testSparseLatinTurnRequiresALongLowDensityUnquotedClause() {
+        let source = "This is the API."
+        XCTAssertTrue(BackchannelLanguage.shouldVerifySparseLatinTurn(source, duration: 17))
+        XCTAssertTrue(BackchannelLanguage.shouldVerifySparseLatinTurn(source, duration: 30))
+        XCTAssertTrue(BackchannelLanguage.shouldVerifySparseLatinTurn("We can review the plan at noon today.", duration: 8))
+        XCTAssertTrue(BackchannelLanguage.shouldVerifySparseLatinTurn("We can't do it for the new project.", duration: 12))
+
+        XCTAssertFalse(BackchannelLanguage.shouldVerifySparseLatinTurn(source, duration: 7.9))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifySparseLatinTurn(source, duration: 30.1))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifySparseLatinTurn(source, duration: .infinity))
+        XCTAssertFalse(BackchannelLanguage.shouldVerifySparseLatinTurn("We can review the whole plan at noon today.", duration: 8))
+        for ordinary in ["He is okay.", "Head of Sales Operations", "«This is the API»", "This is the API 2",
+                         "We can проверить the API again."] {
+            XCTAssertFalse(BackchannelLanguage.shouldVerifySparseLatinTurn(ordinary, duration: 17), ordinary)
+        }
+    }
+
+    func testCorroboratedRussianTurnRetainsTheAgreedWordsAfterAnInteriorConflict() {
+        let original = "We can't check that."
+        let reread = "Мы не сделаем просто с единым ВВП этот важный кейс на следующей неделе."
+        let corroboration = "мы не сделаем просто с единым CDP этот важный кейс на следующей неделе"
+        XCTAssertEqual(BackchannelLanguage.corroboratedRussianTurn(original: original, language: "Russian", reread: reread,
+            corroboration: corroboration, vocabulary: ""),
+            "Мы не сделаем просто с единым … этот важный кейс на следующей неделе.")
+    }
+
+    func testCorroboratedRussianTurnPreservesSpeechBetweenSeveralSmallConflicts() {
+        let reread = "Мы собрали полный отчёт для единой комиссии и проверили данные за прошлую неделю. "
+            + "Затем спокойно отправили материалы на ревью всем коллегам из нашей команды. "
+            + "Если появятся новые вопросы мы обсудим их на следующем общем созвоне."
+        let corroboration = "мы собрали полный отчет для новой группы и проверили данные за прошлую неделю. "
+            + "Затем отправили материалы на ревью всем коллегам из нашей команды. "
+            + "Если появятся новые проблемы мы обсудим их на следующем общем созвоне."
+        let expected = "Мы собрали полный отчёт для … и проверили данные за прошлую неделю. "
+            + "Затем … отправили материалы на ревью всем коллегам из нашей команды. "
+            + "Если появятся новые … мы обсудим их на следующем общем созвоне."
+        XCTAssertEqual(BackchannelLanguage.corroboratedRussianTurn(original: "They need the plan.", language: "Russian",
+            reread: reread, corroboration: corroboration, vocabulary: ""), expected)
+    }
+
+    func testCorroboratedRussianTurnProtectsGlossaryAndIndependentlyHeardEnglish() {
+        let original = "This is the API."
+        let agreed = "Мы проверили новый API в проде и передали отчёт коллегам на ревью."
+        let unprotected = "Мы проверили новый сервис в проде и передали отчёт коллегам на ревью."
+        let mixed = "Мы проверили новый сервис, this is the API, и передали отчёт коллегам на ревью."
+        func recover(_ language: String?, _ reread: String, _ heard: String) -> String? {
+            BackchannelLanguage.corroboratedRussianTurn(original: original, language: language, reread: reread,
+                corroboration: heard, vocabulary: "API")
+        }
+        XCTAssertEqual(recover("Russian", agreed, agreed.lowercased().replacingOccurrences(of: "ё", with: "е")), agreed)
+        XCTAssertNil(recover("Russian", unprotected, unprotected))
+        XCTAssertNil(recover("Russian", mixed, mixed))
+        XCTAssertNil(recover("English", original, agreed))
+        XCTAssertNil(recover(nil, agreed, agreed))
+    }
+
+    func testCorroboratedRussianTurnAlignsHesitationsAndHeardInitialismSpelling() {
+        let source = "This is the API."
+        let reread = "Вот и здесь нужно сверить общую CRM мы CRM настроим позднее. После встречи обсудим, какую схему мы будем использовать и когда проверим API нового каталога."
+        let heard = "Э-э, вот. И здесь нужно сверить общую ERP. Мы ERP э-э настроим позднее. После встречи обсудим, какую схему мы будем использовать и когда проверим апи нового каталога."
+        XCTAssertEqual(BackchannelLanguage.corroboratedRussianTurn(original: source, language: "Russian",
+            reread: reread, corroboration: heard, vocabulary: "API"),
+            "Вот и здесь нужно сверить общую … мы … настроим позднее. После встречи обсудим, какую схему мы будем использовать и когда проверим API нового каталога.")
+    }
+
+    func testCorroboratedRussianTurnRejectsDisputedNumbersAndNegation() {
+        let original = "They need the plan."
+        for (reread, corroboration) in [
+            ("Мы решили сегодня согласовать новую схему работы с коллегами перед итоговым созвоном.",
+             "Мы решили сегодня не согласовать новую схему работы с коллегами перед итоговым созвоном."),
+            ("Мы проверили и отправили 125 заявок нашей команде в начале рабочего дня.",
+             "Мы проверили и отправили 126 заявок нашей команде в начале рабочего дня."),
+            ("Мы проверили и отправили сто заявок нашей команде в начале рабочего дня.",
+             "Мы проверили и отправили двести заявок нашей команде в начале рабочего дня."),
+        ] {
+            XCTAssertEqual(BackchannelLanguage.corroboratedRussianTurn(original: original, language: "Russian",
+                reread: reread, corroboration: reread, vocabulary: ""), reread)
+            XCTAssertNil(BackchannelLanguage.corroboratedRussianTurn(original: original, language: "Russian",
+                reread: reread, corroboration: corroboration, vocabulary: ""), corroboration)
+        }
+    }
+
+    func testCorroboratedRussianTurnRequiresEnoughAgreementAndBothEdges() {
+        let original = "They need the plan."
+        let agreed = "Мы сверили сроки проекта с командой и подготовили итоговый отчёт."
+        XCTAssertEqual(BackchannelLanguage.corroboratedRussianTurn(original: original, language: "Russian",
+            reread: agreed, corroboration: agreed, vocabulary: ""), agreed)
+        for (reread, corroboration) in [
+            (agreed, "Мы сверили сроки встречи с коллегами и подготовили итоговый отчёт."),
+            (agreed, "Они сверили сроки проекта с командой и подготовили итоговый отчёт."),
+            (agreed, "Мы сверили сроки проекта с командой и подготовили итоговый документ."),
+            ("Утром мы проверили нашу схему перед созвоном.", "Утром мы проверили нашу схему перед созвоном."),
+        ] {
+            XCTAssertNil(BackchannelLanguage.corroboratedRussianTurn(original: original, language: "Russian",
+                reread: reread, corroboration: corroboration, vocabulary: ""), corroboration)
+        }
+    }
+
     func testNoSpeechRequiresExplicitAbstentionAndAnEmptyIndependentResult() {
         XCTAssertTrue(BackchannelLanguage.hasNoSpeechEvidence(language: "None", text: " \n", corroboration: " \t"))
         XCTAssertFalse(BackchannelLanguage.hasNoSpeechEvidence(language: nil, text: "", corroboration: ""))

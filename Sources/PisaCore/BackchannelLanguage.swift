@@ -70,6 +70,29 @@ enum BackchannelLanguage {
         return count >= 4 && RussianRecognition.words(text).contains(where: sentenceMarkers.contains)
     }
 
+    /// A few Latin words may cover only a fraction of the recorded turn.
+    /// An explicit term can constrain the final edit without blocking this check.
+    static func shouldVerifySparseLatinTurn(_ text: String, duration: Double) -> Bool {
+        guard (8...30).contains(duration), !containsLiteralMarks(text),
+              text.rangeOfCharacter(from: lexicalLiteralMarks.union(.decimalDigits)) == nil,
+              !isStandaloneLatinTerm(text) else { return false }
+        let words = RussianRecognition.words(text)
+        let count = latinLexicalWords.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
+        return count >= 4 && Double(count) <= duration
+            && words.joined().utf8.allSatisfy { (97...122).contains($0) }
+            && words.contains(where: sentenceMarkers.contains)
+    }
+
+    static func corroboratedRussianTurn(original: String, language: String?, reread: String,
+                                        corroboration: String, vocabulary: String) -> String? {
+        guard language?.lowercased() == "russian",
+              ![original, reread, corroboration].contains(where: containsLiteralMarks),
+              let candidate = RecognitionConsensus.corroboratedRussianTurn(original: original,
+                  candidate: reread, corroboration: corroboration),
+              preservesLexicalVocabulary(candidate: candidate, original: original, vocabulary: vocabulary) else { return nil }
+        return candidate
+    }
+
     static func isIncompleteLatinReply(_ text: String, vocabulary: String) -> Bool {
         let words = RussianRecognition.words(text)
         let article = words.count == 1 && ["a", "an", "the"].contains(words[0])

@@ -1470,6 +1470,25 @@ actor Transcriber {
             }
             return RecognizedSpeech(text: text, russianBackchannel: alternative, acoustic: independent)
         }
+        if !isMic, BackchannelLanguage.shouldVerifySparseLatinTurn(primaryText, duration: duration) {
+            acoustic = acoustic ?? acousticRecognition(samples, using: russian)
+            let sourceWordCount = RussianRecognition.words(primaryText).count
+            if let heard = acoustic, heard.words.count >= max(8, sourceWordCount * 2),
+               let first = heard.words.first, let last = heard.words.last,
+               last.start - first.start >= duration * 0.6 {
+                let checked = try await generate(language: nil, context: "")
+                let candidate = BackchannelLanguage.corroboratedRussianTurn(original: primaryText,
+                    language: checked.language, reread: checked.text, corroboration: heard.text, vocabulary: vocabulary)
+                if let diagnostic {
+                    contextDiagnostics.append(["kind": "sparse-latin-turn", "start": String(diagnostic.start),
+                        "track": diagnostic.track, "source": primaryText, "reread": checked.text,
+                        "independent": heard.text, "language": checked.language ?? "", "candidate": candidate ?? ""])
+                }
+                if let candidate {
+                    return RecognizedSpeech(text: spokenVocabulary.apply(to: candidate), independentLanguage: true, acoustic: heard)
+                }
+            }
+        }
         // Parakeet can turn Russian speech into complete-looking English.
         // First protect independently heard foreign speech, then re-listen
         // with a Russian language preference and no text or vocabulary prompt.
@@ -1567,7 +1586,7 @@ actor Transcriber {
                 }
                 return RecognizedSpeech(text: text)
             }
-            let independent = spellingEvidence ?? acousticRecognition(samples, using: russian)
+            let independent = acoustic ?? spellingEvidence ?? acousticRecognition(samples, using: russian)
             acoustic = independent
             if checkScript {
                 var alternative = BackchannelLanguage.mixedRussianAlternative(original: text, language: decoded.language,

@@ -7,6 +7,70 @@ enum RecognitionConsensus {
         "не", "ни", "нет", "нельзя", "никогда", "никто", "ничего", "нигде", "никак", "без", "или", "либо",
     ]
     private static let affirmations: Set<String> = ["да", "ага", "угу", "окей"]
+    private static let alignmentHesitations: Set<String> = ["э", "ээ", "эм", "мм"]
+
+    /// Retain speech that both unprompted decoders heard on the same long turn.
+    /// Keep disagreements visible without losing corroborated speech after them.
+    static func corroboratedRussianTurn(original: String, candidate: String, corroboration: String) -> String? {
+        guard [original, candidate, corroboration].allSatisfy(MeetingSpeechText.accepts) else { return nil }
+        let originalTokens = tokens(original)
+        let originalWords = originalTokens.map(\.key)
+        let initialisms = Set(originalTokens.compactMap { token -> String? in
+            let spelling = original[token.range]
+            return (2...6).contains(spelling.count) && spelling.utf8.allSatisfy { (65...90).contains($0) }
+                ? token.key : nil
+        })
+        func alignmentKey(_ token: Token) -> String {
+            guard isRussian(token.key), let latin = token.key.applyingTransform(.toLatin, reverse: false),
+                  initialisms.contains(latin) else { return token.key }
+            return latin
+        }
+        let candidateTokens = tokens(candidate).filter { !alignmentHesitations.contains($0.key) }
+        let acousticTokens = tokens(corroboration).filter { !alignmentHesitations.contains($0.key) }
+        let checked = candidateTokens.map(alignmentKey), heard = acousticTokens.map(alignmentKey)
+        guard min(checked.count, heard.count) >= max(8, originalWords.count * 2),
+              [checked, heard].allSatisfy({ words in
+                  words.filter(isRussian).count * 4 >= words.count * 3
+                      && !words.indices.contains(where: { words[$0...].starts(with: originalWords) })
+              }),
+              checked.prefix(3).elementsEqual(heard.prefix(3)), checked.suffix(3).elementsEqual(heard.suffix(3)) else { return nil }
+
+        let difference = checked.difference(from: heard)
+        let insertions = Set(difference.insertions.compactMap { change -> Int? in
+            if case .insert(let offset, _, _) = change { return offset }
+            return nil
+        })
+        let removals = Set(difference.removals.compactMap { change -> Int? in
+            if case .remove(let offset, _, _) = change { return offset }
+            return nil
+        })
+        let paired = Array(zip(checked.indices.filter { !insertions.contains($0) },
+                               heard.indices.filter { !removals.contains($0) }))
+        guard paired.count * 100 >= max(checked.count, heard.count) * 85 else { return nil }
+
+        var gaps: [NSRange] = []
+        for (index, pair) in zip(paired, paired.dropFirst()).enumerated() {
+            let (left, right) = pair
+            let checkedGap = (left.0 + 1)..<right.0, heardGap = (left.1 + 1)..<right.1
+            guard !checkedGap.isEmpty || !heardGap.isEmpty else { continue }
+            let anchoredBefore = index > 0 && paired[index - 1].0 + 1 == left.0 && paired[index - 1].1 + 1 == left.1
+            let anchoredAfter = index + 2 < paired.count && paired[index + 2].0 == right.0 + 1 && paired[index + 2].1 == right.1 + 1
+            guard anchoredBefore || anchoredAfter, gaps.count < 3, max(checkedGap.count, heardGap.count) <= 3 else { return nil }
+            let disputed = Array(checked[checkedGap]) + Array(heard[heardGap])
+            guard disputed.allSatisfy({ word in
+                !meaningMarkers.contains(word) && !quantityUnits.contains(word) && !isNumberWord(word)
+                    && word.allSatisfy(\.isLetter)
+            }) else { return nil }
+            let range = candidateTokens[left.0].range.upperBound..<candidateTokens[right.0].range.lowerBound
+            guard !intersectsLiteral(range, in: candidate) else { return nil }
+            gaps.append(NSRange(range, in: candidate))
+        }
+        let result = NSMutableString(string: candidate)
+        for range in gaps.reversed() {
+            result.replaceCharacters(in: range, with: " … ")
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// Only identifies an audio disagreement worth checking; never supplies text.
     static func hasSplitDisagreement(original: String, corroboration: String, vocabulary: String) -> Bool {
