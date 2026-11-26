@@ -2,6 +2,17 @@ import XCTest
 @testable import PisaCore
 
 final class TranscriptOrthographyTests: XCTestCase {
+    func testAcronymDerivationsUseASCIIApostrophesInFinalTranscript() {
+        let source = "Позвали API-шника и поговорили с API‑шником. С API’шницей проверили API-ключ. В чате было `API-шник`."
+        let expected = "Позвали API'шника и поговорили с API'шником. С API'шницей проверили API-ключ. В чате было `API-шник`."
+        for vocabulary in ["", "API"] {
+            let decoded = SpokenVocabulary(vocabulary).apply(to: source)
+            let finalized = TranscriptOrthography.normalize(decoded, vocabulary: vocabulary)
+            XCTAssertEqual(finalized, expected, "Dictionary: \(vocabulary)")
+            XCTAssertEqual(TranscriptOrthography.normalize(finalized, vocabulary: vocabulary), expected)
+        }
+    }
+
     func testLiteralRangeFastPathKeepsEveryProtectedSyntax() {
         let protected = [
             "«API»", "“API”", "‘API’", "\"API\"", "'API'", "`API`", "~~~swift\nAPI\n~~~",

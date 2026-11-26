@@ -13,11 +13,27 @@ struct AbbreviationFamilies {
     }
 
     static let caseEndings = ["ами", "ями", "ого", "ому", "ов", "ом", "ем", "ам", "ах", "ям", "ях", "а", "у", "е", "ы", "и"]
-    static let derivedEndings = ["ками", "кой", "ках", "кам", "ка", "ку", "ке", "ки", "ок"]
+    private static let hardAdjectiveEndings = ["ый", "ая", "ое", "ые", "ого", "ой", "ому", "ым", "ую", "ою", "ом", "ых", "ыми"]
+    private static let velarAdjectiveEndings = ["ий", "ая", "ое", "ие", "ого", "ой", "ому", "им", "ую", "ою", "ом", "их", "ими"]
+    static let adjectiveSuffixes = ["ов", "ев"].flatMap { stem in hardAdjectiveEndings.map { stem + $0 } }
+        + ["овск", "евск", "ск"].flatMap { stem in velarAdjectiveEndings.map { stem + $0 } }
+    static let diminutiveEndings = ["ками", "кой", "кою", "ках", "кам", "ка", "ку", "ке", "ки", "ок",
+                                    "шками", "шкой", "шкою", "шкам", "шках", "шек", "шка", "шки", "шку", "шке"]
+    static let derivedEndings = diminutiveEndings
+        + ["ник", "шник"].flatMap { stem in ["", "а", "у", "ом", "е", "и", "ов", "ам", "ами", "ах"].map { stem + $0 } }
+        + ["ниц", "шниц"].flatMap { stem in ["", "а", "ы", "е", "у", "ей", "ею", "ам", "ами", "ах"].map { stem + $0 } }
+        + adjectiveSuffixes
     static let endings = (caseEndings + derivedEndings).sorted { $0.count > $1.count }
     static let promptEndings = ["а", "ом", "е", "у"]
     private static let latinEndings = ["a": "а", "u": "у", "om": "ом", "e": "е"]
-    private static let token = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*"#)
+    static let hyphens = "-‐‑"
+    private static let apostrophes = "'’"
+    private static let derivedEndingSet = Set(derivedEndings)
+    private static let derivedEndingsByLastLetter = Dictionary(
+        grouping: derivedEndings.sorted { $0.count > $1.count }, by: \.last
+    )
+    private static let endingSet = Set(endings)
+    private static let token = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+(?:['’\-‐‑][\p{L}\p{N}]+)*"#)
     private static let russianFunctionWords: Set<String> = [
         "а", "без", "близ", "будто", "бы", "в", "вблизи", "ввиду", "вдоль",
         "взамен", "вместо", "вне", "внутри", "во", "вокруг", "вопреки",
@@ -67,27 +83,42 @@ struct AbbreviationFamilies {
         source == base || !isRussianFunctionWord(base)
     }
 
-    static func ending(_ raw: String, numeric: Bool) -> String? {
+    static func ending(_ raw: String, numeric: Bool, separator: Character? = nil) -> String? {
         let lower = raw.lowercased()
-        if endings.contains(lower) { return lower }
+        if let separator, hyphens.contains(separator) { return derivedEndingSet.contains(lower) ? lower : nil }
+        if endingSet.contains(lower) { return lower }
         return numeric ? latinEndings[lower] : nil
     }
 
-    static func endingPattern(numeric: Bool) -> String {
-        (endings + (numeric ? Array(latinEndings.keys) : [])).sorted { $0.count > $1.count }
-            .map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+    static let hyphenatedEndingPattern = "[-‐‑](?:" + derivedEndings.joined(separator: "|") + ")"
+    private static let russianWrittenEndings = makeWrittenEndingPattern(endings)
+    private static let numericWrittenEndings = makeWrittenEndingPattern(
+        (endings + Array(latinEndings.keys)).sorted { $0.count > $1.count }
+    )
+
+    static func writtenEndingPattern(numeric: Bool) -> String {
+        numeric ? numericWrittenEndings : russianWrittenEndings
+    }
+
+    private static func makeWrittenEndingPattern(_ endings: [String]) -> String {
+        "(?:['’]?(?:" + endings.joined(separator: "|") + ")|" + hyphenatedEndingPattern + ")"
+    }
+
+    static func matchingDerivedEndings(in word: String) -> [String] {
+        (derivedEndingsByLastLetter[word.last] ?? []).filter { word.hasSuffix($0) }
     }
 
     /// Without a known base, infer only an uppercase abbreviation followed by
-    /// an explicit apostrophe or a lowercase Russian ending. All-uppercase
+    /// an explicit separator or a lowercase Russian ending. All-uppercase
     /// spellings such as 2GISA may themselves be independent abbreviations.
     static func inferred(_ token: String) -> Form? {
-        let parts = token.replacingOccurrences(of: "’", with: "'").components(separatedBy: "'")
-        if parts.count == 2, isBase(parts[0]),
-           let ending = ending(parts[1], numeric: parts[0].first?.isNumber == true) {
-            return Form(base: parts[0], ending: ending)
+        if let separator = token.firstIndex(where: { apostrophes.contains($0) || hyphens.contains($0) }) {
+            let base = String(token[..<separator])
+            let tail = String(token[token.index(after: separator)...])
+            guard isBase(base), let ending = ending(tail, numeric: base.first?.isNumber == true,
+                                                    separator: token[separator]) else { return nil }
+            return Form(base: base, ending: ending)
         }
-        guard parts.count == 1 else { return nil }
         if isBase(token) { return Form(base: token, ending: "") }
         for suffix in endings where token.hasSuffix(suffix) {
             let base = String(token.dropLast(suffix.count))
@@ -134,10 +165,15 @@ struct AbbreviationFamilies {
             guard key(prefix) == key(alias), matchesBaseCasing(prefix, as: alias) else { continue }
             var tail = String(token.dropFirst(alias.count))
             if tail.isEmpty { return Form(base: base, ending: "") }
-            if tail.first == "'" || tail.first == "’" { tail.removeFirst() }
-            if let ending = ending(tail, numeric: base.first?.isNumber == true) {
-                return Form(base: base, ending: ending)
-            }
+            let separator = tail.first.flatMap { apostrophes.contains($0) || hyphens.contains($0) ? $0 : nil }
+            if separator != nil { tail.removeFirst() }
+            guard let ending = ending(tail, numeric: base.first?.isNumber == true, separator: separator) else { continue }
+            // A lowercase acronym prefix can coincide with an ordinary word,
+            // e.g. a saved СОТ in «сотниками». A written separator or uppercase
+            // base establishes where the derivational suffix starts.
+            if separator == nil, prefix != prefix.uppercased(), derivedEndingSet.contains(ending),
+               TranscriptTerms.isCommonRussianWord(key(token).replacingOccurrences(of: "ё", with: "е")) { continue }
+            return Form(base: base, ending: ending)
         }
         return nil
     }

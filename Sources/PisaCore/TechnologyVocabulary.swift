@@ -21,9 +21,11 @@ struct TechnologyVocabulary {
         let inflectable: Bool
     }
 
-    private static let token = try! NSRegularExpression(pattern: #"[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*|[.+#/&]"#)
-    static let russianEndings = Set(AbbreviationFamilies.endings + ["шками", "шкой", "шкам", "шках", "шек", "шка", "шки", "шку", "шке"])
-    private static let endings = russianEndings.sorted { $0.count > $1.count }
+    private static let token = try! NSRegularExpression(pattern:
+        #"[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*(?:(?i:"#
+        + AbbreviationFamilies.hyphenatedEndingPattern + #")(?![\p{L}\p{M}\p{N}]))?|[.+#/&]"#)
+    private static let suffixSeparators = "'’" + AbbreviationFamilies.hyphens
+    private static let endingLastLetters = Set(AbbreviationFamilies.endings.compactMap(\.last))
     private static let attached = "_/@\\"
     private static let hyphens = "-‐‑"
     private static let dataAmountNouns: Set<String> = ["данных", "памяти", "трафика", "места", "информации"]
@@ -68,7 +70,7 @@ struct TechnologyVocabulary {
         preferredNumericSpellings = Dictionary(grouping: personalTerms.compactMap { term in
             Self.canonicalNumericSpelling(term).map { (canonical: $0, personal: term) }
         }, by: \.canonical).mapValues { Set($0.map(\.personal)) }
-        personalKeys = Set(personalTerms.flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }.map(Self.key))
+        personalKeys = Set(personalTerms.flatMap(TranscriptTerms.dictionaryForms).map(Self.key))
         personalSpokenKeys = Set(personalKeys.map(Self.spokenKey))
         personalFamilies = AbbreviationFamilies(personalVocabulary)
         let phrases = personalTerms.filter { $0.contains(where: \.isWhitespace) }.map { term in
@@ -149,8 +151,10 @@ struct TechnologyVocabulary {
                 let last = tokens[lastIndex].0.upperBound
                 let after = text[last...].first
                 guard after.map({ !Self.isWordCharacter($0) && !Self.attached.contains($0) && !"+#&'’".contains($0) }) != false else { continue }
+                guard ending.isEmpty || after.map(Self.hyphens.contains) != true else { continue }
                 let source = String(text[first..<last])
-                let base = String(source.dropLast(ending.count)).trimmingCharacters(in: CharacterSet(charactersIn: "'’"))
+                let base = String(source.dropLast(ending.count)).trimmingCharacters(
+                    in: CharacterSet(charactersIn: Self.suffixSeparators))
                 if pattern.spoken {
                     let gaps = (index..<lastIndex).map { position in
                         text[tokens[position].0.upperBound..<tokens[position + 1].0.lowerBound]
@@ -309,14 +313,16 @@ struct TechnologyVocabulary {
     }
 
     private static func mayHaveEnding(_ word: String) -> Bool {
-        word.count >= 3 && word.last.map { "аеёиоуыэюямхвйк".contains($0) } == true
+        word.count >= 3 && word.last.map(endingLastLetters.contains) == true
     }
 
     private static func declinedForms(_ word: String) -> [(String, String)] {
-        if let apostrophe = word.lastIndex(where: { $0 == "'" || $0 == "’" }) {
-            let ending = String(word[word.index(after: apostrophe)...])
-            return russianEndings.contains(ending) ? [(String(word[..<apostrophe]), ending)] : []
+        if let separator = word.lastIndex(where: suffixSeparators.contains) {
+            let tail = String(word[word.index(after: separator)...])
+            guard let ending = AbbreviationFamilies.ending(tail, numeric: false, separator: word[separator]) else { return [] }
+            return [(String(word[..<separator]), ending)]
         }
+        let endings = AbbreviationFamilies.caseEndings + AbbreviationFamilies.matchingDerivedEndings(in: word)
         return endings.compactMap { ending in
             guard word.count > ending.count, word.hasSuffix(ending) else { return nil }
             return (String(word.dropLast(ending.count)), ending)

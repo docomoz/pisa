@@ -530,7 +530,7 @@ struct SpokenVocabulary {
                 stems.append((String(variant.dropLast(ending.count)), entry.initialism ? "'" + ending : "", "'" + ending))
             }
             if entry.initialism {
-                for ending in AbbreviationFamilies.derivedEndings where lower.hasSuffix(ending) {
+                for ending in AbbreviationFamilies.matchingDerivedEndings(in: lower) {
                     stems.append((String(variant.dropLast(ending.count)), "'" + ending, "'" + ending))
                 }
             }
@@ -538,7 +538,8 @@ struct SpokenVocabulary {
                 guard stem == stem.trimmingCharacters(in: .whitespacesAndNewlines) else { continue }
                 // A separately supplied Russian name takes precedence over an
                 // acronym pronunciation, including its recognized case ending.
-                let literal = stem.trimmingCharacters(in: CharacterSet(charactersIn: "'’")).lowercased()
+                let separators = literalSuffix.isEmpty ? "'’" : "'’" + AbbreviationFamilies.hyphens
+                let literal = stem.trimmingCharacters(in: CharacterSet(charactersIn: separators)).lowercased()
                 if literal != entry.term.lowercased(), explicitTerms.contains(literal) { return nil }
                 // Exact letters retain repetitions that a phonetic key collapses
                 // (LLM is not LM or LMM). Preserve an ending attached to that

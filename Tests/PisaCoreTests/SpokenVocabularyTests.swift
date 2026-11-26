@@ -105,7 +105,7 @@ final class SpokenVocabularyTests: XCTestCase {
         let text = "Для битуби-рынка обсудили пи ар ди, эй-пи-ай и эс дэ ка. Для би ту си — эм ви пи, оу кей ар и эн пи эс."
         XCTAssertEqual(vocabulary.apply(to: text), "Для B2B-рынка обсудили PRD, API и SDK. Для B2C — MVP, OKR и NPS.")
         XCTAssertEqual(vocabulary.apply(to: "В си эр эмке, с би ту би’шниками, к эл-эл-эмкам и на джи пи ти."),
-                       "В CRM'ке, с би ту би’шниками, к LLM'кам и на GPT.")
+                       "В CRM'ке, с B2B'шниками, к LLM'кам и на GPT.")
         XCTAssertEqual(vocabulary.apply(to: "С Б2Б, Б2Ц и би 2 би."), "С B2B, B2C и B2B.")
         XCTAssertEqual(vocabulary.apply(to: "Через постгрес, докер, кубернетес и граф ку эл."),
                        "Через Postgres, Docker, Kubernetes и GraphQL.")

@@ -83,7 +83,7 @@ public enum TranscriptTerms {
         let terms = vocabulary.components(separatedBy: separators)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        let known = Set(terms.flatMap { [$0] + RecognitionVocabulary.cyrillicInflections(of: $0) }.map(key))
+        let known = Set(terms.flatMap(dictionaryForms).map(key))
         let families = AbbreviationFamilies(vocabulary)
         let technology = TechnologyVocabulary(personalVocabulary: vocabulary)
         let speakers = speakerNameForms(in: segments)
@@ -366,7 +366,7 @@ public enum TranscriptTerms {
     }
 
     static func retainingCandidates(_ candidates: [TermCandidate], afterAdding term: String) -> [TermCandidate] {
-        let known = Set(([term] + RecognitionVocabulary.cyrillicInflections(of: term)).map(key))
+        let known = Set(dictionaryForms(term).map(key))
         let families = AbbreviationFamilies(term)
         let technology = TechnologyVocabulary(personalVocabulary: term)
         let numericFamily = TechnologyVocabulary.canonicalNumericSpelling(term)
@@ -380,7 +380,7 @@ public enum TranscriptTerms {
             let retained = candidate.occurrences.filter { item in
                 if knownSpellings[item.spelling] == nil {
                     let spokenBase = String(item.text.dropLast(item.family?.ending.count ?? 0))
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "'’"))
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "'’" + AbbreviationFamilies.hyphens))
                     knownSpellings[item.spelling] = known.contains(key(item.text)) || families.known(item.text) != nil ||
                         (builtIn && technology.hasPersonalSpokenSpelling(spokenBase))
                 }
@@ -432,16 +432,16 @@ public enum TranscriptTerms {
 
     public static func dictionaryTerm(_ term: String) -> String {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        return AbbreviationFamilies.inferred(trimmed)?.base ?? apostrophizedTechnologyBase(trimmed) ?? trimmed
+        return explicitlyInflectedBase(trimmed) ?? AbbreviationFamilies.inferred(trimmed)?.base ?? trimmed
     }
 
     /// The preview and mutation share this renderer. Family edits keep each
-    /// observed ending and accept an explicitly apostrophized spelling.
+    /// observed ending and accept an explicitly separated spelling.
     public static func replacement(for occurrence: TermOccurrence, with replacement: String) -> String? {
         let trimmed = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.rangeOfCharacter(from: .newlines) == nil else { return nil }
         guard let family = occurrence.family else { return trimmed }
-        let base = apostrophizedBase(trimmed) ?? trimmed
+        let base = explicitlyInflectedBase(trimmed) ?? trimmed
         guard !family.ending.isEmpty else { return base }
         guard AbbreviationFamilies.isBase(base) || TechnologyVocabulary.supportsEndings(for: base) else { return nil }
         return AbbreviationFamilies.Form(base: base, ending: family.ending).text
@@ -449,21 +449,25 @@ public enum TranscriptTerms {
 
     public static func replacementSearchTerm(for occurrences: [TermOccurrence], with replacement: String) -> String {
         guard occurrences.contains(where: { $0.family != nil }) else { return replacement }
-        return apostrophizedBase(replacement) ?? replacement
+        return explicitlyInflectedBase(replacement) ?? replacement
     }
 
-    private static func apostrophizedBase(_ term: String) -> String? {
-        guard term.contains("'") || term.contains("’") else { return nil }
-        return AbbreviationFamilies.inferred(term)?.base ?? apostrophizedTechnologyBase(term)
-    }
-
-    private static func apostrophizedTechnologyBase(_ term: String) -> String? {
-        guard let apostrophe = term.firstIndex(where: { $0 == "'" || $0 == "’" }) else { return nil }
-        let base = String(term[..<apostrophe])
-        let ending = String(term[term.index(after: apostrophe)...])
-        guard AbbreviationFamilies.ending(ending, numeric: false) != nil,
+    private static func explicitlyInflectedBase(_ term: String) -> String? {
+        guard let separator = term.firstIndex(where: { ("'’" + AbbreviationFamilies.hyphens).contains($0) }) else { return nil }
+        if let inferred = AbbreviationFamilies.inferred(term) { return inferred.base }
+        let base = String(term[..<separator])
+        let tail = String(term[term.index(after: separator)...])
+        guard AbbreviationFamilies.ending(tail, numeric: false, separator: term[separator]) != nil,
               TechnologyVocabulary.supportsEndings(for: base) else { return nil }
         return base
+    }
+
+    static func dictionaryForms(_ term: String) -> [String] {
+        let regular = RecognitionVocabulary.cyrillicInflections(of: term)
+        // A consonant-ending Russian name keeps its stem in adjectives,
+        // e.g. Сбер → сберовский. These spellings are already ordinary words.
+        let derived = regular.contains(term + "а") ? AbbreviationFamilies.adjectiveSuffixes.map { term + $0 } : []
+        return [term] + regular + derived
     }
 
     private static func key(_ term: String) -> String {
@@ -506,10 +510,11 @@ public enum TranscriptTerms {
         let head = token[..<hyphen]
         let tail = token[token.index(after: hyphen)...]
         guard !head.isEmpty, !tail.isEmpty, tail.allSatisfy(\.isLowercase),
+              AbbreviationFamilies.inferred(token) == nil,
               AbbreviationFamilies.isBase(String(head)) || head.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) })
         else { return false }
         let word = entityKey(String(tail))
-        return isCommonRussianWord(word) || TechnologyVocabulary.russianEndings.contains(word)
+        return isCommonRussianWord(word) || AbbreviationFamilies.ending(word, numeric: false) != nil
     }
 
     private static func isSpokenFiller(_ token: String) -> Bool {

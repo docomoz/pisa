@@ -308,7 +308,8 @@ enum BackchannelLanguage {
         let stem = word.prefix(while: \.isASCII), suffix = word.dropFirst(stem.count)
         guard stem.count >= 2, stem.allSatisfy(\.isLetter), stem.dropFirst().allSatisfy(\.isLowercase),
               suffix.count >= 2, suffix.unicodeScalars.allSatisfy({ (0x430...0x44f).contains($0.value) || $0.value == 0x451 }),
-              !TechnologyVocabulary.russianEndings.contains(String(suffix)), !TechnologyVocabulary.isCanonical(String(stem)),
+              !AbbreviationFamilies.caseEndings.contains(String(suffix)),
+              !AbbreviationFamilies.diminutiveEndings.contains(String(suffix)), !TechnologyVocabulary.isCanonical(String(stem)),
               RussianRecognition.preservesVocabulary(candidate: "", original: String(stem), vocabulary: vocabulary) else { return false }
         return true
     }

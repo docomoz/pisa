@@ -41,7 +41,7 @@ enum RecognitionVocabulary {
                 let spoken = forms.map { form in
                     form.map { "ао".contains($0) ? "[ао]" : ($0 == "ё" || $0 == "е" ? "[её]" : NSRegularExpression.escapedPattern(for: String($0))) }.joined()
                 }.joined(separator: "|")
-                pattern = "(?:\(NSRegularExpression.escapedPattern(for: digits))|\(spoken))[\\s-]*(\(stems))(?:['’]?(\(AbbreviationFamilies.endingPattern(numeric: true))))?"
+                pattern = "(?:\(NSRegularExpression.escapedPattern(for: digits))|\(spoken))[\\s-]*(\(stems))(\(AbbreviationFamilies.writtenEndingPattern(numeric: true)))?"
                 numericAcronym = true
             }
             guard let expression = expression(for: #"(?<![\p{L}\p{N}])(?:"# + pattern + #")(?![\p{L}\p{N}])"#) else { continue }
@@ -56,11 +56,13 @@ enum RecognitionVocabulary {
                     let source = ns.substring(with: match.range)
                     guard !families.isExplicit(source) || AbbreviationFamilies.key(source) == AbbreviationFamilies.key(term) else { continue }
                     let range = match.range(at: 2)
-                    let raw = range.location == NSNotFound ? "" : ns.substring(with: range).lowercased()
-                    let ending = AbbreviationFamilies.ending(raw, numeric: true) ?? ""
-                    let written = digits + ns.substring(with: match.range(at: 1)) + (ending.isEmpty ? "" : "'" + ending)
-                    guard families.known(written)?.base == term else { continue }
-                    output.replaceCharacters(in: match.range, with: term + (ending.isEmpty ? "" : "'" + ending))
+                    let suffix = range.location == NSNotFound ? "" : ns.substring(with: range)
+                    if suffix.first.map(AbbreviationFamilies.hyphens.contains) == true,
+                       let span = Range(match.range, in: result),
+                       result[span.upperBound...].first.map(AbbreviationFamilies.hyphens.contains) == true { continue }
+                    let written = digits + ns.substring(with: match.range(at: 1)) + suffix
+                    guard let form = families.known(written), form.base == term else { continue }
+                    output.replaceCharacters(in: match.range, with: form.text)
                 }
             } else {
                 for match in matches.reversed()
@@ -145,7 +147,7 @@ enum RecognitionVocabulary {
         if acronym {
             let aliases = AbbreviationFamilies.aliases(for: term).map(NSRegularExpression.escapedPattern).joined(separator: "|")
             let base = requiresExactCase ? "(?-i:\(aliases))" : "(?:\(aliases))"
-            body = base + "(?:['’]?(?:" + AbbreviationFamilies.endingPattern(numeric: term.first?.isNumber == true) + "))?"
+            body = base + AbbreviationFamilies.writtenEndingPattern(numeric: term.first?.isNumber == true) + "?"
         } else if let (stem, endings) = cyrillicForm(term) {
             body = spellingPattern(stem) + "(?:" + endings.joined(separator: "|") + ")"
         } else {
@@ -157,7 +159,13 @@ enum RecognitionVocabulary {
         let trailing = requiresExactCase
             ? #"(?![\p{L}\p{M}\p{N}_/@\\\-‐‑])(?!['’][\p{L}\p{M}\p{N}])"# : #"(?![\p{L}\p{N}])"#
         let pattern = leading + "(?:" + body + ")" + trailing
-        return expression(for: pattern)?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        guard let expression = expression(for: pattern) else { return false }
+        let range = NSRange(text.startIndex..., in: text)
+        if !acronym { return expression.firstMatch(in: text, range: range) != nil }
+        return expression.matches(in: text, range: range).contains { match in
+            guard let indices = Range(match.range, in: text) else { return false }
+            return AbbreviationFamilies.parse(String(text[indices]), as: term) != nil
+        }
     }
 
     static func cyrillicInflections(of term: String) -> [String] {

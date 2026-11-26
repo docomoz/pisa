@@ -192,6 +192,45 @@ final class TranscriptTermsTests: XCTestCase {
         XCTAssertTrue(TranscriptTerms.candidates(in: segments, vocabulary: "2ГИС, LLM").isEmpty)
     }
 
+    func testDerivedFamiliesAreRemovedOnAddAndReplacementsKeepTheirSuffixes() throws {
+        let segments = [segment("Сравнили CNB’шниками, CNB‑шник, CNBшниц и MCP-шки. `CNB-шник`.")]
+        let candidates = TranscriptTerms.candidates(in: segments, vocabulary: "")
+        XCTAssertEqual(Set(candidates.map(\.text)), ["CNB", "MCP"])
+        let candidate = try XCTUnwrap(candidates.first { $0.text == "CNB" })
+        XCTAssertEqual(candidate.occurrences.map(\.text), ["CNB’шниками", "CNB‑шник", "CNBшниц"])
+        XCTAssertEqual(TranscriptTerms.retainingCandidates(candidates, afterAdding: "CNB").map(\.text), ["MCP"])
+        XCTAssertEqual(TranscriptTerms.candidates(in: segments, vocabulary: "CNB").map(\.text), ["MCP"])
+        XCTAssertEqual(TranscriptTerms.adding("CNB-шниками", to: "CNB"), "CNB")
+        let found = TranscriptTerms.matches("CNB", in: segments, vocabulary: "CNB")
+        XCTAssertEqual(found.map(\.id), candidate.occurrences.map(\.id))
+        let updated = try XCTUnwrap(TranscriptTerms.replacing(found, with: "ID-шник", in: segments))
+        XCTAssertEqual(updated[0].text, "Сравнили ID'шниками, ID'шник, ID'шниц и MCP-шки. `CNB-шник`.")
+        XCTAssertEqual(TranscriptTerms.matches("CNB", in: segments, vocabulary: "CNB, CNB‑шник").map(\.text),
+                       ["CNB’шниками", "CNBшниц"])
+        XCTAssertEqual(TranscriptTerms.matches("CNB‑шник", in: segments, vocabulary: "CNB").map(\.text), ["CNB‑шник"])
+    }
+
+    func testNumericAliasAndRussianNameAdjectivesAreKnownInReview() {
+        let segments = [segment("Двагисовские карты, 2ГИС'овую схему и Яндексовский сервис сравнили.")]
+        let vocabulary = "2ГИС, Яндекс"
+        XCTAssertEqual(TranscriptTerms.matches("2ГИС", in: segments, vocabulary: vocabulary).map(\.text),
+                       ["Двагисовские", "2ГИС'овую"])
+        XCTAssertTrue(TranscriptTerms.candidates(in: segments, vocabulary: vocabulary).isEmpty)
+        let forms = TranscriptTerms.matches("2ГИС", in: segments, vocabulary: vocabulary)
+        XCTAssertEqual(forms.map { TranscriptTerms.replacement(for: $0, with: "2ГИС") },
+                       ["2ГИС'овские", "2ГИС'овую"])
+    }
+
+    func testBuiltInAcronymSearchIncludesHyphenatedSuffixesFromSavedTranscripts() throws {
+        let segments = [segment("Есть примеры API-шником, API-шниц и API-шником-комментатором.")]
+        let found = TranscriptTerms.matches("API", in: segments)
+        XCTAssertEqual(found.map(\.text), ["API-шником", "API-шниц"])
+        let edited = try XCTUnwrap(TranscriptTerms.replacing(found, with: "API", in: segments))
+        XCTAssertEqual(edited[0].text, "Есть примеры API'шником, API'шниц и API-шником-комментатором.")
+        XCTAssertEqual(TranscriptTerms.matches("API", in: segments, vocabulary: "API, API-шниц").map(\.text),
+                       ["API-шником"])
+    }
+
     func testBaseSearchAndReplacementPreserveEachObservedEnding() throws {
         let segments = [segment("2GIS'a, 2GIS'е, 2GISом, 2GIS и Супер2GIS. `2GIS'у`.")]
         let found = TranscriptTerms.matches("2GIS", in: segments)
@@ -265,7 +304,7 @@ final class TranscriptTermsTests: XCTestCase {
 
     func testHyphenatedDescriptionsDoNotCompeteWithTermCandidates() {
         let descriptions = ["HR-департамент", "HR-история", "KPI-таблиц", "KPI‐таблицам", "KPI‑таблице",
-                            "KPI-таблицу", "ЗП-шки", "3D-элементы", "Product-лидом", "топ-5", "TOP‑100"]
+                            "KPI-таблицу", "ЗП-таблица", "3D-элементы", "Product-лидом", "топ-5", "TOP‑100"]
         let segments = [segment("Обсудили " + descriptions.joined(separator: ", ") + "."),
                         segment("Ещё созвонимся-синканёмся, завтра созвонимся-синканёмся."),
                         segment("Проверили Wi-Fi, Qwen3-ASR, 1-Wire и сервис Пиксель-Пэй.")]

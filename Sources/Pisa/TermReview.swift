@@ -203,7 +203,7 @@ struct TermReview: View {
         }
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             HStack(spacing: PisaDesign.Spacing.related) {
-                SectionHeading("Разметка терминов", subtitle: "Проверьте написание в расшифровке и сохраните нужные слова для будущих встреч", style: .dialog)
+                SectionHeading("Разметка слов", subtitle: "Проверьте написание в расшифровке и сохраните нужные слова для будущих встреч", style: .dialog)
                 Spacer()
                 screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
             }
@@ -345,7 +345,7 @@ struct TermReview: View {
 
     private var replacementEditor: some View {
         // Update the suggestions in the native edit callback before any arrow or Return event.
-        FormTextField(title: "Термин", text: Binding(get: { replacement }, set: { text in
+        FormTextField(title: "Слово", text: Binding(get: { replacement }, set: { text in
             replacement = text
             suggestionListFocused = false
             suggestionSelection.open()

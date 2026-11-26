@@ -81,6 +81,22 @@ final class AbbreviationFamiliesTests: XCTestCase {
         XCTAssertNil(AbbreviationFamilies.inferred("2ГИСоном"))
     }
 
+    func testDerivationalSuffixesPreserveSpellingBoundariesAndExplicitEntries() {
+        let source = "CNB'шниками, CNB‑шникам, АБшница и CDP’шкой. Сотниками, API-ключ и `API-шник`."
+        let expected = "CNB'шниками, CNB'шникам, АБ'шница и CDP'шкой. Сотниками, API-ключ и `API-шник`."
+        let vocabulary = "CNB, АБ, CDP, СОТ, API"
+        XCTAssertEqual(TranscriptOrthography.normalize(source, vocabulary: vocabulary), expected)
+        XCTAssertEqual(TranscriptOrthography.normalize(expected, vocabulary: vocabulary), expected)
+        XCTAssertEqual(TranscriptOrthography.normalize(source, vocabulary: vocabulary + ", CNB‑шникам"),
+                       "CNB'шниками, CNB‑шникам, АБ'шница и CDP'шкой. Сотниками, API-ключ и `API-шник`.")
+        XCTAssertEqual(RecognitionVocabulary.apply(to: "два ГИСовские и 2ГИС-овую.", vocabulary: "2ГИС"),
+                       "2ГИС'овские и 2ГИС'овую.")
+        XCTAssertFalse(RecognitionVocabulary.contains("СОТ", in: "Работа с сотниками."))
+        XCTAssertTrue(RecognitionVocabulary.contains("СОТ", in: "Работа с СОТ-шниками."))
+        XCTAssertNil(AbbreviationFamilies("2ГИС, 2GIS").known("2GIS'овские"))
+        XCTAssertNil(AbbreviationFamilies.inferred("CNB-шниками-добровольцами"))
+    }
+
     func testDictionaryAcronymsDoNotRewriteRussianFunctionWords() {
         let text = "По дороге про ПО. Он был под крышей до встречи, при таком подходе работал с ПОки и PO."
         let vocabulary = "ПО, PO, ПРО, ПОД, ДО, ПРИ, ТАК"

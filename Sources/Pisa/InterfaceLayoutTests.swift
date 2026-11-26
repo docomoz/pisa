@@ -245,7 +245,7 @@ enum InterfaceLayoutTests {
     }
 
     private static func checkTermReplacement(state: AppState) async throws {
-        var meeting = Meeting(title: "Разметка терминов", source: "Тест интерфейса")
+        var meeting = Meeting(title: "Разметка слов", source: "Тест интерфейса")
         meeting.status = .ready
         meeting.segments = (0..<1_800).map { index in
             TranscriptSegment(start: Double(index), end: Double(index + 1), speaker: "Анна",
@@ -300,7 +300,7 @@ enum InterfaceLayoutTests {
             host.pressReturn()
             try capture("01-selected", in: host)
             let suggestion = InterfaceLayoutElement.termSuggestion("Cluster Kubernetes")
-            guard let replacement = host.field(in: .zero, placeholder: "Термин"),
+            guard let replacement = host.field(in: .zero, placeholder: "Слово"),
                   host.type("Kubernetes", into: replacement),
                   try await wait(in: host, for: { host.frames[suggestion] != nil }) else {
                 throw PisaError.message("Replacement field did not show the dictionary suggestion")
@@ -331,10 +331,10 @@ enum InterfaceLayoutTests {
 
             try capture("02-corrected", in: host)
             try click(.termCandidate("LLM"), relativeTo: .termSearch, placeholder: "Слово или фраза", in: host)
-            guard host.field(in: .zero, placeholder: "Термин")?.stringValue == "LLM" else {
+            guard host.field(in: .zero, placeholder: "Слово")?.stringValue == "LLM" else {
                 throw PisaError.message("The next candidate did not open")
             }
-            try click(.termAdd, relativeTo: .termReplacement, placeholder: "Термин", in: host)
+            try click(.termAdd, relativeTo: .termReplacement, placeholder: "Слово", in: host)
             let expectedAfterAddition = expectedAfterCorrection.filter { $0 != "LLM" }
             guard state.preferences.vocabulary == TranscriptTerms.adding("LLM", to: originalVocabulary) else {
                 throw PisaError.message("The selected term was not saved to the dictionary")
@@ -1102,14 +1102,14 @@ private final class LayoutSuite {
             if let search = host.field(in: measured[0], placeholder: "Слово или фраза") {
                 check(host.focus(search), "term search is focused before submitting the query")
                 host.pressReturn()
-                checkField(.termReplacement, placeholder: false, nativePlaceholder: "Термин", in: host)
-                checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
+                checkField(.termReplacement, placeholder: false, nativePlaceholder: "Слово", in: host)
+                checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Слово", in: host)
             }
         }
     }
 
     func checkTermSuggestions(state: AppState) throws {
-        var meeting = Meeting(title: "Разметка терминов", source: "Тест интерфейса")
+        var meeting = Meeting(title: "Разметка слов", source: "Тест интерфейса")
         meeting.status = .ready
         let original = "Обсудили справочник для команды."
         meeting.segments = [TranscriptSegment(start: 0, end: 3, speaker: "Анна", text: original)]
@@ -1135,9 +1135,9 @@ private final class LayoutSuite {
                 continue
             }
             host.pressReturn()
-            checkField(.termReplacement, placeholder: false, nativePlaceholder: "Термин", in: host)
-            checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
-            guard let field = host.field(in: .zero, placeholder: "Термин"),
+            checkField(.termReplacement, placeholder: false, nativePlaceholder: "Слово", in: host)
+            checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Слово", in: host)
+            guard let field = host.field(in: .zero, placeholder: "Слово"),
                   let closed = frames([.termReplacement, .termApply], in: host),
                   host.type(query, into: field),
                   let open = frames([.termApply, firstRow, lastRow], in: host) else {
