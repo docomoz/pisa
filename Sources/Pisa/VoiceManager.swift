@@ -43,7 +43,6 @@ struct VoiceManager: View {
     @State private var nameFocused = false
     @State private var showSuggestions = false
     @State private var selectedSuggestion: Int?
-    @State private var lastChosenName: String?
     @State private var allMatching = true
     @State private var remember = true
     @State private var assignment: Task<Void, Never>?
@@ -68,13 +67,19 @@ struct VoiceManager: View {
         showSuggestions = false
         selectedSuggestion = nil
         name = voiceNameForSelection(currentSpeaker: sample?.speaker, currentName: name, segment: segment)
-        lastChosenName = name
         selected = segment.id
     }
 
+    private func editName(_ newName: String) {
+        name = newName
+        assignmentError = nil
+        showSuggestions = true
+        selectedSuggestion = nil
+    }
+
     private func chooseSuggestion(_ suggestion: String) {
-        lastChosenName = suggestion
         name = suggestion
+        assignmentError = nil
         showSuggestions = false
         selectedSuggestion = nil
         nameFocused = true
@@ -189,13 +194,9 @@ struct VoiceManager: View {
     }
 
     private var nameEditor: some View {
-        FormTextField(title: "Имя участника", text: $name, isFocused: $nameFocused,
+        // Keep the suggestions in sync with AppKit's input before the next key event.
+        FormTextField(title: "Имя участника", text: Binding(get: { name }, set: editName), isFocused: $nameFocused,
                       onSubmit: submitName, onCommand: handleNameCommand)
-            .onChange(of: name) { _, newName in
-                assignmentError = nil
-                showSuggestions = nameFocused && newName != lastChosenName
-                selectedSuggestion = nil
-            }
             .anchorPreference(key: VoiceNameFieldBounds.self, value: .bounds) { $0 }
             .measuredForInterfaceTest(.voiceName)
     }

@@ -167,6 +167,11 @@ enum InterfaceLayoutTests {
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
             let scenario = ProcessInfo.processInfo.environment["PISA_LAYOUT_SCENARIO"]
+            if scenario == "voice-suggestions" {
+                try suite.checkVoiceSuggestions(state: state)
+                print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
+                return suite.failures == 0 && suite.checks > 0 ? 0 : 1
+            }
             guard scenario == nil || scenario == "transcript-review" else {
                 throw PisaError.message("Неизвестный сценарий проверки интерфейса")
             }
@@ -1268,58 +1273,7 @@ private final class LayoutSuite {
             }
         }
 
-        scenario = "voice labeling, \(percent)%"
-        do {
-            let host = LayoutHost(VoiceManager(meetingID: voiceMeeting.id).environmentObject(state),
-                                  size: CGSize(width: 940, height: 660), scale: scale)
-            defer { host.close() }
-            if let segment = voiceMeeting.segments.first, let sample = frames([.voiceSample(segment.id)], in: host)?.first {
-                host.click(sample.center)
-                checkField(.voiceName, placeholder: false, nativePlaceholder: "Имя участника", in: host)
-                checkField(.voiceName, placeholder: true, clear: true, nativePlaceholder: "Имя участника", in: host)
-                if let frame = host.frames[.voiceName], let name = host.field(in: frame, placeholder: "Имя участника") {
-                    let prefix = String(savedVoice.name.prefix(3))
-                    let suggestion = InterfaceLayoutElement.voiceSuggestion(savedVoice.name)
-                    let closedToggle = frames([.voiceAllMatching], in: host)?.first
-                    check(host.type(prefix, into: name), "voice name accepts a suggestion prefix")
-                    if let open = frames([.voiceAllMatching, suggestion], in: host), let closedToggle {
-                        equal(open[0].minY, closedToggle.minY, "opening suggestions leaves the form in place")
-                        check(open[1].minY >= frame.maxY, "suggestion appears below the name field")
-                        check(open[1].intersects(open[0]), "suggestion covers the form")
-                        let fieldCenter = host.center(of: name)
-                        // HSplitView reports these frames in the right pane's coordinate space.
-                        host.click(CGPoint(x: fieldCenter.x + open[1].midX - frame.midX,
-                                           y: fieldCenter.y + open[1].midY - frame.midY))
-                        check(host.wait { name.currentEditor()?.string == savedVoice.name }, "clicking the overlay fills the name")
-                        check(host.frames[suggestion] == nil, "clicking a suggestion closes the overlay")
-                        check(host.type(prefix, into: name), "editing the chosen name opens suggestions again")
-                    }
-                    host.pressKey("\u{1b}", keyCode: 53)
-                    check(host.frames[suggestion] == nil, "Escape closes the overlay")
-                    check(host.isEditing(name), "Escape leaves the name field focused")
-                    if let closedToggle, let restored = host.frames[.voiceAllMatching] {
-                        equal(restored.minY, closedToggle.minY, "closing suggestions leaves the form in place")
-                    }
-                    check(host.type(prefix + "П", into: name), "typing again reopens suggestions")
-                    host.pressKey("\t", keyCode: 48)
-                    check(host.frames[suggestion] == nil, "Tab closes suggestions before moving to the next control")
-                    check(!host.isEditing(name), "Tab moves focus away from the name field")
-                    check(host.type(prefix, into: name), "returning to the field allows suggestions again")
-                    host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
-                    check(host.frames[suggestion] == nil, "Shift-Tab closes suggestions before moving to the previous control")
-                    check(!host.isEditing(name), "Shift-Tab moves focus away from the name field")
-                    check(host.type(prefix + "П", into: name), "typing again reopens suggestions")
-                    host.pressKey("\u{f701}", keyCode: 125)
-                    host.pressReturn()
-                    check(host.wait { name.currentEditor()?.string == savedVoice.name }, "Down then Return fills the highlighted saved name")
-                    check(host.isEditing(name), "selecting a suggestion keeps the name field focused")
-                    check(state.meetings.first(where: { $0.id == voiceMeeting.id })?.segments.first?.speaker == segment.speaker,
-                          "choosing a suggestion leaves the transcript speaker unchanged until applying the name")
-                } else {
-                    check(false, "voice name is available for keyboard suggestion selection")
-                }
-            }
-        }
+        try checkVoiceLabeling(state: state, meeting: voiceMeeting, savedVoice: savedVoice, scale: scale)
 
         scenario = "saved voice search, \(percent)%"
         do {
@@ -1374,6 +1328,92 @@ private final class LayoutSuite {
         checkInitialFocus(.savedVoiceName, in: host)
         checkField(.savedVoiceName, placeholder: false, in: host)
         checkField(.savedVoiceName, placeholder: true, clear: true, in: host)
+    }
+
+    func checkVoiceSuggestions(state: AppState) throws {
+        var meeting = Meeting(title: "Проверка подсказок", source: "Тестовое аудио")
+        meeting.status = .ready
+        meeting.segments = [TranscriptSegment(start: 0, end: 3, speaker: "Спикер 1", text: "Обсудим планы на следующую встречу")]
+        state.update(meeting)
+        let savedVoice = VoiceProfile(name: "ПППППП", samples: [])
+        state.voiceProfiles = [savedVoice]
+        for scale: CGFloat in [1, 1.1, 1.2] {
+            try checkVoiceLabeling(state: state, meeting: meeting, savedVoice: savedVoice, scale: scale)
+        }
+    }
+
+    private func checkVoiceLabeling(state: AppState, meeting: Meeting, savedVoice: VoiceProfile, scale: CGFloat) throws {
+        let percent = Int((scale * 100).rounded())
+        scenario = "voice labeling, \(percent)%"
+        let secondSuggestion = VoiceProfile(name: "\(savedVoice.name) Петров", samples: [])
+        let originalProfiles = state.voiceProfiles
+        state.voiceProfiles.append(secondSuggestion)
+        let host = LayoutHost(VoiceManager(meetingID: meeting.id).environmentObject(state),
+                              size: CGSize(width: 940, height: 660), scale: scale)
+        defer {
+            host.close()
+            state.voiceProfiles = originalProfiles
+            state.update(meeting)
+        }
+        if let segment = meeting.segments.first, let sample = frames([.voiceSample(segment.id)], in: host)?.first {
+            host.click(sample.center)
+            checkField(.voiceName, placeholder: false, nativePlaceholder: "Имя участника", in: host)
+            checkField(.voiceName, placeholder: true, clear: true, nativePlaceholder: "Имя участника", in: host)
+            if let frame = host.frames[.voiceName], let name = host.field(in: frame, placeholder: "Имя участника") {
+                let prefix = String(savedVoice.name.prefix(3))
+                let suggestion = InterfaceLayoutElement.voiceSuggestion(savedVoice.name)
+                let closedToggle = frames([.voiceAllMatching], in: host)?.first
+                check(host.type(prefix, into: name), "voice name accepts a suggestion prefix")
+                if let open = frames([.voiceAllMatching, suggestion], in: host), let closedToggle {
+                    equal(open[0].minY, closedToggle.minY, "opening suggestions leaves the form in place")
+                    check(open[1].minY >= frame.maxY, "suggestion appears below the name field")
+                    check(open[1].intersects(open[0]), "suggestion covers the form")
+                    let fieldCenter = host.center(of: name)
+                    // HSplitView reports these frames in the right pane's coordinate space.
+                    host.click(CGPoint(x: fieldCenter.x + open[1].midX - frame.midX,
+                                       y: fieldCenter.y + open[1].midY - frame.midY))
+                    check(host.wait { name.currentEditor()?.string == savedVoice.name }, "clicking the overlay fills the name")
+                    check(host.frames[suggestion] == nil, "clicking a suggestion closes the overlay")
+                    check(host.type(prefix, into: name), "editing the chosen name opens suggestions again")
+                }
+                host.pressKey("\u{1b}", keyCode: 53)
+                check(host.frames[suggestion] == nil, "Escape closes the overlay")
+                check(host.isEditing(name), "Escape leaves the name field focused")
+                if let closedToggle, let restored = host.frames[.voiceAllMatching] {
+                    equal(restored.minY, closedToggle.minY, "closing suggestions leaves the form in place")
+                }
+                check(host.type(prefix + "П", into: name), "typing again reopens suggestions")
+                host.pressKey("\t", keyCode: 48)
+                check(host.frames[suggestion] == nil, "Tab closes suggestions before moving to the next control")
+                check(!host.isEditing(name), "Tab moves focus away from the name field")
+                check(host.type(prefix, into: name), "returning to the field allows suggestions again")
+                host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
+                check(host.frames[suggestion] == nil, "Shift-Tab closes suggestions before moving to the previous control")
+                check(!host.isEditing(name), "Shift-Tab moves focus away from the name field")
+                check(host.type(prefix + "П", into: name), "typing again reopens suggestions")
+                host.pressKey("\u{f701}", keyCode: 125)
+                host.pressKey("\u{f701}", keyCode: 125)
+                host.pressKey("\u{f700}", keyCode: 126)
+                try saveScreenshot("voice-suggestions-open-\(percent)", in: host)
+                host.pressReturn()
+                check(host.wait { name.currentEditor()?.string == savedVoice.name }, "Return fills the saved name highlighted with the arrow keys")
+                check(host.frames[suggestion] == nil, "Return closes the suggestions after filling the name")
+                check(host.isEditing(name), "selecting a suggestion keeps the name field focused")
+                try saveScreenshot("voice-suggestions-filled-\(percent)", in: host)
+
+                check(host.type(prefix, into: name, settle: false), "the name field accepts a new prefix")
+                // AppKit can deliver arrow keys and Return before SwiftUI refreshes the view.
+                host.pressKey("\u{f701}", keyCode: 125, settle: false)
+                host.pressKey("\u{f701}", keyCode: 125, settle: false)
+                host.pressKey("\u{3}", keyCode: 76, modifiers: .numericPad)
+                check(host.wait { name.currentEditor()?.string == secondSuggestion.name },
+                      "quick typing, Down, Down and keypad Enter fill the second suggestion")
+                check(state.meetings.first(where: { $0.id == meeting.id })?.segments.first?.speaker == segment.speaker,
+                      "choosing a suggestion leaves the transcript speaker unchanged until applying the name")
+            } else {
+                check(false, "voice name is available for keyboard suggestion selection")
+            }
+        }
     }
 
     private func checkVoiceMerge(state: AppState, savedVoice: VoiceProfile, scale: CGFloat) {
@@ -1629,11 +1669,11 @@ private final class LayoutHost {
         settle()
     }
 
-    func type(_ text: String, into field: NSTextField) -> Bool {
+    func type(_ text: String, into field: NSTextField, settle: Bool = true) -> Bool {
         guard focus(field), let editor = field.currentEditor() else { return false }
         editor.selectAll(nil)
         editor.insertText(text)
-        settle()
+        if settle { self.settle() }
         return field.stringValue == text || editor.string == text
     }
 
