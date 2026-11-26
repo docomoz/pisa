@@ -7,7 +7,7 @@ import SwiftUI
 // Attach passive measurements only when a test host supplies the named space.
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
-    case mainToolbar, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
+    case mainToolbar, mainToolbarActions, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
     case recognitionFooterLabel, recognitionFooterIcon, updateFooterLink, updateFooterIcon
     case transcriptionStatusHeading, transcriptionStatusAction, transcriptionStoppingAction
     case transcriptionProgressCaption, transcriptionProgressRow
@@ -191,13 +191,20 @@ enum InterfaceLayoutTests {
                     return suite.failures == 0 && suite.checks > 0 ? 0 : 1
                 }
             }
-            guard scenario == nil || scenario == "transcript-review" else {
+            let mainWindowOnly = scenario == "main-window"
+            guard scenario == nil || scenario == "transcript-review" || mainWindowOnly else {
                 throw PisaError.message("Неизвестный сценарий проверки интерфейса")
             }
             if scenario == nil {
                 try suite.checkVoiceSample(state: AppState(rootURL: root.appendingPathComponent("voice-sample")))
+            }
+            if scenario == nil || mainWindowOnly {
                 try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
-                try suite.checkScreens(state: state)
+                try suite.checkScreens(state: state, mainWindowOnly: mainWindowOnly)
+                if mainWindowOnly {
+                    print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
+                    return suite.failures == 0 && suite.checks > 0 ? 0 : 1
+                }
             }
             var result: Int32 = 1
             // Keep the focus probes outside a MainActor task. The model actions
@@ -483,6 +490,7 @@ private final class LayoutSuite {
             scenario = "active recording folder \(width)×\(height), \(Int(scale * 100))%"
             let host = LayoutHost(MainView().environmentObject(state), size: CGSize(width: width, height: height), scale: scale)
             defer { host.close() }
+            checkMainHeader(in: host)
             if state.folderFilter != nil { state.openFolder() }
             state.move(meeting, to: nil)
             host.settle()
@@ -505,7 +513,7 @@ private final class LayoutSuite {
         }
     }
 
-    func checkScreens(state: AppState) throws {
+    func checkScreens(state: AppState, mainWindowOnly: Bool) throws {
         let file = "interface-fixture-mic.caf"
         guard let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000),
@@ -561,6 +569,7 @@ private final class LayoutSuite {
             let host = LayoutHost(MainView(installUpdate: {}, canInstallUpdate: false).environmentObject(state),
                                   size: size, scale: scale)
             defer { host.close() }
+            checkMainHeader(in: host)
             checkWelcome(in: host)
             check(host.frames[.updateFooterLink] == nil, "hide the unavailable update action on the welcome screen")
             try saveScreenshot("welcome-\(Int(size.width))-\(Int(scale * 100))", in: host)
@@ -632,6 +641,7 @@ private final class LayoutSuite {
                 try host.savePNG(to: URL(fileURLWithPath: output, isDirectory: true).appendingPathComponent(name))
             }
         }
+        if mainWindowOnly { return }
         try checkSavedAudioModelReadiness(state: state, saved: saved)
         var voiceMeeting = ready
         voiceMeeting.id = UUID()
@@ -830,6 +840,15 @@ private final class LayoutSuite {
         let disabled = try !state.library.preferences().mcpEnabled
         check(disabled, "MCP checkbox disables access in the saved library settings")
         check(host.frames[.mcpAccessNotice] == notice, "MCP data access notice stays visible when disabling access")
+    }
+
+    private func checkMainHeader(in host: LayoutHost) {
+        guard let measured = frames([.librarySearch, .mainToolbar, .mainToolbarActions], in: host) else { return }
+        let (search, toolbar, actions) = (measured[0], measured[1], measured[2])
+        equal(search.minY, 8, "library search starts eight points below the content edge")
+        equal(actions.midY - toolbar.minY, 30, "main toolbar actions are closer to the content edge")
+        equal(toolbar.height, 68, "the toolbar leaves eight more points for the meeting area")
+        check(toolbar.contains(actions), "main toolbar actions fit inside the toolbar")
     }
 
     private func checkWelcome(in host: LayoutHost) {

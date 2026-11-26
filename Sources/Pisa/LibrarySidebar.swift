@@ -84,7 +84,11 @@ struct LibrarySidebar: View {
                     }
                 }
             }
-        }.padding(.horizontal, PisaDesign.Spacing.content).padding(.top, PisaDesign.Spacing.content).padding(.bottom, PisaDesign.Spacing.content).background(Color.sidebarTint)
+        }
+        .padding(.horizontal, PisaDesign.Spacing.content)
+        .padding(.top, PisaDesign.Spacing.inline)
+        .padding(.bottom, PisaDesign.Spacing.content)
+        .background(Color.sidebarTint)
         .sheet(isPresented: $confirmEmptyTrash) {
             ConfirmationSheet(
                 title: "Очистить корзину?",

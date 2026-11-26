@@ -81,7 +81,8 @@ struct MainView: View {
         return GeometryReader { geometry in
             topbarControls(compact: state.recording && geometry.size.width < 740)
         }
-        .frame(height: panelHeight + 2 * PisaDesign.Spacing.inline)
+        .frame(height: panelHeight)
+        .padding(.bottom, PisaDesign.Spacing.inline)
         .measuredForInterfaceTest(.mainToolbar)
     }
     private func topbarControls(compact: Bool) -> some View {
@@ -114,7 +115,10 @@ struct MainView: View {
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 }.actionButton(.recording)
                     .disabled(!state.canToggleManualRecording)
-            }.controlSize(.large).fixedSize(horizontal: true, vertical: false)
+            }
+            .controlSize(.large)
+            .fixedSize(horizontal: true, vertical: false)
+            .measuredForInterfaceTest(.mainToolbarActions)
         }
         .padding(.horizontal, compact ? PisaDesign.Spacing.section : PisaDesign.Spacing.page)
     }
