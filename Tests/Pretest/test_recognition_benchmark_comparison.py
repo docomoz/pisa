@@ -35,6 +35,18 @@ class BenchmarkComparisonTests(unittest.TestCase):
         self.assertIs(result.get("equivalent"), False)
         self.assertEqual(result.get("text_changes"), 1)
 
+    def test_same_meeting_name_and_duration_do_not_identify_the_audio_bytes(self):
+        self.before["audioSHA256"] = {"example-remote.caf": "a" * 64, "example-mic.caf": "b" * 64}
+        self.assertFalse(comparison.compare(self.before, self.after)["audio_bytes_verified"])
+        self.after["audioSHA256"] = dict(self.before["audioSHA256"])
+        self.assertTrue(comparison.compare(self.before, self.after)["audio_bytes_verified"])
+        self.after["audioSHA256"]["example-remote.caf"] = "c" * 64
+        with self.assertRaisesRegex(ValueError, "audioSHA256"):
+            comparison.compare(self.before, self.after)
+        self.before["audioSHA256"] = self.after["audioSHA256"] = {}
+        with self.assertRaisesRegex(ValueError, "audioSHA256"):
+            comparison.compare(self.before, self.after)
+
     def test_generated_aec_identifier_does_not_change_source_track(self):
         self.before["segments"][1]["audioFile"] = "example-mic.clean.11111111-1111-4111-8111-111111111111.caf"
         self.after["segments"][1]["audioFile"] = "example-mic.clean.22222222-2222-4222-8222-222222222222.caf"

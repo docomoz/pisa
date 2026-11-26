@@ -55,6 +55,10 @@ enum RecognitionQualityTests {
             throw PisaError.message("Invalid contextual replay")
         }
         let files = names.sorted().map { name in (audio.appendingPathComponent(name), meeting.audioOffsets[name] ?? 0) }
+        let targetTracks = Set(meeting.segments.filter { targetIDs.contains($0.id) }.compactMap(\.audioFile))
+        let audioHashes = try Dictionary(uniqueKeysWithValues: targetTracks.map { name in
+            (name, try FileChecksum.sha256(at: audio.appendingPathComponent(name)))
+        })
         var supplied: [UUID: Range<Double>] = [:]
         for (key, interval) in request.fileLocalBounds ?? [:] {
             guard let id = UUID(uuidString: key), interval.start.isFinite, interval.end.isFinite,
@@ -76,6 +80,7 @@ enum RecognitionQualityTests {
                 "segments": segments.map { ["id": $0.id.uuidString, "start": $0.start, "end": $0.end, "text": $0.text] },
                 "contextDiagnostics": diagnostics,
                 "boundsSource": supplied.isEmpty ? "estimated_from_saved_segments" : "supplied_where_available",
+                "audioSHA256": audioHashes,
                 "contextSource": "frozen_snapshot",
             ])
     }

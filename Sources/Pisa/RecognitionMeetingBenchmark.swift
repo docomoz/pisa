@@ -52,6 +52,9 @@ enum RecognitionMeetingBenchmark {
             try FileManager.default.copyItem(at: source.appendingPathComponent(name), to: copy)
             return (copy, request.meeting.audioOffsets[name] ?? 0)
         }
+        let audioHashes = try Dictionary(uniqueKeysWithValues: files.map { file, _ in
+            (file.lastPathComponent, try FileChecksum.sha256(at: file))
+        })
         // Match AppState.setTurboEnabled: executor priority alone does not
         // prevent macOS from reducing a background app's activity.
         let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated,
@@ -80,6 +83,7 @@ enum RecognitionMeetingBenchmark {
             "kind": "result", "mode": "batch-turbo", "turboActivityHeld": true,
             "primaryRecognizer": "parakeet-tdt-v3", "primaryPrecision": "float32",
             "meetingID": request.meeting.id.uuidString,
+            "audioSHA256": audioHashes,
             "audioSeconds": request.meeting.duration, "seconds": seconds,
             "segments": encodedSegments,
             "contextDiagnostics": await transcriber.recognitionContextDiagnostics(),

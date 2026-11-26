@@ -213,6 +213,35 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertNil(BackchannelLanguage.timedClause(source: "Exposición", isolated: changed, wide: ending, interval: 2..<3))
     }
 
+    func testConfirmedForeignClauseNeedsTheSameGovernedNounAndItsSecondOccurrence() throws {
+        let core = RecognitionAcousticResult(text: "Макетом.", words: [.init(text: "Макетом", start: 0.04, end: 0.52)])
+        func clause(_ before: [String], _ after: [String], source: String = "Make them.") throws -> BackchannelLanguage.TimedClause {
+            let tokens = before + ["макетом"] + after
+            let times = before.indices.map { 0.1 + Double($0) * 0.25 } + [2.04]
+                + after.indices.map { 2.8 + Double($0) * 0.24 }
+            let words = zip(tokens, times).map { RecognitionTimedWord(text: $0.0, start: $0.1, end: $0.1 + 0.2) }
+            return try XCTUnwrap(BackchannelLanguage.timedClause(source: source, isolated: core,
+                wide: .init(text: tokens.joined(separator: " "), words: words), interval: 2..<2.6))
+        }
+        let lead = ["работаем", "сегодня", "с"], tail = ["нам", "этот", "макет", "позже", "пригодится"]
+        let proposal = try clause(lead, tail)
+        let full = "Мы работаем сегодня с макетом. Нам этот макет позже пригодится."
+        let other = "Работаю сегодня с макетом. Нам макет потом пригодится."
+        XCTAssertTrue(proposal.confirmsRepeatedInstrumental(verifier: full, primary: other))
+        let homograph = try clause(["обсудили", "тему", "с"], tail)
+        let heard = "Обсудили тему с макетом. Нам этот макет пригодится."
+        XCTAssertTrue(homograph.confirmsRepeatedInstrumental(verifier: heard, primary: heard))
+        for reading in ["Мы работаем сегодня с макетом.", "Мы работаем сегодня над макетом. Нам этот макет пригодится.",
+                        "Мы сегодня с новым макетом. Нам этот макет пригодится.",
+                        "Сказали «сегодня с макетом». Нам этот макет пригодится."] {
+            XCTAssertFalse(proposal.confirmsRepeatedInstrumental(verifier: reading, primary: full), reading)
+            XCTAssertFalse(proposal.confirmsRepeatedInstrumental(verifier: full, primary: reading), reading)
+        }
+        XCTAssertFalse(try clause(lead, ["снова", "работаем"]).confirmsRepeatedInstrumental(verifier: full, primary: full))
+        XCTAssertFalse(try clause(["обсудили", "это"], tail).confirmsRepeatedInstrumental(verifier: full, primary: full))
+        XCTAssertFalse(try clause(lead, tail, source: "Mockup").confirmsRepeatedInstrumental(verifier: full, primary: full))
+    }
+
     func testMidstemScriptSwitchOnAClauseUsesAnIndependentReadAndConversation() {
         let source = segment(11, "So no, caжès.", mic: false)
         XCTAssertTrue(BackchannelLanguage.shortMixedFragment(source.text, duration: 1, vocabulary: ""))

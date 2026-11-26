@@ -190,6 +190,30 @@ enum BackchannelLanguage {
             return sharesAnchor(previous, heard[..<i].suffix(6))
                 || sharesAnchor(following, heard.dropFirst(i + keys.count).prefix(6))
         }
+
+        /// A short English clause can sound like one inflected Russian loanword
+        /// in isolation. Require the same grammatical link on the left and a
+        /// second, uninflected occurrence on the right in all three wide reads.
+        func confirmsRepeatedInstrumental(verifier: String, primary: String) -> Bool {
+            guard !omittedOnset, source.count == 2, keys.count == 1, let noun = keys.first,
+                  noun.count >= 6, noun.hasSuffix("ом") || noun.hasSuffix("ем"),
+                  previous.count >= 2, let preposition = previous.last,
+                  ["с", "со", "над", "под", "перед", "между"].contains(preposition) else { return false }
+            let lead = Array(previous.suffix(2))
+            // Both lead words are outside the target and must be repeated
+            // verbatim; a common word can also be a known name form.
+            guard lead[0].count >= 3 else { return false }
+            let stem = String(noun.dropLast(2))
+            guard following.contains(stem) else { return false }
+            let phrase = lead + [noun]
+            return [verifier, primary].allSatisfy { reading in
+                guard !BackchannelLanguage.containsLiteralMarks(reading) else { return false }
+                let words = RussianRecognition.words(reading)
+                let positions = words.indices.filter { words[$0...].starts(with: phrase) }
+                guard positions.count == 1, let i = positions.first else { return false }
+                return words.dropFirst(i + phrase.count).prefix(6).contains(stem)
+            }
+        }
     }
 
     static func timedClause(source: String, isolated: RecognitionAcousticResult,

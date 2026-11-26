@@ -109,7 +109,14 @@ public struct ModelInstaller: Sendable {
         let info = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard info.isRegularFile == true, info.isSymbolicLink != true else { return false }
         if let expected = asset.bytes, Int64(info.fileSize ?? -1) != expected { return false }
-        let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
+        return try FileChecksum.sha256(at: url) == asset.sha256.lowercased()
+    }
+}
+
+enum FileChecksum {
+    static func sha256(at url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
         var hash = SHA256()
         while true {
             try Task.checkCancellation()
@@ -117,7 +124,7 @@ public struct ModelInstaller: Sendable {
             if data.isEmpty { break }
             hash.update(data: data)
         }
-        return hash.finalize().map { String(format: "%02x", $0) }.joined() == asset.sha256.lowercased()
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
 

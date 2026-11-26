@@ -43,6 +43,11 @@ def compare(before, after):
         if field not in before or before[field] != after.get(field):
             raise ValueError(f"Benchmark inputs differ: {field}")
     for result in [before, after]:
+        if "audioSHA256" in result:
+            hashes = result["audioSHA256"]
+            if not isinstance(hashes, dict) or not hashes or not all(
+                    isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) for digest in hashes.values()):
+                raise ValueError("Invalid benchmark audioSHA256")
         if result.get("turboActivityHeld") is not True:
             raise ValueError("Benchmark must hold the same Turbo activity as the app")
         if not result["segments"]:
@@ -60,9 +65,12 @@ def compare(before, after):
             if type(calls) not in (int, float) or not 0 < calls < math.inf:
                 raise ValueError(f"Benchmark must record positive {recognizer} calls ({key})")
     first, second = groups(before["segments"]), groups(after["segments"])
+    audio_verified = "audioSHA256" in before and "audioSHA256" in after
+    if audio_verified and before["audioSHA256"] != after["audioSHA256"]:
+        raise ValueError("Benchmark inputs differ: audioSHA256")
     report = dict(removed_segments=0, added_segments=0, text_changes=0,
                   speaker_changes=0, remote_embedding_changes=0,
-                  remote_embedding_exact_changes=0, differences=[])
+                  remote_embedding_exact_changes=0, differences=[], audio_bytes_verified=audio_verified)
     for key in sorted(first.keys() | second.keys(), key=str):
         old, new = first[key], second[key]
         report["removed_segments"] += max(0, len(old) - len(new))

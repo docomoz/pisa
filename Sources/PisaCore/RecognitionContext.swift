@@ -1948,6 +1948,126 @@ extension RecognitionContext {
             let language: String?
         }
 
+        /// Two timed, independently supported spans can straddle a garbled
+        /// word boundary. Preserve the uncertainty between them.
+        func timedFragments(acoustic: RecognitionAcousticResult, target: Range<Double>, primary: String,
+                            verifier: String, language: String?, exact: () -> IsolatedReading?,
+                            exactPrimary: () -> String) -> String? {
+            let old = RecognitionContext.tokens(source)
+            guard scriptMismatch, terms.isEmpty, language?.lowercased() == "russian", old.count >= 3,
+                  RussianRecognition.isCyrillicSpeech(source),
+                  TranscriptOrthography.literalRanges(in: source).isEmpty,
+                  !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(verifier),
+                  let final = old.last, ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(final.text),
+                  final.text == final.text.lowercased() else { return nil }
+
+            let words = acoustic.words, tokens = RecognitionContext.tokens(acoustic.text)
+            let inside = words.indices.filter { words[$0].start >= target.lowerBound - 0.15
+                && words[$0].end > target.lowerBound && words[$0].start < target.upperBound - 0.03 }
+            guard tokens.map(\.text) == words.map(\.text), let first = inside.first, let last = inside.last,
+                  inside.count >= 4, words[first].start <= target.lowerBound + 0.3,
+                  words[last].start >= target.lowerBound, last + 3 < words.count,
+                  words[last + 1].start >= target.upperBound else { return nil }
+            let noun = tokens[last].key
+            func fold(_ text: String) -> String {
+                text.replacingOccurrences(of: "і", with: "и").replacingOccurrences(of: "є", with: "е")
+            }
+            // Never split an arbitrary compound on a substring. The original
+            // must retain the entire inflected ending, including its last letter.
+            guard noun.count >= 7, RecognitionContext.isRussianWord(noun), fold(final.key).hasSuffix(noun),
+                  !protectedKeys.contains(noun), !TranscriptTerms.isKnownEntityForm(noun) else { return nil }
+            let following = Array(tokens[(last + 1)...(last + 3)].map(\.key))
+            func beforeNeighbor(_ text: String) -> [String]? {
+                let all = normalized(text)
+                guard Self.containsOnce(following, in: all),
+                      let i = all.indices.first(where: { all[$0...].starts(with: following) }), i > 0 else { return nil }
+                return Array(all[..<i])
+            }
+            // An unstressed vowel can disappear inside a decoder's fused
+            // token. Its full ending and all other letters must survive. Only
+            // corroboration uses this comparison, never the displayed spelling.
+            func supportsEnding(_ token: String?) -> Bool {
+                guard let token else { return false }
+                if token.hasSuffix(noun) { return true }
+                for i in noun.indices.dropFirst().dropLast(4) where "аеёиоуыэюя".contains(noun[i]) {
+                    var shortened = noun
+                    shortened.remove(at: i)
+                    if token.hasSuffix(shortened) { return true }
+                }
+                return false
+            }
+            guard let widePrimary = beforeNeighbor(primary), widePrimary.last == noun,
+                  let wideVerifier = beforeNeighbor(verifier), supportsEnding(wideVerifier.last),
+                  let core = exact(), core.language?.lowercased() == "russian",
+                  !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(core.verifier) else { return nil }
+            let narrow = core.acoustic.words, local = RecognitionContext.tokens(core.acoustic.text)
+            let checked = normalized(core.verifier)
+            guard local.map(\.text) == narrow.map(\.text), local.last?.key == noun, local.count >= 4,
+                  let end = narrow.last, abs(end.start - (words[last].start - target.lowerBound)) <= 0.18,
+                  end.start >= 0, end.end <= (target.upperBound - target.lowerBound) + 0.03,
+                  (target.upperBound - target.lowerBound) - end.end <= 0.25, supportsEnding(checked.last) else { return nil }
+            let keys = inside.map { tokens[$0].key }
+            let limit = min(keys.count - 2, local.count - 2, old.count - 1)
+            guard limit >= 2, let count = (2...limit).reversed().first(where: { n in
+                let prefix = Array(keys.prefix(n))
+                return checked.starts(with: prefix) && local.prefix(n).map(\.key) == prefix
+                    && [widePrimary, wideVerifier].allSatisfy { reading in
+                        guard Self.containsOnce(prefix, in: reading),
+                              let i = reading.indices.first(where: { reading[$0...].starts(with: prefix) }) else { return false }
+                        return reading.count - i >= n + 1 && abs(reading.count - i - keys.count) <= 3
+                    } && (0..<n).allSatisfy { i in
+                        let sourceWord = old[i].key, word = keys[i]
+                        let close = ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(sourceWord)
+                            && min(sourceWord.count, word.count) >= 4 && fold(sourceWord).prefix(3) == word.prefix(3)
+                            && RecognitionContext.editDistance(fold(sourceWord), word) <= 2
+                        return (sourceWord == word || close) && abs(narrow[i].start - (words[first + i].start - target.lowerBound)) <= 0.18
+                    }
+            }) else { return nil }
+
+            let heardDuration = narrow[count - 1].end - narrow[0].start + end.end - end.start
+            guard heardDuration * 3 >= (end.end - narrow[0].start) * 2 else { return nil }
+            let primaryTokens = RecognitionContext.tokens(exactPrimary())
+            guard let spelling = primaryTokens.last?.key, fold(spelling).hasSuffix(noun) else { return nil }
+            let compound = fold(final.key)
+            if compound != noun, fold(spelling) == compound,
+               wideVerifier.last == compound || checked.last == compound { return nil }
+            // A separate short word before the ending is carried over only
+            // when the multilingual decoders also agree on that word boundary.
+            let pair = Array(keys.suffix(2))
+            let carryPrevious = AbbreviationFamilies.isRussianFunctionWord(pair[0])
+                && Array(local.suffix(2).map(\.key)) == pair
+                && [widePrimary, wideVerifier, checked].allSatisfy { $0.suffix(2).elementsEqual(pair) }
+                && abs(narrow[local.count - 2].start - (words[last - 1].start - target.lowerBound)) <= 0.18
+            let closing = carryPrevious ? (last - 1)...last : last...last
+            let outputKeys = Array(keys.prefix(count)) + tokens[closing].map(\.key)
+            func protected(_ key: String) -> Bool {
+                protectedKeys.contains(key) || RecognitionContext.markers.contains(key) || key == "ні"
+                    || RecognitionConsensus.isSensitiveAtCut(key)
+            }
+            let omitted = local[count..<(local.count - closing.count)]
+            let expected = outputKeys.filter(protected)
+            guard [old.map(\.key), local.map(\.key), checked, primaryTokens.map(\.key)].allSatisfy({ $0.filter(protected) == expected }),
+                  !old[count...].contains(where: { $0.text.first?.isUppercase == true }),
+                  [primaryTokens, RecognitionContext.tokens(core.verifier)].allSatisfy({ reading in
+                      !reading.dropFirst(count).contains(where: { $0.text.first?.isUppercase == true })
+                  }), !omitted.contains(where: { word in word.text.first?.isUppercase == true
+                      || (word.key.count >= 3 && (checked.contains(word.key) || primaryTokens.contains(where: { $0.key == word.key }))) }) else { return nil }
+            // Do not erase an intelligible content word while eliding the gap.
+            // Exact same-language readings veto dropping even a short particle.
+            let gap = old[count..<old.count - 1]
+            guard gap.allSatisfy({ word in
+                word.key.count <= 2 && !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(word.key)
+                    && !checked.contains(word.key) && !local.contains(where: { $0.key == word.key })
+            }), source[old[count - 1].range.upperBound..<final.range.lowerBound].allSatisfy({
+                $0.isLetter || $0.isWhitespace || "-‐‑".contains($0)
+            }) else { return nil }
+            let span = RecognitionContext.range(in: tokens, first..<(first + count))
+            var opening = String(acoustic.text[span])
+            if source.first?.isUppercase == true { opening = opening.prefix(1).uppercased() + String(opening.dropFirst()) }
+            let ending = RecognitionContext.range(in: tokens, closing.lowerBound..<(last + 1))
+            return opening + "… " + String(acoustic.text[ending]) + String(source[final.range.upperBound...])
+        }
+
         /// Recover only the beginning of a turn. Agreement later in a padded
         /// window can come from the next utterance, even on the same channel.
         func timedPrefix(acoustic: RecognitionAcousticResult, target: Range<Double>, primary: String,
@@ -2323,5 +2443,148 @@ extension RecognitionContext {
         let latinWords = words.filter { $0.text.range(of: #"\p{Latin}"#, options: .regularExpression) != nil }
         return ContextualScriptRepair(source: text, terms: Array(terms), scriptMismatch: script,
                                       protectedKeys: Set(writtenTerms + latinWords.map(\.key)), writtenKeys: Set(writtenTerms))
+    }
+}
+
+extension RecognitionContext.ContextualScriptRepair {
+    /// A false start before a compound can send the exact Russian utterance into
+    /// another script. Confirm the complete compound and noun in one bounded
+    /// reread. The adjoining clause must already be audible on the exact turn.
+    func timedCompound(acoustic: RecognitionAcousticResult, target: Range<Double>, primary: String,
+                       verifier: String, language: String?, exact: () -> IsolatedReading?,
+                       bounded: (Range<Double>) -> (acoustic: String, primary: String, verifier: String, language: String?)?) -> String? {
+        let old = RecognitionContext.tokens(source), speech = RecognitionContext.tokens(primary)
+        guard scriptMismatch, terms.isEmpty, language?.lowercased() == "russian",
+              RussianRecognition.isCyrillicSpeech(source), (7...18).contains(old.count),
+              ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(old[0].text),
+              !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(primary + verifier),
+              !source.contains(where: { "!?…—–".contains($0) }),
+              old.allSatisfy({ !protectedKeys.contains($0.key) }),
+              let ending = old.last, ending.text == ending.text.lowercased(),
+              !TranscriptTerms.isCommonRussianWord(ending.key), !RecognitionConsensus.isSensitiveAtCut(ending.key)
+        else { return nil }
+
+        let restart = old[0].key.replacingOccurrences(of: "і", with: "и").replacingOccurrences(of: "є", with: "е")
+        guard restart.count >= 5, !RecognitionConsensus.isSensitiveAtCut(restart),
+              old[1].key.hasPrefix(String(restart.dropLast(1))), old[1].text == old[1].text.lowercased() else { return nil }
+        let tail = old[3..<(old.count - 1)].map(\.key)
+        let sites = speech.indices.filter { i in
+            guard i + 2 + tail.count <= speech.count else { return false }
+            let compound = speech[i].key, noun = speech[i + 1].key
+            return Self.sameCompoundStem(compound, old[1].key) && noun.count >= 4
+                && SpokenVocabulary.distance(noun, old[2].key) <= 1
+                && [compound, noun].allSatisfy { TranscriptTerms.isCommonRussianWord($0) && !RecognitionConsensus.isSensitiveAtCut($0) }
+                && primary[speech[i].range.upperBound..<speech[i + 1].range.lowerBound].allSatisfy({ $0 == " " })
+                && speech[(i + 2)..<(i + 2 + tail.count)].map(\.key) == tail
+        }
+        guard sites.count == 1, let i = sites.first else { return nil }
+        let reading = Array(speech[i..<(i + 2 + tail.count)])
+        let pair = reading.prefix(2).map(\.key), keys = reading.map(\.key)
+        let wideCheck = RecognitionContext.tokens(verifier)
+        let wideMatches = Self.compoundRanges(keys, in: verifier, splitAt: [0, keys.count - 1])
+        func canElide(_ word: RecognitionContext.Token) -> Bool {
+            !RecognitionConsensus.isSensitiveAtCut(word.key)
+                && !(word.text.first?.isUppercase == true && word.text.dropFirst().contains(where: \.isLowercase))
+        }
+        guard reading.allSatisfy({ $0.text.dropFirst().allSatisfy({ !$0.isUppercase }) }),
+              i + reading.count < speech.count, canElide(speech[i + reading.count]),
+              wideMatches.count == 1, let matched = wideMatches.first, matched.upperBound < wideCheck.count,
+              canElide(wideCheck[matched.upperBound]),
+              let isolated = exact(), isolated.language?.lowercased() == "russian",
+              !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(isolated.verifier) else { return nil }
+
+        let narrow = isolated.acoustic.words, wide = acoustic.words
+        guard narrow.count == old.count, Self.sameCompoundStem(pair[0], narrow[1].text.lowercased()),
+              narrow[2].text.lowercased() == pair[1],
+              Self.sameCompoundStem(old[1].key, narrow[1].text.lowercased()),
+              narrow[0].text.lowercased().hasPrefix(String(restart.dropLast(1))),
+              ![primary, verifier, isolated.verifier, isolated.acoustic.text].contains(where: {
+                  RussianRecognition.words($0).contains(ending.key)
+              }) else { return nil }
+
+        // Wide and exact acoustic words must occupy the same position. At
+        // most the spelling of an already present loanword may change scripts.
+        let wideStarts = wide.indices.filter { j in
+            j >= 3 && j + keys.count < wide.count && keys.indices.allSatisfy { k in
+                let wideWord = wide[j + k], localWord = narrow[k + 1]
+                guard wideWord.start >= target.lowerBound - 0.12, wideWord.end <= target.upperBound + 0.12,
+                      abs(wideWord.start - target.lowerBound - localWord.start) <= 0.16 else { return false }
+                let local = Self.compoundSound(localWord.text), broad = Self.compoundSound(wideWord.text)
+                if k == 0 { return Self.sameCompoundStem(pair[0], wideWord.text.lowercased()) }
+                guard local == Self.compoundSound(keys[k]) else { return false }
+                if local == broad { return true }
+                return k == keys.count - 1 && localWord.text.allSatisfy({ $0.isASCII && $0.isLetter })
+                    && local.count >= 5 && broad.count == local.count && local.dropLast() == broad.dropLast()
+                    && ["bp", "pb", "td", "dt", "kg", "gk"].contains(String(local.suffix(1)) + String(broad.suffix(1)))
+            }
+        }
+        guard wideStarts.count == 1, let j = wideStarts.first,
+              wide[j - 1].start <= target.lowerBound + 0.2, wide[j - 1].end >= target.lowerBound,
+              wide[j - 1].text.lowercased().hasPrefix(String(restart.dropLast(1))) else { return nil }
+
+        // Verify the exact clause as well. A phonetic variant of its final
+        // loanword is acceptable only with an exact transliteration in GigaAM
+        // and the entire same spelling (possibly split) in both wide reads.
+        let check = RecognitionContext.tokens(isolated.verifier)
+        let anchors = Self.compoundRanges(Array(tail.dropLast()), in: isolated.verifier, splitAt: [])
+        guard anchors.count == 1, let anchor = anchors.first, anchor.upperBound < check.count,
+              let term = tail.last else { return nil }
+        guard anchor.upperBound + 1 < check.count, canElide(check[anchor.upperBound + 1]) else { return nil }
+        let heardTerm = check[anchor.upperBound].key
+        if heardTerm != term {
+            guard narrow[old.count - 2].text.allSatisfy({ $0.isASCII && $0.isLetter }),
+                  term.count >= 5, heardTerm.prefix(2) == term.prefix(2), heardTerm.suffix(3) == term.suffix(3),
+                  SpokenVocabulary.distance(heardTerm, term) <= 2 else { return nil }
+        }
+
+        // Keep two timed words before the false start for context and stop
+        // at the next token's onset, including the pause after the noun.
+        let left = wide[j - 3].start, right = wide[j + 2].start
+        let context = wide[(j - 3)..<(j - 1)].map { $0.text.lowercased() }
+        guard left < target.lowerBound, left < right, right <= target.upperBound, right - left <= 6,
+              context.contains(where: { $0.count >= 4 }),
+              let extra = bounded(left..<right), extra.language?.lowercased() == "russian",
+              [extra.acoustic, extra.primary, extra.verifier].allSatisfy({ text in
+                  guard !ParakeetRecognitionPolicy.hasDistinctCyrillicLetters(text) else { return false }
+                  let matches = Self.compoundRanges(pair, in: text, splitAt: [0])
+                  let local = RecognitionContext.tokens(text).map(\.key)
+                  guard matches.count == 1, let match = matches.first, match.upperBound == local.count,
+                        local.starts(with: context), (context.count...context.count + 1).contains(match.lowerBound) else { return false }
+                  return match.lowerBound == context.count || local[context.count].hasPrefix(String(restart.dropLast(1)))
+              }) else { return nil }
+        let range = reading[0].range.lowerBound..<reading[reading.count - 1].range.upperBound
+        return "… " + String(primary[range]) + "…"
+    }
+
+    private static func sameCompoundStem(_ a: String, _ b: String) -> Bool {
+        let length = min(a.count, b.count)
+        return length >= 7 && abs(a.count - b.count) <= 2 && a.prefix(length - 1) == b.prefix(length - 1)
+    }
+
+    private static func compoundSound(_ text: String) -> String {
+        (text.applyingTransform(.toLatin, reverse: false) ?? text)
+            .folding(options: .diacriticInsensitive, locale: nil).lowercased()
+    }
+
+    /// Join at most two tokens to confirm a word already supplied in full.
+    /// Never join across a quote, pause, clause boundary or hyphenated phrase
+    /// when its complete lexical form differs from the reference.
+    private static func compoundRanges(_ keys: [String], in text: String, splitAt: Set<Int>) -> [Range<Int>] {
+        let words = RecognitionContext.tokens(text)
+        return words.indices.compactMap { start in
+            var j = start
+            for (k, key) in keys.enumerated() {
+                guard j < words.count else { return nil }
+                if k == 1, splitAt.contains(0),
+                   !text[words[j - 1].range.upperBound..<words[j].range.lowerBound].allSatisfy({ $0 == " " }) { return nil }
+                if words[j].key == key { j += 1; continue }
+                guard splitAt.contains(k), j + 1 < words.count, min(words[j].key.count, words[j + 1].key.count) >= 2,
+                      words[j].key + words[j + 1].key == key,
+                      text[words[j].range.upperBound..<words[j + 1].range.lowerBound].allSatisfy({ $0 == " " || "-‐‑".contains($0) })
+                else { return nil }
+                j += 2
+            }
+            return start..<j
+        }
     }
 }

@@ -842,6 +842,9 @@ actor Transcriber {
             if let independent = segment.independentRecognitionLanguage {
                 event["independentRecognitionLanguage"] = independent ? "true" : "false"
             }
+            if let mixed = segment.speakerEvidenceIsMixed {
+                event["speakerEvidenceIsMixed"] = mixed ? "true" : "false"
+            }
             contextDiagnostics.append(event)
         }
         guard let russian, model.canVerify else {
@@ -920,17 +923,20 @@ actor Transcriber {
                     let verifier = try await verificationModel(model)
                     let checked = verify(wide, with: verifier, session: model, maxTokens: 384, context: "", language: nil)
                     var accepted = false
-                    if checked.language?.lowercased() == "russian", phrase.confirmed(in: checked.text),
-                       phrase.confirmed(in: measureRecognition("parakeet") { model.generate(wide).text }) {
-                        // An already confirmed source needs the primary to
-                        // hear the full Russian alternative in isolation too.
-                        // Give an accented name the same direct source check.
+                    let widePrimary = checked.language?.lowercased() == "russian" && phrase.confirmed(in: checked.text)
+                        ? measureRecognition("parakeet") { model.generate(wide).text } : ""
+                    var corePrimary = ""
+                    if phrase.confirmed(in: widePrimary) {
+                        // Preserve a previously confirmed source unless the
+                        // primary also hears the Russian core or all models
+                        // resolve the inflection in its surrounding sentence.
                         let accentedWord = RussianRecognition.words(segment.text).count == 1
                         if segment.independentRecognitionLanguage == true || accentedWord {
-                            let primary = measureRecognition("parakeet") { model.generate(core).text }
+                            corePrimary = measureRecognition("parakeet") { model.generate(core).text }
                             if segment.independentRecognitionLanguage == true {
-                                accepted = BackchannelLanguage.agreedRussianText(isolated.text, corroboration: primary) != nil
-                            } else if !BackchannelLanguage.confirmsLatinSource(original: segment.text, reread: primary) {
+                                accepted = BackchannelLanguage.agreedRussianText(isolated.text, corroboration: corePrimary) != nil
+                                    || phrase.confirmsRepeatedInstrumental(verifier: checked.text, primary: widePrimary)
+                            } else if !BackchannelLanguage.confirmsLatinSource(original: segment.text, reread: corePrimary) {
                                 let exact = verify(core, with: verifier, session: model, maxTokens: 96, context: "", language: nil)
                                 accepted = !BackchannelLanguage.confirmsLatinSource(original: segment.text, reread: exact.text)
                             }
@@ -941,7 +947,8 @@ actor Transcriber {
                     if collectDiagnostics {
                         contextDiagnostics.append(["kind": "timed-latin-clause", "start": String(segment.start),
                             "source": segment.text, "core": isolated.text, "independent": evidence.text,
-                            "reread": checked.text, "candidate": accepted ? phrase.text : ""])
+                            "reread": checked.text, "widePrimary": widePrimary, "corePrimary": corePrimary,
+                            "candidate": accepted ? phrase.text : ""])
                     }
                     try await performance.pace(after: began)
                     try Task.checkCancellation()
@@ -1101,24 +1108,53 @@ actor Transcriber {
                                 let local = autoRead(Array(wide[clip]))
                                 return (local.text, local.language)
                             })
-                        if candidate == nil, repair.scriptMismatch, repair.terms.isEmpty,
+                        let partial = candidate.map(ParakeetRecognitionPolicy.hasDistinctCyrillicLetters) ?? false
+                        if (candidate == nil || partial), repair.scriptMismatch, repair.terms.isEmpty,
                            let range = SpeechCoverage.unpaddedTurn(start: start - audioRange.lowerBound,
                                duration: duration, sampleCount: core.count, minimumPadding: 0) {
                             let sameAudio = range.count == core.count
                             lazy var clip = sameAudio ? core : Array(core[range])
-                            candidate = repair.timedPrefix(acoustic: evidence, target: interval,
-                                primary: primary, verifier: check.text, language: check.language, exact: {
-                                    if let cached = scriptReadings[segment.id] { return cached }
-                                    guard let heard = acousticRecognition(clip, using: russian) else { return nil }
-                                    let decoded = isolated ?? (sameAudio ? coreRead : autoRead(clip))
-                                    return IsolatedScriptReading(acoustic: heard, verifier: decoded.text, language: decoded.language)
-                                }, exactPrimary: {
-                                    measureRecognition("parakeet") { model.generate(clip).text }
-                                }, trimmedPrimary: { boundary in
-                                    let end = min(clip.count, Int((boundary * 16_000).rounded()))
-                                    guard end > 0, end < clip.count else { return nil }
-                                    return self.measureRecognition("parakeet") { model.generate(Array(clip[..<end])).text }
-                                }, boundedVerifier: (coreRead.text, coreRead.language))
+                            var exactReading = scriptReadings[segment.id]
+                            func readExact() -> IsolatedScriptReading? {
+                                if let exactReading { return exactReading }
+                                guard let heard = acousticRecognition(clip, using: russian) else { return nil }
+                                let decoded = isolated ?? (sameAudio ? coreRead : autoRead(clip))
+                                exactReading = IsolatedScriptReading(acoustic: heard, verifier: decoded.text, language: decoded.language)
+                                return exactReading
+                            }
+                            lazy var exactPrimary = measureRecognition("parakeet") { model.generate(clip).text }
+                            let previous = candidate
+                            candidate = repair.timedFragments(acoustic: evidence, target: interval,
+                                primary: primary, verifier: check.text, language: check.language,
+                                exact: readExact, exactPrimary: { exactPrimary })
+                            if candidate == nil {
+                                candidate = repair.timedCompound(acoustic: evidence, target: interval, primary: primary,
+                                    verifier: check.text, language: check.language, exact: readExact, bounded: { range in
+                                        guard let clip = SpeechCoverage.unpaddedTurn(start: range.lowerBound,
+                                            duration: range.upperBound - range.lowerBound, sampleCount: wide.count,
+                                            minimumPadding: 0) else { return nil }
+                                        let samples = Array(wide[clip])
+                                        guard let heard = acousticRecognition(samples, using: russian) else { return nil }
+                                        let local = autoRead(samples)
+                                        let other = measureRecognition("parakeet") { model.generate(samples).text }
+                                        if collectDiagnostics {
+                                            contextDiagnostics.append(["kind": "bounded-compound", "start": String(segment.start),
+                                                "from": String(range.lowerBound + lower), "to": String(range.upperBound + lower),
+                                                "independent": heard.text, "primary": other, "reread": local.text,
+                                                "language": local.language ?? ""])
+                                        }
+                                        return (heard.text, other, local.text, local.language)
+                                    })
+                            }
+                            if candidate == nil {
+                                candidate = previous ?? repair.timedPrefix(acoustic: evidence, target: interval,
+                                    primary: primary, verifier: check.text, language: check.language, exact: readExact,
+                                    exactPrimary: { exactPrimary }, trimmedPrimary: { boundary in
+                                        let end = min(clip.count, Int((boundary * 16_000).rounded()))
+                                        guard end > 0, end < clip.count else { return nil }
+                                        return self.measureRecognition("parakeet") { model.generate(Array(clip[..<end])).text }
+                                    }, boundedVerifier: (coreRead.text, coreRead.language))
+                            }
                         }
                         if collectDiagnostics {
                             contextDiagnostics.append(["kind": "wide-script", "start": String(segment.start),
