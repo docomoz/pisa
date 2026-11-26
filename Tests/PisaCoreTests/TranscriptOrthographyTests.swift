@@ -86,6 +86,41 @@ final class TranscriptOrthographyTests: XCTestCase {
                        "С семьёй, потом прошел. «семьей»; ``прошел``; https://example.com/возьмет.")
     }
 
+    func testPunctuationUsesAnEmDash() {
+        let input = "Платежи - вот это все. Фин-юрсхема – в работе.\n- Готово. Срок – пятница. Да--разумеется."
+        let expected = "Платежи — вот это всё. Фин-юрсхема — в работе.\n— Готово. Срок — пятница. Да—разумеется."
+        let result = TranscriptOrthography.normalize(input)
+        XCTAssertEqual(result, expected)
+        XCTAssertEqual(TranscriptOrthography.normalize(result), result)
+        XCTAssertEqual(TranscriptOrthography.normalize("Обсудили Focus - группы. Дальше -- интервью."),
+                       "Обсудили фокус-группы. Дальше — интервью.")
+    }
+
+    func testDashNormalizationPreservesOtherUses() {
+        let input = "Фин‑юрсхема, идея-фикс, −5, -12, –10, 10–12, 12 - 15, 12‒15, «Да - нет», `a – b`, https://example.org/a–b.\n---"
+        XCTAssertEqual(TranscriptOrthography.normalize(input), input)
+        XCTAssertEqual(TranscriptOrthography.normalize("Обсудили план - уточнить срок, потом начать.", vocabulary: "план - уточнить"),
+                       "Обсудили план - уточнить срок, потом начать.")
+    }
+
+    func testContextRestoresYoInAmbiguousWords() {
+        for (input, expected) in [
+            ("Вот это все. А черт с ним, у нее уже есть отчеты.", "Вот это всё. А чёрт с ним, у неё уже есть отчёты."),
+            ("Все знают, что ВСЕ ГОТОВО.", "Все знают, что ВСЁ ГОТОВО."),
+            ("Все хорошо, все остальное сделаем завтра.", "Всё хорошо, всё остальное сделаем завтра."),
+            ("Все-таки ты прав. Я все еще жду, о чем договорились.", "Всё-таки ты прав. Я всё ещё жду, о чём договорились."),
+            ("Он берет на себя задачу. Ей все равно. И на этом все", "Он берёт на себя задачу. Ей всё равно. И на этом всё"),
+        ] {
+            XCTAssertEqual(TranscriptOrthography.normalize(input), expected)
+        }
+    }
+
+    func testContextLeavesGenuineYeAndUserSpellings() {
+        let input = "Они все еще работают. Все ясно видели экран. Вот это все отчёты. У этого берета много характерных черт. Больше, чем вчера. О чем? «у нее»."
+        XCTAssertEqual(TranscriptOrthography.normalize(input, vocabulary: "чем"),
+                       "Они все ещё работают. Все ясно видели экран. Вот это все отчёты. У этого берета много характерных черт. Больше, чем вчера. О чем? «у нее».")
+    }
+
     func testDelimitedEnglishFillersUseRussianSpellingInsideRussianSpeech() {
         XCTAssertEqual(TranscriptOrthography.normalize("Ну, uh, да."), "Ну, аааа, да.")
         XCTAssertEqual(TranscriptOrthography.normalize("Yeah, понятно."), "Да, понятно.")

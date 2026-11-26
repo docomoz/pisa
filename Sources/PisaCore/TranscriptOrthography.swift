@@ -1,7 +1,7 @@
 import Foundation
 
 public enum TranscriptOrthography {
-    // Exact forms only. An е/ё pair can distinguish different words, e.g. все/всё.
+    // The context-free dictionary contains only unambiguous forms.
     private static let fallbackYoSpellings = Dictionary(uniqueKeysWithValues: [
         "ещё", "даёшь", "даёт", "даём", "даёте", "даётся",
         "идёшь", "идёт", "идём", "идёте", "придёшь", "придёт", "придём", "придёте",
@@ -44,6 +44,50 @@ public enum TranscriptOrthography {
         let pattern = #"(?i)(?<![\p{L}\p{N}_/\\@])(?:"# + alternatives + #")(?![\p{L}\p{N}_/\\@])"#
         return try! NSRegularExpression(pattern: pattern)
     }()
+
+    private struct YoContext {
+        let spelling: String
+        let before: NSRegularExpression?
+        let after: NSRegularExpression?
+
+        init(_ spelling: String, before: String? = nil, after: String? = nil) {
+            self.spelling = spelling
+            self.before = before.map {
+                try! NSRegularExpression(pattern: #"(?i)(?<![\p{L}\p{N}_])(?:"# + $0 + #")\h+$"#)
+            }
+            self.after = after.map {
+                try! NSRegularExpression(pattern: #"(?i)^(?:"# + $0 + ")")
+            }
+        }
+
+        func matches(before preceding: String, after following: String) -> Bool {
+            func matches(_ pattern: NSRegularExpression?, _ text: String) -> Bool {
+                guard let pattern else { return true }
+                return pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+            }
+            return matches(before, preceding) && matches(after, following)
+        }
+    }
+
+    private static let contextualYoSpellings: [String: [YoContext]] = [
+        "все": [
+            YoContext("всё", before: #"вот\h+(?:это|и)|на\h+этом|это|и"#, after: #"\h*$"#),
+            YoContext("всё", after: #"[-‐‑]таки\b|\h+(?:остальное|готово|сделано|получилось|закончилось|началось|работает)\b"#),
+            YoContext("всё", after: #"\h+(?:ясно|понятно|нормально|хорошо|правильно|отлично)\h*(?=$|[,;:—–])"#),
+            YoContext("всё", before: "я|ты|он|она|оно", after: #"\h+ещ[её]\b"#),
+            YoContext("всё", before: "мне|тебе|ему|ей|нам|вам|им", after: #"\h+равно\b"#),
+        ],
+        "черт": [YoContext("чёрт", after: #"\h+(?:с\h+(?:ним|ней|ними|тобой|вами|этим)|(?:его\h+)?знает|побери|возьми)\b"#)],
+        "нее": [YoContext("неё", before: "у|для|из|от|до|без|из-за|возле|вокруг|около|на|про|за|в|через|под")],
+        "чем": [YoContext("чём", before: "о|об|в|на|при")],
+        "берет": [YoContext("берёт", after: #"\h+(?:на\h+себя|в\h+работу|под\h+контроль)\b"#)],
+    ]
+
+    // A hyphen only counts as punctuation when separated from words. An en or
+    // figure dash can also be a numeric range separator or a signed number.
+    private static let dashes = try! NSRegularExpression(pattern:
+        #"(?m)\p{N}\h*[-‐‑–‒]\h*(?=[+−-]?\p{N})|(?<![\p{L}\p{N}])[–‒](?=\p{N})|([–‒―]|(?:^|(?<=\h))[-‐‑]{1,2}(?=\h|$)|(?<=\p{L})--(?=\p{L}))"#)
+
     // Each protected form starts with a quote/fence or contains one of these
     // link markers. Ordinary turns can skip the more expensive full matcher.
     private static let literalCue = try! NSRegularExpression(pattern:
@@ -59,12 +103,16 @@ public enum TranscriptOrthography {
     }
 
     public static func normalize(_ text: String, vocabulary: String = "") -> String {
+        normalizeDashes(in: normalizeSpelling(in: text, vocabulary: vocabulary), vocabulary: vocabulary)
+    }
+
+    private static func normalizeSpelling(in text: String, vocabulary: String) -> String {
         let phrases = glossaryRanges(in: text, vocabulary: vocabulary, range: NSRange(text.startIndex..., in: text), minimumWordCount: 2)
         let text = AbbreviationFamilies(vocabulary).normalize(in: text, includeInferred: true, protecting: phrases)
         let entireText = NSRange(text.startIndex..<text.endIndex, in: text)
         let matches = candidates.matches(in: text, range: entireText).filter { match in
             guard let word = Range(match.range(at: 3), in: text) else { return true }
-            return yoSpelling(for: text[word]) != nil
+            return yoSpelling(for: text[word]) != nil || contextualYoSpellings[text[word].lowercased()] != nil
         }
         guard !matches.isEmpty else { return text }
         let quoted = literalRanges(in: text)
@@ -101,8 +149,15 @@ public enum TranscriptOrthography {
         let result = NSMutableString(string: text)
         for match in editable.reversed() {
             guard let range = Range(match.range, in: text) else { continue }
-            if match.range(at: 3).location != NSNotFound, let spelling = yoSpelling(for: text[range]) {
-                let revised = zip(text[range], spelling).map { original, canonical in
+            if match.range(at: 3).location != NSNotFound {
+                let word = text[range]
+                var spelling = yoSpelling(for: word)
+                if spelling == nil, let rules = contextualYoSpellings[word.lowercased()] {
+                    let context = sentenceContext(around: match.range, source: source, evidence: evidence)
+                    spelling = rules.first { $0.matches(before: context.before, after: context.after) }?.spelling
+                }
+                guard let spelling else { continue }
+                let revised = zip(word, spelling).map { original, canonical in
                     canonical == "ё" ? (original.isUppercase ? "Ё" : "ё") : original
                 }
                 result.replaceCharacters(in: match.range, with: String(revised))
@@ -132,6 +187,18 @@ public enum TranscriptOrthography {
                 spelling = "сорри"
             }
             result.replaceCharacters(in: match.range, with: capitalize ? spelling.prefix(1).uppercased() + spelling.dropFirst() : spelling)
+        }
+        return result as String
+    }
+
+    private static func normalizeDashes(in text: String, vocabulary: String) -> String {
+        let full = NSRange(text.startIndex..., in: text)
+        let matches = dashes.matches(in: text, range: full).map { $0.range(at: 1) }.filter { $0.location != NSNotFound }
+        guard !matches.isEmpty else { return text }
+        let protected = literalRanges(in: text) + glossaryRanges(in: text, vocabulary: vocabulary, range: full, minimumWordCount: 2)
+        let result = NSMutableString(string: text)
+        for range in matches.reversed() where !protected.contains(where: { NSIntersectionRange($0, range).length > 0 }) {
+            result.replaceCharacters(in: range, with: "—")
         }
         return result as String
     }

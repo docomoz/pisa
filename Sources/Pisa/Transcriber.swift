@@ -651,8 +651,8 @@ actor Transcriber {
                       let revision = RecognitionBoundaryRepair.confirm(proposal, reread: reread.text, normalizeReplacement: { token in
                           TranscriptOrthography.normalize(spokenVocabulary.apply(to: token), vocabulary: context)
                       }) else { continue }
-                localized[pair.left].text = revision.left
-                localized[pair.right].text = revision.right
+                localized[pair.left].text = TranscriptOrthography.normalize(revision.left, vocabulary: context)
+                localized[pair.right].text = TranscriptOrthography.normalize(revision.right, vocabulary: context)
                 if collectDiagnostics {
                     contextDiagnostics.append(["kind": "shared-boundary-repair", "start": String(right.start),
                         "sourceLeft": left.text, "source": right.text,
