@@ -99,6 +99,7 @@ struct FormSuggestionFieldBounds: PreferenceKey {
 /// An explicit keyboard target for a list entered from an AppKit field editor.
 struct ListKeyboardFocus: NSViewRepresentable {
     @Binding var isFocused: Bool
+    var resumesEditing = false
     let onCommand: (Selector) -> Bool
 
     func makeNSView(context: Context) -> Target {
@@ -109,20 +110,25 @@ struct ListKeyboardFocus: NSViewRepresentable {
 
     func updateNSView(_ view: Target, context: Context) {
         view.focused = $isFocused
+        view.resumesEditing = resumesEditing
         view.onCommand = onCommand
         guard isFocused, view.window?.firstResponder !== view else { return }
         DispatchQueue.main.async { [weak view] in
             guard let view, let window = view.window, window.firstResponder !== view,
                   view.focused?.wrappedValue == true else { return }
-            view.originatingField = (window.firstResponder as? NSTextView)?.delegate as? NSTextField
+            let editor = window.firstResponder as? NSTextView
+            view.originatingField = editor?.delegate as? NSTextField
+            view.originatingSelection = editor?.selectedRange()
             window.makeFirstResponder(view)
         }
     }
 
     final class Target: NSView {
         var focused: Binding<Bool>?
+        var resumesEditing = false
         var onCommand: ((Selector) -> Bool)?
         weak var originatingField: NSTextField?
+        var originatingSelection: NSRange?
 
         override var acceptsFirstResponder: Bool { true }
         override var canBecomeKeyView: Bool { false }
@@ -136,7 +142,7 @@ struct ListKeyboardFocus: NSViewRepresentable {
 
         override func keyDown(with event: NSEvent) {
             guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
-                super.keyDown(with: event)
+                handleUnhandledKey(event)
                 return
             }
             let command: Selector
@@ -148,7 +154,9 @@ struct ListKeyboardFocus: NSViewRepresentable {
             case 48:
                 command = event.modifierFlags.contains(.shift)
                     ? #selector(NSResponder.insertBacktab(_:)) : #selector(NSResponder.insertTab(_:))
-            default: super.keyDown(with: event); return
+            default:
+                handleUnhandledKey(event)
+                return
             }
             if onCommand?(command) == true { return }
             guard command == #selector(NSResponder.insertTab(_:)) else {
@@ -158,6 +166,26 @@ struct ListKeyboardFocus: NSViewRepresentable {
             if let originatingField, let window, originatingField.window === window {
                 window.selectKeyView(following: originatingField)
             } else { window?.selectNextKeyView(self) }
+        }
+
+        private func handleUnhandledKey(_ event: NSEvent) {
+            guard resumesEditing, event.characters?.isEmpty == false, let window, let field = originatingField,
+                  field.window === window, field.isEnabled, field.isEditable else {
+                super.keyDown(with: event)
+                return
+            }
+            // Tab moves focus to the list. Continue typing in the original editor, with its selection restored.
+            field.selectText(nil)
+            guard let editor = field.currentEditor() as? NSTextView, window.firstResponder === editor else {
+                super.keyDown(with: event)
+                return
+            }
+            if let selection = originatingSelection {
+                let length = editor.string.utf16.count
+                let start = min(selection.location, length)
+                editor.setSelectedRange(NSRange(location: start, length: min(selection.length, length - start)))
+            }
+            editor.keyDown(with: event)
         }
     }
 }
@@ -215,7 +243,7 @@ struct FormSuggestionOverlay: View {
         }
         .background(SlimScrollbars().allowsHitTesting(false))
         if let keyboardFocus, let onListCommand {
-            list.background(ListKeyboardFocus(isFocused: keyboardFocus, onCommand: onListCommand))
+            list.background(ListKeyboardFocus(isFocused: keyboardFocus, resumesEditing: true, onCommand: onListCommand))
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(typographicText("Подсказки"))
         } else {

@@ -1216,6 +1216,8 @@ private final class LayoutSuite {
             check(state.meetings.first(where: { $0.id == meeting.id })?.segments.first?.text == original &&
                   !state.canUndoTermReplacement(meetingID: meeting.id),
                   "choosing a suggestion leaves the transcript unchanged until applying the correction")
+            checkSuggestionRefinement("ба з", adding: "н", keyCode: 16, keeping: firstRow,
+                                      excluding: .termSuggestion(second), in: field, host: host)
         }
     }
 
@@ -1581,7 +1583,7 @@ private final class LayoutSuite {
     private func checkVoiceLabeling(state: AppState, meeting: Meeting, savedVoice: VoiceProfile, scale: CGFloat) throws {
         let percent = Int((scale * 100).rounded())
         scenario = "voice labeling, \(percent)%"
-        let secondSuggestion = VoiceProfile(name: "\(savedVoice.name) Петров", samples: [])
+        let secondSuggestion = VoiceProfile(name: "\(savedVoice.name) Ланской", samples: [])
         let originalProfiles = state.voiceProfiles
         state.voiceProfiles.append(secondSuggestion)
         let host = LayoutHost(VoiceManager(meetingID: meeting.id).environmentObject(state),
@@ -1674,6 +1676,8 @@ private final class LayoutSuite {
                 check(host.wait { name.currentEditor()?.string == secondSuggestion.name },
                       "quick typing, Down, Down and keypad Enter fill the second suggestion")
                 checkTypingAfterSuggestion(secondSuggestion.name, in: name, host: host)
+                checkSuggestionRefinement(prefix + " ", adding: "л", keyCode: 40, keeping: .voiceSuggestion(secondSuggestion.name),
+                                          excluding: suggestion, in: name, host: host)
                 check(state.meetings.first(where: { $0.id == meeting.id })?.segments.first?.speaker == segment.speaker,
                       "choosing a suggestion leaves the transcript speaker unchanged until applying the name")
             } else {
@@ -1686,6 +1690,39 @@ private final class LayoutSuite {
         host.pressKey("x", keyCode: 7)
         check(host.wait { field.currentEditor()?.string == suggestion + "x" },
               "typing after accepting \(suggestion) appends to the filled text")
+    }
+
+    private func checkSuggestionRefinement(_ query: String, adding character: String, keyCode: UInt16,
+                                           keeping match: InterfaceLayoutElement, excluding other: InterfaceLayoutElement,
+                                           in field: NSTextField, host: LayoutHost) {
+        for useTab in [false, true] {
+            let route = useTab ? "after Tab and arrows" : "after arrows in the field"
+            check(host.type(query, into: field) && host.frames[match] != nil && host.frames[other] != nil,
+                  "the prefix shows multiple suggestions \(route)")
+            if useTab { host.pressKey("\t", keyCode: 48) }
+            host.pressKey("\u{f701}", keyCode: 125)
+            host.pressKey("\u{f700}", keyCode: 126)
+            check(useTab ? host.isSuggestionListFocused : host.isEditing(field), "arrows preserve keyboard focus \(route)")
+            host.pressKey(character, keyCode: keyCode)
+            check(host.wait {
+                host.isEditing(field) && field.currentEditor()?.string == query + character &&
+                    host.frames[match] != nil && host.frames[other] == nil
+            }, "typing narrows the open suggestions \(route)")
+
+            if useTab { host.pressKey("\t", keyCode: 48) }
+            host.pressKey("\u{7f}", keyCode: 51)
+            check(host.wait {
+                host.isEditing(field) && field.currentEditor()?.string == query &&
+                    host.frames[match] != nil && host.frames[other] != nil
+            }, "Backspace broadens the open suggestions \(route)")
+
+            if useTab {
+                host.pressKey("\t", keyCode: 48, settle: false)
+                host.pressKey(character, keyCode: keyCode)
+                check(host.wait { host.isEditing(field) && field.currentEditor()?.string == query + character },
+                      "typing immediately after Tab keeps the editor available")
+            }
+        }
     }
 
     private func checkVoiceMerge(state: AppState, savedVoice: VoiceProfile, scale: CGFloat) {

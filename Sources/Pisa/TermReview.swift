@@ -347,6 +347,7 @@ struct TermReview: View {
         // Update the suggestions in the native edit callback before any arrow or Return event.
         FormTextField(title: "Термин", text: Binding(get: { replacement }, set: { text in
             replacement = text
+            suggestionListFocused = false
             suggestionSelection.open()
         }), isFocused: $replacementFocused, accessibilityTitle: "Правильное написание",
                       onSubmit: submitReplacement, onCommand: handleReplacementCommand, caretEndRequest: caretEndRequest)

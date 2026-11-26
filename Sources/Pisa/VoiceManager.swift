@@ -66,6 +66,7 @@ struct VoiceManager: View {
     private func editName(_ newName: String) {
         name = newName
         assignmentError = nil
+        suggestionListFocused = false
         suggestionSelection.open()
     }
 
