@@ -20,6 +20,7 @@ extension PisaDesign {
         static let body = Style(size: 16, lineSpacing: Spacing.textLine)
         static let bodyStrong = Style(size: 16, weight: .semibold, lineSpacing: Spacing.textLine)
         static let secondary = Style(size: 15, lineSpacing: Spacing.textLine)
+        static let controlLabel = Style(size: secondary.size, lineSpacing: Spacing.none)
         static let detail = Style(size: 14, lineSpacing: Spacing.compact)
         static let detailMedium = Style(size: 14, weight: .medium, lineSpacing: Spacing.compact)
         static let detailStrong = Style(size: 14, weight: .semibold, lineSpacing: Spacing.compact)

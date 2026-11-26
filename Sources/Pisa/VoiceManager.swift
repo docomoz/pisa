@@ -128,10 +128,13 @@ struct VoiceManager: View {
                                 nameEditor
                             }
                             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
-                                screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
+                                screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching, alignment: .top)
+                                    .textStyle(PisaDesign.Typography.controlLabel)
                                     .measuredForInterfaceTest(.voiceAllMatching)
-                                screenToggle("Сохранить образец голоса из этой реплики",
-                                             isOn: Binding(get: { remember && !automaticName }, set: { remember = $0 }))
+                                screenToggle("Сохранить образец голоса",
+                                             isOn: Binding(get: { remember && !automaticName }, set: { remember = $0 }),
+                                             alignment: .top)
+                                    .textStyle(PisaDesign.Typography.controlLabel)
                                     .disabled(automaticSample == nil || automaticName)
                                     .measuredForInterfaceTest(.voiceRememberSample)
                                 if automaticName, automaticSample != nil {

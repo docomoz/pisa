@@ -37,18 +37,19 @@ func screenButton(_ title: String, role: ButtonRole? = nil, action: @escaping ()
 func screenLabel(_ title: String, systemImage: String) -> Label<Text, Image> {
     Label { screenText(title) } icon: { Image(systemName: systemImage) }
 }
-func screenToggle(_ title: String, isOn: Binding<Bool>) -> some View {
-    FocusFillToggle(title: title, isOn: isOn)
+func screenToggle(_ title: String, isOn: Binding<Bool>, alignment: VerticalAlignment = .center) -> some View {
+    FocusFillToggle(title: title, isOn: isOn, alignment: alignment)
 }
 
 private struct FocusFillToggle: View {
     let title: String
     @Binding var isOn: Bool
+    let alignment: VerticalAlignment
     @FocusState private var focused: Bool
     @Environment(\.isEnabled) private var enabled
     var body: some View {
         Button { isOn.toggle() } label: {
-            HStack(spacing: PisaDesign.Spacing.inline) {
+            HStack(alignment: alignment, spacing: PisaDesign.Spacing.inline) {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(isOn ? Color.brandAccent : Color.paper)
                     .overlay {
