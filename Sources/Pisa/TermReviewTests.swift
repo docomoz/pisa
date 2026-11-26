@@ -190,7 +190,7 @@ enum TermReviewTests {
             ? NSSize(width: 900, height: 700) : NSSize(width: 940, height: 660)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = dictionary ? "Pisa · Словарь распознавания" : "Pisa · Разметка слов"
+        window.title = dictionary ? "Pisa · Словарь распознавания" : "Pisa · Разметка терминов"
         window.contentView = NSHostingView(rootView: content.environmentObject(state).preferredColorScheme(.light)
             .environment(\.locale, Locale(identifier: "ru_RU"))
             .environment(\.appTextScale, large ? 1.2 : 1)

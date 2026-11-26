@@ -203,7 +203,7 @@ struct TermReview: View {
         }
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.section) {
             HStack(spacing: PisaDesign.Spacing.related) {
-                SectionHeading("Разметка слов", subtitle: "Проверьте написание в расшифровке и сохраните нужные слова для будущих встреч", style: .dialog)
+                SectionHeading("Разметка терминов", subtitle: "Проверьте написание в расшифровке и сохраните нужные слова для будущих встреч", style: .dialog)
                 Spacer()
                 screenButton("Готово") { dismiss() }.actionButton(.primary).keyboardShortcut(.cancelAction)
             }

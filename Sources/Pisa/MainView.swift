@@ -737,7 +737,7 @@ struct MeetingView: View {
                         showsMeetingDetails = false
                         reviewingTerms = true
                     } label: {
-                        detailsActionLabel("Разметить слова", iconName: "text.magnifyingglass")
+                        detailsActionLabel("Разметить термины", iconName: "text.magnifyingglass")
                     }
                     .actionButton(size: buttonSize)
                     .disabled(!state.canReviewTerms(meeting))

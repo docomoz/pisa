@@ -245,7 +245,7 @@ enum InterfaceLayoutTests {
     }
 
     private static func checkTermReplacement(state: AppState) async throws {
-        var meeting = Meeting(title: "Разметка слов", source: "Тест интерфейса")
+        var meeting = Meeting(title: "Разметка терминов", source: "Тест интерфейса")
         meeting.status = .ready
         meeting.segments = (0..<1_800).map { index in
             TranscriptSegment(start: Double(index), end: Double(index + 1), speaker: "Анна",
@@ -1109,7 +1109,7 @@ private final class LayoutSuite {
     }
 
     func checkTermSuggestions(state: AppState) throws {
-        var meeting = Meeting(title: "Разметка слов", source: "Тест интерфейса")
+        var meeting = Meeting(title: "Разметка терминов", source: "Тест интерфейса")
         meeting.status = .ready
         let original = "Обсудили справочник для команды."
         meeting.segments = [TranscriptSegment(start: 0, end: 3, speaker: "Анна", text: original)]
