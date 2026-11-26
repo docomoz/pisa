@@ -584,11 +584,6 @@ actor Transcriber {
             }
         localized = try await verifySubtitleCredits(localized, files: preparedFiles, model: model,
             russian: russian, vocabulary: context, performance: performance, diagnostics: collectDiagnostics)
-        if !retainProcessedMicrophone, let generated {
-            for i in localized.indices where localized[i].audioFile == generated.lastPathComponent {
-                localized[i].audioFile = sourceMicrophone?.lastPathComponent
-            }
-        }
         // Shared context can decode one physical word twice, or damage both
         // pieces of a cut word. Cached acoustic anchors gate any extra replay;
         // differing forms additionally require an unprompted full Qwen decode.
@@ -659,6 +654,13 @@ actor Transcriber {
                         "candidateLeft": revision.left, "candidate": revision.right,
                         "independent": evidence.text, "reread": reread.text])
                 }
+            }
+        }
+        localized = try await verifyMeetingLanguage(localized, firstPass: firstPass.segments, files: preparedFiles, model: model, russian: russian,
+            vocabulary: context, performance: performance, diagnostics: collectDiagnostics)
+        if !retainProcessedMicrophone, let generated {
+            for i in localized.indices where localized[i].audioFile == generated.lastPathComponent {
+                localized[i].audioFile = sourceMicrophone?.lastPathComponent
             }
         }
         if live, let end = localized.map(\.end).max() {
@@ -741,8 +743,67 @@ actor Transcriber {
             hypotheses: firstPass.hypotheses, model: model, russian: russian, vocabulary: vocabulary,
             scriptReadings: scriptReadings, performance: TranscriptionPerformance(), collectDiagnostics: true, selected: selected) { _, _ in }
         let resolved = repeatFirstPass ? BackchannelLanguage.resolve(revised, evidence: firstPass, preceding: [], vocabulary: vocabulary) : revised
-        return try await verifySubtitleCredits(resolved, files: files, model: model, russian: russian, vocabulary: vocabulary,
+        let credited = try await verifySubtitleCredits(resolved, files: files, model: model, russian: russian, vocabulary: vocabulary,
             performance: TranscriptionPerformance(), diagnostics: true, selected: selected)
+        return try await verifyMeetingLanguage(credited, firstPass: firstPass.segments, files: files, model: model, russian: russian, vocabulary: vocabulary,
+            performance: TranscriptionPerformance(), diagnostics: true, selected: selected)
+    }
+
+    /// Check the final reading, after contextual edits, while the exact audio track is still available.
+    /// The first turn in a live window gets the same language policy as a turn in a completed meeting.
+    private func verifyMeetingLanguage(_ segments: [TranscriptSegment], firstPass: [TranscriptSegment], files: [(URL, Double)], model: ParakeetRecognitionSession,
+        russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance,
+        diagnostics: Bool, selected: Set<UUID>? = nil) async throws -> [TranscriptSegment] {
+        var verified = segments
+        lazy var originals = Dictionary(firstPass.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
+        for (index, segment) in segments.enumerated() {
+            guard selected?.contains(segment.id) != false else { continue }
+            // An earlier context check may have marked a foreign reading unclear.
+            // Keep its own audio eligible for the same isolated recovery.
+            let source = segment.text == "Неразборчиво" ? originals[segment.id] ?? segment.text : segment.text
+            guard let fallback = MeetingRecognitionLanguage.unclearText(for: source, vocabulary: vocabulary) else { continue }
+            try Task.checkCancellation()
+            verified[index].text = segment.text == "Неразборчиво" ? segment.text : fallback
+            verified[index].independentRecognitionLanguage = false
+            let duration = segment.end - segment.start
+            guard model.canVerify || russian != nil, duration > 0, duration <= 32,
+                  let (url, offset) = files.first(where: { $0.0.lastPathComponent == segment.audioFile }),
+                  offset.isFinite,
+                  let clip = try? Self.contextSamples(url, start: segment.start - offset, end: segment.end - offset),
+                  !clip.isEmpty, abs(Double(clip.count) / 16_000 - duration) <= 0.03 else { continue }
+
+            let began = ContinuousClock.now
+            let primary = measureRecognition("parakeet") { model.generate(clip).text }
+            let acoustic = acousticRecognition(clip, using: russian)?.text
+            func confirmed(_ candidate: String, by other: String?) -> String? {
+                MeetingRecognitionLanguage.confirmedText(candidate, corroboration: other, original: source, vocabulary: vocabulary)
+            }
+            var candidate = confirmed(primary, by: acoustic)
+            var reread: String?
+            if candidate == nil, model.canVerify {
+                do {
+                    let verifier = try await verificationModel(model)
+                    let reading = verify(clip, with: verifier, session: model, maxTokens: min(768, max(64, Int(duration * 16))),
+                        context: "", language: "Russian").text
+                    reread = reading
+                    candidate = confirmed(reading, by: acoustic) ?? confirmed(reading, by: primary)
+                } catch is ParakeetRecognitionSession.VerifierUnavailable { }
+            }
+            if candidate == nil, let reread {
+                candidate = MeetingRecognitionLanguage.confirmedEnding(reread, primary: primary, acoustic: acoustic,
+                    original: source, vocabulary: vocabulary)
+            }
+            if let candidate {
+                verified[index].text = TranscriptOrthography.normalize(spokenVocabulary.apply(to: candidate), vocabulary: vocabulary)
+            }
+            if diagnostics {
+                contextDiagnostics.append(["kind": "meeting-language", "start": String(segment.start), "source": source,
+                    "primary": primary, "independent": acoustic ?? "", "reread": reread ?? "", "candidate": verified[index].text])
+            }
+            try await performance.pace(after: began)
+            try Task.checkCancellation()
+        }
+        return verified
     }
 
     /// A credit can come from the primary decoder or a later revision. Verify
@@ -1551,7 +1612,7 @@ actor Transcriber {
             }
         }
         let shortMic = isMic && duration <= 1.5
-        var result: STTOutput
+        let result: STTOutput
         if shortMic {
             result = try await decodeShortMicrophone(model.primary, audio: MLXArray(samples))
         } else {
@@ -1561,14 +1622,10 @@ actor Transcriber {
             contextDiagnostics.append(["kind": "primary", "engine": "parakeet-tdt-v3",
                 "start": String(diagnostic.start), "track": diagnostic.track, "source": result.text])
         }
-        // This is an exceptional invalid-output reread, not a second primary
-        // decoder. Do not replace valid Parakeet turns or force foreign Latin
-        // speech into Russian merely because no language tag was emitted.
-        if MeetingSpeechText.containsForeignLetters(result.text), model.canVerify {
-            do {
-                let checked = try await generate(language: nil, context: "")
-                if MeetingSpeechText.accepts(checked.text) { result = checked }
-            } catch is ParakeetRecognitionSession.VerifierUnavailable { }
+        // Retain the interval for the final unprompted language check even if both
+        // optional verifiers are unavailable. Dropping it here would lose the turn.
+        if MeetingSpeechText.containsForeignLetters(result.text) {
+            return RecognizedSpeech(text: result.text, independentLanguage: false)
         }
         var primaryText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         var spellingEvidence: RecognitionAcousticResult?

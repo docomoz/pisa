@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// Text evidence routes conservative Russian repairs; it is not an ASR
 /// language label. Foreign sentences are never translated by this policy.
@@ -44,6 +45,274 @@ enum ParakeetRecognitionPolicy {
         "primary": ["parakeet-tdt-v3", "weights-float32", "audio-float32"],
         "verifier": ["qwen-selective"]
     ]
+}
+
+/// Final language evidence for newly recognized meeting speech. An ambiguous
+/// ASCII word, product name, or short shared Cyrillic spelling is not evidence
+/// of another language. The glossary only exempts the exact terms it contains.
+enum MeetingRecognitionLanguage {
+    private enum Script {
+        case latin, cyrillic, other
+    }
+
+    private static let word = try! NSRegularExpression(pattern: #"[\p{L}\p{N}_][\p{L}\p{M}\p{N}_]*(?:['’‐‑-][\p{L}\p{N}][\p{L}\p{M}\p{N}_]*)*"#)
+    private static let latin = try! NSRegularExpression(pattern: #"\A[\p{Latin}\p{M}'’‐‑-]+\z"#)
+    private static let cyrillic = try! NSRegularExpression(pattern: #"\A[\p{Cyrillic}\p{M}'’‐‑-]+\z"#)
+    private static let identifier = try! NSRegularExpression(pattern:
+        #"(?:[\p{L}\p{N}_.-]+[/\\])+[\p{L}\p{M}\p{N}_.-]+|[\p{L}\p{M}\p{N}]*_[\p{L}\p{M}\p{N}_]+"#)
+    private static let evidenceToken = try! NSRegularExpression(pattern:
+        #"\p{N}+(?:[.,]\p{N}+)+|[\p{L}\p{N}_][\p{L}\p{M}\p{N}_]*(?:['’‐‑-][\p{L}\p{N}][\p{L}\p{M}\p{N}_]*)*|[\p{Sc}%‰‱±+−–\-#/@*<>=|\\&]"#)
+    private static let englishLoans: Set<String> = [
+        "café", "cafés", "cliché", "clichés", "déjà", "fiancé", "fiancée", "fiancés", "fiancées",
+        "naïve", "naïveté", "résumé", "résumés", "façade", "piñata", "touché",
+    ]
+    // Frequent English function words distinguish natural speech from a list
+    // of unfamiliar technical names without running a model on every term.
+    private static let englishGrammar: Set<String> = [
+        "the", "this", "these", "those", "they", "their", "we", "your", "would", "should", "please", "let's",
+    ]
+
+    private struct Word {
+        let range: NSRange
+        let script: Script?
+        var suspect: Bool
+    }
+
+    private static func inspect(_ token: String, range: NSRange) -> Word {
+        let scalars = token.unicodeScalars
+        var letters = 0, ascii = 0, russian = 0
+        for scalar in scalars where CharacterSet.letters.contains(scalar) {
+            letters += 1
+            if scalar.isASCII { ascii += 1 }
+            if (0x410...0x44f).contains(scalar.value) || scalar.value == 0x401 || scalar.value == 0x451 { russian += 1 }
+        }
+        // Digits, identifier fragments, and genuine RU/EN compounds serve as
+        // boundaries when asking the sentence classifier about ordinary speech.
+        if letters == 0 || token.contains("_") || (token.first?.isLowercase == true && token.dropFirst().contains(where: \.isUppercase)) {
+            return Word(range: range, script: nil, suspect: false)
+        }
+        if ascii + russian == letters && !scalars.contains(where: { CharacterSet.nonBaseCharacters.contains($0) && $0.value != 0x301 }) {
+            let script: Script? = ascii == letters ? .latin : russian == letters ? .cyrillic : nil
+            let identifier = token.contains(where: \.isNumber) || token.dropFirst().contains(where: \.isUppercase)
+            return Word(range: range, script: identifier ? nil : script, suspect: false)
+        }
+        let full = NSRange(location: 0, length: token.utf16.count)
+        let script: Script = latin.firstMatch(in: token, range: full) != nil ? .latin
+            : cyrillic.firstMatch(in: token, range: full) != nil ? .cyrillic : .other
+        return Word(range: range, script: script, suspect: true)
+    }
+
+    private static func glossaryRanges(_ text: String, vocabulary: String) -> [NSRange] {
+        let entries = vocabulary.precomposedStringWithCanonicalMapping.components(separatedBy: CharacterSet(charactersIn: ",;\r\n"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !entries.isEmpty else { return [] }
+        let alternatives = entries.sorted { $0.count > $1.count }.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        let pattern = #"(?<![\p{L}\p{M}\p{N}_])(?:"# + alternatives + #")(?![\p{L}\p{M}\p{N}_])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return [] }
+        return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).map(\.range)
+    }
+
+    private static func literals(_ text: String) -> [NSRange] {
+        let source = text as NSString
+        let technical = TranscriptOrthography.literalRanges(in: text).flatMap { range -> [NSRange] in
+            let fragment = source.substring(with: range)
+            // ASR may add prose quotation marks around ordinary speech. A
+            // URL or code span inside such a quotation still has its own range.
+            guard let opener = fragment.first, "\"'«“‘".contains(opener) else { return [range] }
+            let inside = String(fragment.dropFirst().dropLast())
+            return literals(inside).map { NSRange(location: range.location + 1 + $0.location, length: $0.length) }
+        }
+        return technical + identifier.matches(in: text, range: NSRange(text.startIndex..., in: text)).map(\.range)
+    }
+
+    private struct Damage {
+        let spans: [NSRange]
+        let whole: Bool
+    }
+
+    private static func damage(in text: String, vocabulary: String) -> Damage? {
+        let source = text as NSString
+        let full = NSRange(location: 0, length: source.length)
+        let matches = word.matches(in: text, range: full)
+        func classifyWords(protecting protected: [NSRange]) -> [Word] {
+            var words = matches.map { match in
+                if protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) {
+                    return Word(range: match.range, script: nil, suspect: false)
+                }
+                return inspect(source.substring(with: match.range), range: match.range)
+            }
+            var start = 0
+            while start < words.count {
+                let script = words[start].script
+                var end = start + 1
+                // Punctuation and a switch of script bound the language evidence.
+                // One foreign sentence cannot remove a neighboring Russian turn.
+                if script == .latin || script == .cyrillic {
+                    while end < words.count, words[end].script == script {
+                        let after = NSMaxRange(words[end - 1].range)
+                        let gap = source.substring(with: NSRange(location: after, length: words[end].range.location - after))
+                        guard gap.unicodeScalars.allSatisfy(CharacterSet.whitespaces.contains) else { break }
+                        end += 1
+                    }
+                    classify(&words, from: start, to: end, in: source)
+                }
+                start = end
+            }
+            return words
+        }
+        var words = classifyWords(protecting: [])
+        guard words.contains(where: \.suspect) else { return nil }
+        let protected = literals(text) + glossaryRanges(text, vocabulary: vocabulary)
+        if !protected.isEmpty { words = classifyWords(protecting: protected) }
+        var spans: [NSRange] = []
+        for w in words where w.suspect {
+            if let previous = spans.last {
+                let after = NSMaxRange(previous)
+                let gap = source.substring(with: NSRange(location: after, length: w.range.location - after))
+                if gap.unicodeScalars.allSatisfy(CharacterSet.whitespaces.contains) {
+                    spans[spans.count - 1] = NSUnionRange(previous, w.range)
+                    continue
+                }
+            }
+            spans.append(w.range)
+        }
+        guard !spans.isEmpty else { return nil }
+        let whole = evidenceToken.matches(in: text, range: full).allSatisfy { token in
+            spans.contains { NSIntersectionRange(token.range, $0).length == token.range.length }
+        }
+        return Damage(spans: spans, whole: whole)
+    }
+
+    private static func classify(_ words: inout [Word], from start: Int, to end: Int, in source: NSString) {
+        let run = start..<end
+        let tokens = words[run]
+        let count = run.count
+        let first = words[start]
+        if count == 1, first.suspect, first.script == .latin,
+           englishLoans.contains(source.substring(with: first.range).lowercased()) { words[start].suspect = false }
+        let unknownCyrillic = count == 1 && first.script == .cyrillic && !first.suspect && first.range.length >= 5
+            && !TranscriptTerms.isCommonRussianWord(source.substring(with: first.range).lowercased().replacingOccurrences(of: "ё", with: "е"))
+        guard count >= 2 || unknownCyrillic else { return }
+        let span = NSUnionRange(first.range, words[end - 1].range)
+        guard count == 1 || span.length >= 10 else { return }
+        if count > 1 && tokens.dropFirst().allSatisfy({ source.substring(with: $0.range).first?.isUppercase == true }) { return }
+        if first.script == .cyrillic && !unknownCyrillic && tokens.allSatisfy({ token in
+            guard !token.suspect else { return false }
+            let key = source.substring(with: token.range).lowercased().replacingOccurrences(of: "ё", with: "е")
+            return AbbreviationFamilies.isRussianFunctionWord(key) || TranscriptTerms.isCommonRussianWord(key)
+        }) { return }
+        let hasAccent = tokens.contains(where: \.suspect)
+        let english = first.script == .latin && tokens.contains { englishGrammar.contains(source.substring(with: $0.range).lowercased()) }
+        if english && !hasAccent { return }
+        let clause = source.substring(with: span)
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(clause)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 2)
+        if let (language, probability) = hypotheses.max(by: { $0.value < $1.value }),
+           language != .russian, language != .english, language != .undetermined,
+           probability >= (count == 1 ? 0.99 : count == 2 ? 0.93 : 0.90), !english {
+            for i in run { words[i].suspect = true }
+        } else if hasAccent && first.script == .latin {
+            let tagger = NLTagger(tagSchemes: [.nameType])
+            tagger.string = clause
+            tagger.setLanguage(.english, range: clause.startIndex..<clause.endIndex)
+            for i in run where words[i].suspect {
+                let token = source.substring(with: words[i].range)
+                if englishLoans.contains(token.lowercased()) {
+                    words[i].suspect = false
+                    continue
+                }
+                guard (english || hypotheses[.english, default: 0] >= 0.65), token.first?.isUppercase == true,
+                      let index = Range(NSRange(location: words[i].range.location - span.location, length: words[i].range.length), in: clause)?.lowerBound else { continue }
+                let tag = tagger.tag(at: index, unit: .word, scheme: .nameType).0
+                let adjacentName = [i - 1, i + 1].contains { j in
+                    run.contains(j) && source.substring(with: words[j].range).first?.isUppercase == true
+                }
+                if adjacentName || tag == .personalName || tag == .placeName || tag == .organizationName {
+                    words[i].suspect = false
+                }
+            }
+        }
+    }
+
+    static func unclearText(for text: String, vocabulary: String) -> String? {
+        let text = text.precomposedStringWithCanonicalMapping
+        guard let damage = damage(in: text, vocabulary: vocabulary) else { return nil }
+        if damage.whole { return "Неразборчиво" }
+        let result = NSMutableString(string: text)
+        for var range in damage.spans.reversed() {
+            if NSMaxRange(range) < result.length, result.character(at: NSMaxRange(range)) == 46 { range.length += 1 }
+            result.replaceCharacters(in: range, with: "…")
+        }
+        return result as String
+    }
+
+    private struct Reading {
+        let source: NSString
+        let ranges: [NSRange]
+        let keys: [String]
+        let literalValues: [String]
+
+        init(_ text: String) {
+            let source = text as NSString
+            self.source = source
+            ranges = evidenceToken.matches(in: text, range: NSRange(location: 0, length: source.length)).map(\.range)
+            keys = ranges.map { source.substring(with: $0).lowercased().replacingOccurrences(of: "ё", with: "е") }
+            literalValues = literals(text).map { source.substring(with: $0) }
+        }
+    }
+
+    /// Both arguments are unprompted readings of the same audio from
+    /// independent models. Exact agreement supplies every replacement word.
+    static func confirmedText(_ candidate: String, corroboration: String?, original: String, vocabulary: String) -> String? {
+        guard let corroboration else { return nil }
+        let candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines).precomposedStringWithCanonicalMapping
+        let original = original.precomposedStringWithCanonicalMapping
+        guard let damage = damage(in: original, vocabulary: vocabulary),
+              damage.whole || damage.spans.count == 1,
+              unclearText(for: candidate, vocabulary: vocabulary) == nil else { return nil }
+        let heard = Reading(candidate), checked = Reading(corroboration.precomposedStringWithCanonicalMapping)
+        guard !heard.keys.isEmpty, heard.keys == checked.keys, heard.literalValues == checked.literalValues else { return nil }
+        let old = Reading(original), disputed = damage.spans[0]
+        let prefix = damage.whole ? 0 : old.ranges.prefix { NSMaxRange($0) <= disputed.location }.count
+        let suffix = damage.whole ? 0 : old.ranges.reversed().prefix { $0.location >= NSMaxRange(disputed) }.count
+        guard heard.keys.count > prefix + suffix,
+              old.keys.prefix(prefix) == heard.keys.prefix(prefix), old.keys.suffix(suffix) == heard.keys.suffix(suffix) else { return nil }
+        let newWords = prefix..<(heard.keys.count - suffix)
+        guard newWords.contains(where: { index in
+            heard.keys[index] != "неразборчиво" && heard.keys[index].contains { $0.isLetter || $0.isNumber }
+        }) else { return nil }
+        if damage.whole { return candidate }
+        let replacement = NSUnionRange(heard.ranges[prefix], heard.ranges[newWords.upperBound - 1])
+        return old.source.replacingCharacters(in: disputed, with: heard.source.substring(with: replacement))
+    }
+
+    /// A short isolated verifier read can agree with a whole final sentence
+    /// of both other decoders while they hear different lead-ins at the cut.
+    static func confirmedEnding(_ reread: String, primary: String, acoustic: String?, original: String, vocabulary: String) -> String? {
+        guard let acoustic, Reading(original).keys.count == 1,
+              unclearText(for: original, vocabulary: vocabulary) == "Неразборчиво",
+              Reading(reread).keys.count == 1,
+              reread.trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines)).unicodeScalars.allSatisfy({
+                  (0x410...0x44f).contains($0.value) || $0.value == 0x401 || $0.value == 0x451
+              }) else { return nil }
+        func ending(_ text: String) -> (text: String, omittedSpeech: Bool)? {
+            let read = Reading(text)
+            guard let last = read.ranges.last, read.keys.count <= 7 else { return nil }
+            if read.keys.count > 1 {
+                let previous = NSMaxRange(read.ranges[read.ranges.count - 2])
+                let gap = read.source.substring(with: NSRange(location: previous, length: last.location - previous))
+                guard gap.contains(where: { ".!?".contains($0) }),
+                      read.keys.dropLast().allSatisfy({ (AbbreviationFamilies.isRussianFunctionWord($0) || TranscriptTerms.isCommonRussianWord($0))
+                          && !RecognitionConsensus.isSensitiveAtCut($0) }) else { return nil }
+            }
+            return (read.source.substring(from: last.location), read.keys.count > 1)
+        }
+        guard let first = ending(primary), let second = ending(acoustic),
+              confirmedText(reread, corroboration: first.text, original: original, vocabulary: vocabulary) != nil,
+              let agreed = confirmedText(reread, corroboration: second.text, original: original, vocabulary: vocabulary) else { return nil }
+        return first.omittedSpeech || second.omittedSpeech ? "… " + agreed : agreed
+    }
 }
 
 /// A standalone attribution is a reason to listen again. It can also be

@@ -2,6 +2,83 @@ import XCTest
 @testable import PisaCore
 
 final class ParakeetRecognitionPolicyTests: XCTestCase {
+    func testMeetingLanguageMarksOnlyUnsupportedSpeech() {
+        let cases = [
+            ("Devět.", "Неразборчиво"),
+            ("«Devět»", "Неразборчиво"),
+            ("Дякую.", "Неразборчиво"),
+            ("Muchas gracias.", "Неразборчиво"),
+            ("Merci beaucoup.", "Неразборчиво"),
+            ("Deve\u{030C}t.", "Неразборчиво"),
+            ("Мы проверим ђак завтра.", "Мы проверим … завтра."),
+            ("Потом ќе, дальше идём.", "Потом …, дальше идём."),
+            ("Ответ 明天见 через API.", "Ответ … через API."),
+            ("Готово.\nDeve\u{030C}t.\nPlease continue.", "Готово.\n…\nPlease continue."),
+            ("Usaremos el calendario para preparar nuestra siguiente visita.", "Неразборчиво"),
+            ("Договорились. Nous avons beaucoup de choses importantes en commun. До завтра.",
+             "Договорились. … До завтра."),
+        ]
+        for (source, expected) in cases {
+            XCTAssertEqual(MeetingRecognitionLanguage.unclearText(for: source, vocabulary: ""), expected, source)
+        }
+    }
+
+    func testMeetingLanguagePreservesEnglishRussianAndProtectedTerms() {
+        for source in [
+            "Please review the pull request before rolling back the deployment.",
+            "Обсудим feature flag, Kubernetes, gRPC и rollout на встрече.",
+            "Угу, ещё чуть-чуть. Серёжа идёт домой.", "И это всё".decomposedStringWithCanonicalMapping,
+            "Let's meet at the café after our deployment.", "José García will review the patch.",
+            "This is Jean-Luc Picard.", "Cherry Pick", "code review", "cache invalidation", "pull request", "API", "LLM'ки", "стендап и code review",
+            "Передай Чеський проєкт в работу.", "Проверим https://example.org/devět и `очі` завтра.",
+            "Открой src/devět_řádek и `再见`.",
+        ] {
+            XCTAssertNil(MeetingRecognitionLanguage.unclearText(for: source, vocabulary: "Чеський проєкт"), source)
+        }
+        XCTAssertEqual(MeetingRecognitionLanguage.unclearText(for: "Devět Číslo завтра.", vocabulary: "Devět"),
+                       "Devět … завтра.")
+        XCTAssertEqual(MeetingRecognitionLanguage.unclearText(for: "Проверим Devět.", vocabulary: "Devět++"),
+                       "Проверим …")
+    }
+
+    func testMeetingLanguageRecoveryUsesIndependentWordsAndKeepsSurroundings() {
+        func confirmed(_ text: String, _ check: String?, _ source: String = "Devět.", _ glossary: String = "") -> String? {
+            MeetingRecognitionLanguage.confirmedText(text, corroboration: check, original: source, vocabulary: glossary)
+        }
+        XCTAssertEqual(confirmed("Привет.", "привет!"), "Привет.")
+        XCTAssertEqual(confirmed("Договорились!", "договорились"), "Договорились!")
+        XCTAssertEqual(confirmed("Roll back.", "roll back!"), "Roll back.")
+        XCTAssertEqual(confirmed("Обсудим сроки за $37 завтра", "обсудим сроки за $37 завтра.",
+                                 "Обсудим Devět за $37 завтра."), "Обсудим сроки за $37 завтра.")
+        for (text, check) in [("", ""), ("Согласен", ""), ("Привет", "Ответ"),
+                              ("Devět.", "devět"), ("−5%", "5%"), ("Девять", "9"), ("Бюджет $37", "Бюджет 37"),
+                              ("Цена 2.5", "Цена 2 5"), ("Ждём −2%", "Ждём 2%")] {
+            XCTAssertNil(confirmed(text, check), text)
+        }
+        XCTAssertNil(confirmed("Привет.", nil))
+        XCTAssertNil(confirmed("Обсудим завтра", "обсудим завтра", "За $37 обсудим Devět завтра."))
+        XCTAssertNil(confirmed("Мы готовы", "Мы готовы", "Мы Devět через `curl /api`."))
+        XCTAssertNil(confirmed("Docker", nil, "Devět.", "Docker"))
+        XCTAssertEqual(confirmed("Docker", "docker", "Devět.", "Docker"), "Docker")
+        XCTAssertEqual(confirmed("Девять.", "девять"), "Девять.")
+    }
+
+    func testSeparateFinalSentenceNeedsThreeUnpromptedReads() {
+        func ending(_ reread: String, _ primary: String, _ acoustic: String?) -> String? {
+            MeetingRecognitionLanguage.confirmedEnding(reread, primary: primary, acoustic: acoustic, original: "Devět.", vocabulary: "")
+        }
+        XCTAssertEqual(ending("Привет.", "Ну а дальше? Привет.", "Ну и дальше? Привет."), "… Привет.")
+        XCTAssertEqual(ending("Спасибо!", "Ну что? Спасибо!", "Что? Спасибо."), "… Спасибо!")
+        XCTAssertEqual(ending("Привет.", "Привет!", "привет"), "Привет.")
+        XCTAssertEqual(ending("Хорошо.", "Договор подписали? Хорошо.", "Договор подписали. Хорошо."), "… Хорошо.")
+        for (first, second) in [("Ну что? Привет.", "Ну что? Ответ."), ("Приветствие.", "Привет."),
+                                ("Ну что привет.", "Привет."), ("Не привет.", "Привет."),
+                                ("Пять процентов. Привет.", "Привет."), ("Наверное. Привет.", "Привет.")] {
+            XCTAssertNil(ending("Привет.", first, second), first)
+        }
+        XCTAssertNil(ending("Спасибо!", "Ну что? Спасибо!", nil))
+    }
+
     func testStandaloneClosingCardsRequireAudioEvidenceAndPreserveSpeech() {
         for card in ["Продолжение следует...", "Продолжение следует…", "Спасибо за просмотр!",
                      "Благодарим за просмотр", "To be continued.", "Thank you for watching!"] {

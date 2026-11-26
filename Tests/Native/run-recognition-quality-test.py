@@ -34,6 +34,7 @@ def distance(reference, actual):
 
 def synthetic_corpus(root):
     phrases = [
+        ("opening-greeting", "Привет.", 170, ""),
         ("short-yes", "Да.", 170, ""),
         ("short-no", "Нет, не надо.", 170, ""),
         ("repetitions", "Да, да, да, всё верно. Мы проверили поиск, проверили карточки, проверили маршруты. Нет, нет, переносить встречу не надо.", 185, ""),
@@ -93,7 +94,7 @@ def synthetic_corpus(root):
                for index, reply in enumerate(["Thank you.", "All right.", "And what?", "Friends.", "Okay.", "Yes.",
                                                "Sorry.", "Sorry, I cannot attend the meeting today.", "Exactly.", "Let's eat."])]
     replies.extend([("english-challenge", "Challenge them.", "Challenge them.", "Samantha", "2ГИС"),
-                    ("portuguese-reply", "Transformação.", "Transformação.", "Luciana", "2ГИС")])
+                    ("portuguese-reply", "Transformação.", "Неразборчиво", "Luciana", "2ГИС")])
     replies.append(("short-dictionary-name", "Конфлюенс.", "Confluence.", "Milena (Russian (Russia))", "2ГИС, Confluence"))
     for name, spoken, reply, voice, context in replies:
         aiff, wav = root / f"{name}.aiff", root / f"{name}.wav"
@@ -113,7 +114,7 @@ def synthetic_corpus(root):
     recordings = fixtures + [dict(fixture, name=fixture["name"] + "-remote", track="remote") for fixture in fixtures]
     # Saved meetings rerun segmentation and use the entire first pass as context.
     # Exercise that entry point on the same PCM used by the live controls.
-    batch_controls = {"vocabulary", "spoken-subtitle-credit", "spoken-outro"}
+    batch_controls = {"opening-greeting", "vocabulary", "spoken-subtitle-credit", "spoken-outro"}
     batch_controls.update(name for name, spoken, *_ in replies
                           if spoken in {"All right.", "Exactly.", "Let's eat.", "Challenge them.", "Transformação."})
     return recordings + [dict(fixture, name=fixture["name"] + "-batch", live=False) for fixture in recordings
