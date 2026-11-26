@@ -222,10 +222,11 @@ struct FormTextField: View {
     var accessibilityTitle: String?
     var onSubmit: (() -> Void)?
     var onCommand: ((Selector) -> Bool)?
+    var caretEndRequest: UUID?
 
     var body: some View {
         SingleLineTextField(title: title, text: $text, isFocused: isFocused, accessibilityTitle: accessibilityTitle,
-                            onSubmit: onSubmit, onCommand: onCommand)
+                            onSubmit: onSubmit, onCommand: onCommand, caretEndRequest: caretEndRequest)
             .padding(.horizontal, PisaDesign.Spacing.related)
             .frame(minHeight: PisaDesign.Metrics.regularHeight)
             .background(enabled ? PisaDesign.Colors.secondary : PisaDesign.Colors.disabledSurface,
@@ -245,6 +246,7 @@ struct SingleLineTextField: NSViewRepresentable {
     var accessibilityTitle: String?
     var onSubmit: (() -> Void)?
     var onCommand: ((Selector) -> Bool)?
+    var caretEndRequest: UUID?
 
     func makeNSView(context: Context) -> NSTextField {
         let field = StationaryPlaceholderField(string: text)
@@ -281,6 +283,7 @@ struct SingleLineTextField: NSViewRepresentable {
                 editor.string = text
                 editor.setSelectedRange(NSRange(location: insertion, length: 0))
             }
+            coordinator.applyCaretEndRequest(in: editor)
         } else if field.stringValue != text {
             field.stringValue = text
         }
@@ -295,6 +298,9 @@ struct SingleLineTextField: NSViewRepresentable {
                   let window = field.window else { return }
             if requestedFocus && field.isEnabled && field.currentEditor() == nil {
                 field.selectText(nil)
+                if let editor = field.currentEditor() as? NSTextView {
+                    coordinator.applyCaretEndRequest(in: editor)
+                }
             } else if !requestedFocus, let editor = field.currentEditor(), window.firstResponder === editor {
                 window.makeFirstResponder(nil)
             }
@@ -311,8 +317,20 @@ struct SingleLineTextField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var field: SingleLineTextField
         var requestedFocus: Bool?
+        private var appliedCaretEndRequest: UUID?
 
-        init(field: SingleLineTextField) { self.field = field }
+        init(field: SingleLineTextField) {
+            self.field = field
+            appliedCaretEndRequest = field.caretEndRequest
+        }
+
+        func applyCaretEndRequest(in editor: NSTextView) {
+            guard let request = field.caretEndRequest, request != appliedCaretEndRequest, !editor.hasMarkedText() else { return }
+            let end = NSRange(location: editor.string.utf16.count, length: 0)
+            editor.setSelectedRange(end)
+            editor.scrollRangeToVisible(end)
+            appliedCaretEndRequest = request
+        }
 
         func controlTextDidBeginEditing(_ notification: Notification) {
             (notification.object as? NSTextField)?.needsDisplay = true

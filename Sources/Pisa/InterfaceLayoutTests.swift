@@ -1163,6 +1163,7 @@ private final class LayoutSuite {
             host.pressKey("\u{f701}", keyCode: 125, settle: false)
             host.pressKey("\u{3}", keyCode: 76, modifiers: .numericPad)
             check(host.wait { field.currentEditor()?.string == second }, "quick typing, Down, Down and keypad Enter insert the second suggestion")
+            checkTypingAfterSuggestion(second, in: field, host: host)
 
             check(host.type(query, into: field), "the dropdown reopens for a new query")
             for _ in entries { host.pressKey("\u{f701}", keyCode: 125) }
@@ -1184,6 +1185,7 @@ private final class LayoutSuite {
             host.pressKey("\u{f701}", keyCode: 125)
             host.pressReturn()
             check(host.wait { field.currentEditor()?.string == second }, "Down and Return choose the second suggestion after Tab")
+            checkTypingAfterSuggestion(second, in: field, host: host)
 
             check(host.type(query, into: field), "editing reopens suggestions after a keyboard selection")
             host.pressKey("\t", keyCode: 48)
@@ -1203,9 +1205,11 @@ private final class LayoutSuite {
             check(host.type("зна", into: field), "the dropdown reopens using the start of the second word")
             if let row = host.frames[firstRow], let anchor = host.frames[.termReplacement] {
                 let center = host.center(of: field)
+                host.blur()
                 host.click(CGPoint(x: center.x + row.midX - anchor.midX, y: center.y + row.midY - anchor.midY))
                 check(host.wait { field.currentEditor()?.string == first }, "clicking a suggestion fills the field")
                 check(host.frames[firstRow] == nil, "clicking a suggestion closes the dropdown")
+                checkTypingAfterSuggestion(first, in: field, host: host)
             } else {
                 check(false, "the matching dictionary entry is available to click")
             }
@@ -1602,10 +1606,12 @@ private final class LayoutSuite {
                     check(open[1].intersects(open[0]), "suggestion covers the form")
                     let fieldCenter = host.center(of: name)
                     // HSplitView reports these frames in the right pane's coordinate space.
+                    host.blur()
                     host.click(CGPoint(x: fieldCenter.x + open[1].midX - frame.midX,
                                        y: fieldCenter.y + open[1].midY - frame.midY))
                     check(host.wait { name.currentEditor()?.string == savedVoice.name }, "clicking the overlay fills the name")
                     check(host.frames[suggestion] == nil, "clicking a suggestion closes the overlay")
+                    checkTypingAfterSuggestion(savedVoice.name, in: name, host: host)
                     check(host.type(prefix, into: name), "editing the chosen name opens suggestions again")
                 }
                 host.pressKey("\u{1b}", keyCode: 53)
@@ -1616,8 +1622,35 @@ private final class LayoutSuite {
                 }
                 check(host.type(prefix + "П", into: name), "typing again reopens suggestions")
                 host.pressKey("\t", keyCode: 48)
-                check(host.frames[suggestion] == nil, "Tab closes suggestions before moving to the next control")
-                check(!host.isEditing(name), "Tab moves focus away from the name field")
+                check(host.frames[suggestion] != nil && host.isSuggestionListFocused,
+                      "Tab moves focus from the name field to the open suggestions")
+                try saveScreenshot("voice-suggestions-tab-\(percent)", in: host)
+                host.pressKey("\u{f701}", keyCode: 125)
+                host.pressReturn()
+                check(host.wait { name.currentEditor()?.string == secondSuggestion.name && host.isEditing(name) },
+                      "Down and Return fill the second suggestion and return focus to the name field")
+                checkTypingAfterSuggestion(secondSuggestion.name, in: name, host: host)
+
+                check(host.type(prefix, into: name), "editing reopens suggestions after a keyboard selection")
+                host.pressKey("\t", keyCode: 48)
+                host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
+                check(host.frames[suggestion] == nil && host.isEditing(name), "Shift-Tab returns from suggestions to the name field")
+
+                check(host.type(prefix + "П", into: name), "editing reopens suggestions before verifying Escape")
+                host.pressKey("\t", keyCode: 48)
+                host.pressKey("\u{1b}", keyCode: 53)
+                check(host.frames[suggestion] == nil && host.isEditing(name), "Escape returns from suggestions to the name field")
+
+                check(host.type(prefix, into: name), "editing reopens suggestions before verifying forward Tab")
+                host.pressKey("\t", keyCode: 48)
+                host.pressKey("\t", keyCode: 48)
+                check(host.frames[suggestion] == nil && !host.isEditing(name) && !host.isSuggestionListFocused,
+                      "a second Tab dismisses suggestions and continues through the form")
+
+                check(host.type("Без совпадений", into: name), "the name field accepts a query without suggestions")
+                host.pressKey("\t", keyCode: 48)
+                check(!host.isEditing(name) && !host.isSuggestionListFocused, "Tab without suggestions follows the normal focus order")
+
                 check(host.type(prefix, into: name), "returning to the field allows suggestions again")
                 host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
                 check(host.frames[suggestion] == nil, "Shift-Tab closes suggestions before moving to the previous control")
@@ -1640,12 +1673,19 @@ private final class LayoutSuite {
                 host.pressKey("\u{3}", keyCode: 76, modifiers: .numericPad)
                 check(host.wait { name.currentEditor()?.string == secondSuggestion.name },
                       "quick typing, Down, Down and keypad Enter fill the second suggestion")
+                checkTypingAfterSuggestion(secondSuggestion.name, in: name, host: host)
                 check(state.meetings.first(where: { $0.id == meeting.id })?.segments.first?.speaker == segment.speaker,
                       "choosing a suggestion leaves the transcript speaker unchanged until applying the name")
             } else {
                 check(false, "voice name is available for keyboard suggestion selection")
             }
         }
+    }
+
+    private func checkTypingAfterSuggestion(_ suggestion: String, in field: NSTextField, host: LayoutHost) {
+        host.pressKey("x", keyCode: 7)
+        check(host.wait { field.currentEditor()?.string == suggestion + "x" },
+              "typing after accepting \(suggestion) appends to the filled text")
     }
 
     private func checkVoiceMerge(state: AppState, savedVoice: VoiceProfile, scale: CGFloat) {
@@ -1758,6 +1798,7 @@ private final class LayoutHost {
     private(set) var frames: [InterfaceLayoutElement: CGRect] = [:]
     var bounds: CGRect { view.bounds }
     var hasSheet: Bool { window.attachedSheet != nil }
+    var isSuggestionListFocused: Bool { window.firstResponder is ListKeyboardFocus.Target }
 
     init<Content: View>(_ content: Content, size: CGSize, scale: CGFloat) {
         let bounds = CGRect(origin: .zero, size: size)

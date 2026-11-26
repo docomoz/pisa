@@ -34,6 +34,8 @@ struct VoiceManager: View {
     @State private var name = ""
     @State private var nameFocused = false
     @State private var suggestionSelection = FormSuggestionSelection()
+    @State private var suggestionListFocused = false
+    @State private var caretEndRequest: UUID?
     @State private var allMatching = true
     @State private var remember = true
     @State private var assignment: Task<Void, Never>?
@@ -56,6 +58,7 @@ struct VoiceManager: View {
     private func select(_ segment: TranscriptSegment) {
         assignmentError = nil
         suggestionSelection.close()
+        suggestionListFocused = false
         name = voiceNameForSelection(currentSpeaker: sample?.speaker, currentName: name, segment: segment)
         selected = segment.id
     }
@@ -70,6 +73,8 @@ struct VoiceManager: View {
         name = suggestion
         assignmentError = nil
         suggestionSelection.close()
+        suggestionListFocused = false
+        caretEndRequest = UUID()
         nameFocused = true
     }
 
@@ -81,6 +86,7 @@ struct VoiceManager: View {
     private func applyName(rememberVoice: Bool) {
         guard assignment == nil, canApplyName, let selected else { return }
         suggestionSelection.close()
+        suggestionListFocused = false
         assignmentError = nil
         let name = name
         let allMatching = allMatching
@@ -170,7 +176,8 @@ struct VoiceManager: View {
                 }
                 .overlayPreferenceValue(FormSuggestionFieldBounds.self, alignment: .topLeading) { anchor in
                     FormSuggestionOverlay(anchor: anchor, matches: suggestions, selectedIndex: suggestionSelection.selectedIndex,
-                                          element: InterfaceLayoutElement.voiceSuggestion, choose: chooseSuggestion)
+                                          element: InterfaceLayoutElement.voiceSuggestion, choose: chooseSuggestion,
+                                          keyboardFocus: $suggestionListFocused, onListCommand: handleSuggestionCommand)
                 }
                 .id(selected)
                 .textStyle(PisaDesign.Typography.secondary)
@@ -189,9 +196,34 @@ struct VoiceManager: View {
     private var nameEditor: some View {
         // Keep the suggestions in sync with AppKit's input before the next key event.
         FormTextField(title: "Имя участника", text: Binding(get: { name }, set: editName), isFocused: $nameFocused,
-                      onSubmit: submitName, onCommand: { suggestionSelection.handle($0, matches: suggestions) })
+                      onSubmit: submitName, onCommand: handleNameCommand, caretEndRequest: caretEndRequest)
             .anchorPreference(key: FormSuggestionFieldBounds.self, value: .bounds) { $0 }
             .measuredForInterfaceTest(.voiceName)
+    }
+
+    private func handleNameCommand(_ command: Selector) -> Bool {
+        let matches = suggestions
+        if command == #selector(NSResponder.insertTab(_:)), suggestionSelection.activate(matches: matches) {
+            suggestionListFocused = true
+            return true
+        }
+        return suggestionSelection.handle(command, matches: matches)
+    }
+
+    private func handleSuggestionCommand(_ command: Selector) -> Bool {
+        let matches = suggestions
+        switch command {
+        case #selector(NSResponder.insertNewline(_:)):
+            if let suggestion = suggestionSelection.selected(in: matches) { chooseSuggestion(suggestion) }
+            return true
+        case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.insertBacktab(_:)):
+            suggestionSelection.close()
+            suggestionListFocused = false
+            nameFocused = true
+            return true
+        default:
+            return suggestionSelection.handle(command, matches: matches)
+        }
     }
 
     private func submitName() {

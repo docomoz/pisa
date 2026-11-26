@@ -155,6 +155,7 @@ struct TermReview: View {
     @State private var replacementFocused = false
     @State private var suggestionSelection = FormSuggestionSelection()
     @State private var suggestionListFocused = false
+    @State private var caretEndRequest: UUID?
     @State private var lastReplacement: (source: String, label: String?, correctedSource: String)?
     @State private var dictionary: TranscriptTerms.DictionaryAdditions?
     @State private var dictionaryTerms: [String] = []
@@ -348,7 +349,7 @@ struct TermReview: View {
             replacement = text
             suggestionSelection.open()
         }), isFocused: $replacementFocused, accessibilityTitle: "Правильное написание",
-                      onSubmit: submitReplacement, onCommand: handleReplacementCommand)
+                      onSubmit: submitReplacement, onCommand: handleReplacementCommand, caretEndRequest: caretEndRequest)
             .anchorPreference(key: FormSuggestionFieldBounds.self, value: .bounds) { $0 }
             .measuredForInterfaceTest(.termReplacement)
     }
@@ -390,6 +391,7 @@ struct TermReview: View {
         replacement = suggestion
         suggestionSelection.close()
         suggestionListFocused = false
+        caretEndRequest = UUID()
         replacementFocused = true
     }
 
