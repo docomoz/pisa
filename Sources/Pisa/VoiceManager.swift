@@ -145,20 +145,22 @@ struct VoiceManager: View {
                             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                                 screenToggle("Все реплики «\(sample.speaker)»", isOn: $allMatching)
                                     .measuredForInterfaceTest(.voiceAllMatching)
-                                screenToggle("Запомнить голос для будущих встреч",
+                                screenToggle("Сохранить образец голоса из этой реплики",
                                              isOn: Binding(get: { remember && !automaticName }, set: { remember = $0 }))
                                     .disabled(automaticSample == nil || automaticName)
+                                    .measuredForInterfaceTest(.voiceRememberSample)
                                 if automaticName, automaticSample != nil {
-                                    screenText("Введите имя участника, чтобы запомнить голос")
+                                    screenText("Введите имя участника, чтобы сохранить образец голоса")
                                         .textStyle(PisaDesign.Typography.caption)
                                         .foregroundStyle(Color.mutedInk)
                                 } else if let automaticSample, remember, let meeting {
                                     screenButton("Послушать образец · \(timecode(automaticSample.start))–\(timecode(automaticSample.end))") {
                                         state.preview(automaticSample, in: meeting)
                                     }.actionButton().disabled(state.recording || state.demo)
+                                        .measuredForInterfaceTest(.voicePreviewSample)
                                     screenText("Образец берётся из выбранного фрагмента, без отмеченных наложений других голосов. Он и голосовой слепок останутся после удаления аудио встречи.").textStyle(PisaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 } else if automaticSample == nil {
-                                    screenText("В выбранном фрагменте нет 2 секунд доступного аудио без отмеченных наложений. Имя можно применить без запоминания голоса.").textStyle(PisaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
+                                    screenText("В выбранном фрагменте нет 2 секунд доступного аудио без отмеченных наложений. Имя можно применить без сохранения образца.").textStyle(PisaDesign.Typography.caption).foregroundStyle(Color.mutedInk)
                                 }
                                 screenButton(assignment == nil ? "Применить имя" : "Сохраняем…") {
                                     applyName(rememberVoice: remember && automaticSample != nil)

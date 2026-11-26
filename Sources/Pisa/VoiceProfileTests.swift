@@ -225,6 +225,15 @@ enum VoiceProfileTests {
                   "A meeting-only automatic label was rejected")
 
         let correctedName = "Виктор"
+        try await state.assignVoice(meetingID: meeting.id, segmentID: segment.id, name: correctedName,
+                                    allMatching: false, remember: false)
+        try check(try state.library.read(meeting.id).segments[0].speaker == correctedName,
+                  "Applying a name without saving the sample did not update the transcript")
+        try check(state.voiceProfiles == [recipient, oldProfile] &&
+                  (try state.library.voices()) == [recipient, oldProfile] &&
+                  FileManager.default.fileExists(atPath: oldClip.path),
+                  "Applying a name without saving the sample changed the previously saved voice")
+
         try await enroll(as: correctedName)
         try check(state.voiceProfiles.map(\.name) == [recipient.name, correctedName] &&
                   (try state.library.voices()).map(\.name) == [recipient.name, correctedName],

@@ -125,7 +125,7 @@ struct SavedVoicesSettings: View {
                 .frame(width: PisaDesign.Metrics.regularHeight, height: PisaDesign.Metrics.regularHeight)
                 .background(Color.paper, in: Circle())
                 .accessibilityHidden(true)
-            SectionHeading("Пока нет сохранённых голосов", subtitle: "В записи откройте «Разметить голоса», назначьте имя и включите «Запомнить голос для будущих встреч»")
+            SectionHeading("Пока нет сохранённых голосов", subtitle: "В записи откройте «Разметить голоса», назначьте имя и включите «Сохранить образец голоса из этой реплики»")
         }
         .padding(PisaDesign.Spacing.content)
         .frame(maxWidth: .infinity, alignment: .leading)

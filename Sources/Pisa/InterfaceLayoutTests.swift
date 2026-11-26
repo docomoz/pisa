@@ -34,7 +34,7 @@ enum InterfaceLayoutElement: Hashable {
     case folderIcon(String), folderSave
     case savedVoiceHeading, savedVoiceRow(UUID)
     case voiceMergeList, voiceMergeCandidate(UUID)
-    case voiceAllMatching, voiceSuggestion(String)
+    case voiceAllMatching, voiceRememberSample, voicePreviewSample, voiceSuggestion(String)
 }
 
 private struct InterfaceFrames: PreferenceKey {
@@ -167,8 +167,9 @@ enum InterfaceLayoutTests {
             state.modelSetup.phase = .ready
             let suite = LayoutSuite()
             let scenario = ProcessInfo.processInfo.environment["PISA_LAYOUT_SCENARIO"]
-            if scenario == "voice-suggestions" {
-                try suite.checkVoiceSuggestions(state: state)
+            if scenario == "voice-suggestions" || scenario == "voice-sample" {
+                if scenario == "voice-sample" { try suite.checkVoiceSample(state: state) }
+                else { try suite.checkVoiceSuggestions(state: state) }
                 print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
                 return suite.failures == 0 && suite.checks > 0 ? 0 : 1
             }
@@ -176,6 +177,7 @@ enum InterfaceLayoutTests {
                 throw PisaError.message("Неизвестный сценарий проверки интерфейса")
             }
             if scenario == nil {
+                try suite.checkVoiceSample(state: AppState(rootURL: root.appendingPathComponent("voice-sample")))
                 try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
                 // Run in AppKit's event loop so the candidate and occurrence tasks can resume.
                 if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
@@ -1328,6 +1330,58 @@ private final class LayoutSuite {
         checkInitialFocus(.savedVoiceName, in: host)
         checkField(.savedVoiceName, placeholder: false, in: host)
         checkField(.savedVoiceName, placeholder: true, clear: true, in: host)
+    }
+
+    func checkVoiceSample(state: AppState) throws {
+        let file = "voice-fixture-mic.caf"
+        let frameCount: AVAudioFrameCount = 48_000
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+              let samples = buffer.floatChannelData?[0] else {
+            throw PisaError.message("Could not create the voice sample fixture")
+        }
+        buffer.frameLength = frameCount
+        samples.initialize(repeating: 0.05, count: Int(frameCount))
+        let writer = try AVAudioFile(forWriting: state.library.audioURL(file), settings: format.settings)
+        try writer.write(from: buffer)
+        writer.close()
+
+        var meeting = Meeting(title: "Планы на следующую встречу", source: "Тестовое аудио")
+        meeting.status = .ready
+        meeting.duration = 3
+        meeting.audioFiles = [file]
+        let reply = TranscriptSegment(start: 0, end: 3, speaker: "Анна", text: "Обсудим планы команды и уточним сроки")
+        meeting.segments = [reply]
+        state.update(meeting)
+
+        for (percent, scale) in [(100, 1.0), (120, 1.2)] {
+            scenario = "voice sample, \(percent)%"
+            let host = LayoutHost(VoiceManager(meetingID: meeting.id).environmentObject(state),
+                                  size: CGSize(width: 940, height: 660), scale: scale)
+            defer { host.close() }
+            guard let sample = frames([.voiceSample(reply.id)], in: host)?.first else { continue }
+            host.click(sample.center)
+            guard let form = frames([.voiceName, .voiceRememberSample, .voicePreviewSample], in: host) else { continue }
+            guard let field = host.field(in: form[0], placeholder: "Имя участника") else {
+                check(false, "voice name field is available")
+                continue
+            }
+            try saveScreenshot("voice-sample-checked-\(percent)", in: host)
+            let fieldCenter = host.center(of: field)
+            // HSplitView reports these frames relative to the right pane.
+            let toggle = CGPoint(x: fieldCenter.x + form[1].midX - form[0].midX,
+                                  y: fieldCenter.y + form[1].midY - form[0].midY)
+            host.click(toggle)
+            check(host.wait { host.frames[.voicePreviewSample] == nil }, "clearing the checkbox hides the sample preview")
+            try saveScreenshot("voice-sample-unchecked-\(percent)", in: host)
+            host.click(toggle)
+            check(host.wait { host.frames[.voicePreviewSample] != nil }, "checking the checkbox restores the sample preview")
+
+            let settings = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state),
+                                      size: CGSize(width: 900, height: 700), scale: scale)
+            defer { settings.close() }
+            try saveScreenshot("saved-people-empty-\(percent)", in: settings)
+        }
     }
 
     func checkVoiceSuggestions(state: AppState) throws {
