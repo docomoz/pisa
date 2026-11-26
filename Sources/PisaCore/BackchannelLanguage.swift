@@ -9,14 +9,14 @@ enum BackchannelLanguage {
     private static let englishOpenVowels: Set<String> = ["ah", "uh", "um"]
     private static let russianVocalizations: Set<String> = ["угу", "ага", "мгм", "хм", "мм", "м", "эм"]
     private static let fillerSpellings: [String: String] = [
-        "ah": "а", "uh": "аааа", "um": "ааа", "huh": "а",
+        "ah": "а", "uh": "а-а-а", "um": "ааа", "huh": "а",
         "hmm": "хм", "hm": "хм", "mm": "мм", "mhm": "угу", "mmhmm": "угу",
         "uhum": "угу", "ajá": "ага",
         "uh huh": "угу", "uhhuh": "угу", "mm hmm": "угу",
         "yes": "да", "yeah": "да", "yep": "да", "da": "да", "ok": "окей", "okay": "окей",
         "sorry": "сорри",
     ]
-    private static let russianFillers = Set(fillerSpellings.values).union(russianVocalizations)
+    private static let russianFillers = Set(fillerSpellings.values).union(russianVocalizations).union(["аааа"])
     private static let shortSentenceWords: Set<String> = [
         "i", "you", "he", "she", "we", "they", "it", "am", "is", "are", "was", "were", "do", "does", "did",
         "can", "could", "will", "would", "shall", "should", "what", "who", "where", "when", "why", "how",
@@ -834,7 +834,7 @@ enum BackchannelLanguage {
     private static func fillerEvidence(_ text: String) -> String? {
         let input = text.lowercased().replacingOccurrences(of: #"о['’]кей"#, with: "окей", options: .regularExpression)
         guard !containsLiteralMarks(input) else { return nil }
-        let words = RussianRecognition.words(input).map { ["okei", "okey"].contains($0) ? "okay" : $0 }
+        let words = fillerTokens(input).map { ["okei", "okey"].contains($0) ? "okay" : $0 }
         return fillerSpelling(words)
     }
 
@@ -1056,12 +1056,22 @@ enum BackchannelLanguage {
             return result as String
         }
         let punctuation = text.trimmingCharacters(in: .whitespacesAndNewlines).reversed().prefix { ".!?,:;…".contains($0) }
-        return spelling.prefix(1).uppercased() + spelling.dropFirst() + String(punctuation.reversed())
+        let ending = words == ["uh"] && punctuation.allSatisfy({ ".…".contains($0) }) ? "…" : String(punctuation.reversed())
+        return spelling.prefix(1).uppercased() + spelling.dropFirst() + ending
+    }
+
+    // A sustained vowel is one sound. Commas or spaces between vowels still
+    // distinguish separate utterances when comparing independent readings.
+    private static let sustainedVowel = try! NSRegularExpression(pattern: #"(?i)(?<![\p{L}\p{N}])(?:а(?:[-‐‑]а)+|аааа)(?![\p{L}\p{N}])"#)
+
+    private static func fillerTokens(_ text: String) -> [String] {
+        let tokens = sustainedVowel.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "uh")
+        return RussianRecognition.words(tokens)
     }
 
     static func russianSpelling(ofFiller text: String) -> String? {
         guard !containsLiteralMarks(text), text.rangeOfCharacter(from: lexicalLiteralMarks.union(.decimalDigits)) == nil else { return nil }
-        return fillerSpelling(RussianRecognition.words(text))
+        return fillerSpelling(fillerTokens(text))
     }
 
     static func isVocalization(_ text: String) -> Bool {

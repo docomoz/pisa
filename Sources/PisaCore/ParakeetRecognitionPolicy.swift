@@ -236,15 +236,55 @@ enum MeetingRecognitionLanguage {
     }
 
     static func unclearText(for text: String, vocabulary: String) -> String? {
+        unmaskedParts(of: text, vocabulary: vocabulary)?.joined(separator: "…")
+    }
+
+    /// Each gap between parts stands for actual words removed from this reading.
+    static func unmaskedParts(of text: String, vocabulary: String) -> [String]? {
         let text = text.precomposedStringWithCanonicalMapping
         guard let damage = damage(in: text, vocabulary: vocabulary) else { return nil }
-        if damage.whole { return "Неразборчиво" }
-        let result = NSMutableString(string: text)
-        for var range in damage.spans.reversed() {
-            if NSMaxRange(range) < result.length, result.character(at: NSMaxRange(range)) == 46 { range.length += 1 }
-            result.replaceCharacters(in: range, with: "…")
+        if damage.whole { return ["Неразборчиво"] }
+        let source = text as NSString
+        var parts: [String] = []
+        var start = 0
+        for range in damage.spans {
+            parts.append(source.substring(with: NSRange(location: start, length: range.location - start)))
+            start = NSMaxRange(range)
+            if start < source.length, source.character(at: start) == 46 { start += 1 }
         }
-        return result as String
+        parts.append(source.substring(from: start))
+        return parts
+    }
+
+    /// A final mask or new acoustic reading can expose an isolated filler after
+    /// the usual language pass. Only the newly exposed words may be respelled.
+    static func resolveRevisedFillers(_ segments: [TranscriptSegment], maskedParts: [Int: [String]],
+        originals: [UUID: String], preceding: [TranscriptSegment], vocabulary: String) -> [TranscriptSegment] {
+        var candidates: [TranscriptSegment] = []
+        var edits: [(index: Int, range: Range<String.Index>)] = []
+        for (index, masked) in maskedParts {
+            var segment = segments[index]
+            let parts = segment.text == masked.joined(separator: "…") ? masked : [segment.text]
+            let spoken = parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            guard spoken.count == 1 else { continue }
+            let filler = spoken[0]
+            guard BackchannelLanguage.russianSpelling(ofFiller: filler) != nil,
+                  let range = segment.text.range(of: filler, options: .literal) else { continue }
+            segment.text = filler
+            candidates.append(segment)
+            edits.append((index, range))
+        }
+        guard !candidates.isEmpty else { return segments }
+        let anchors = segments.filter { segment in
+            guard segment.independentRecognitionLanguage != false, let original = originals[segment.id] else { return false }
+            return segment.text == original || segment.text == TranscriptOrthography.normalize(original, vocabulary: vocabulary)
+        }
+        let resolved = BackchannelLanguage.resolve(candidates, alternatives: [:], preceding: preceding + anchors, vocabulary: vocabulary)
+        var result = segments
+        for (edit, turn) in zip(edits, resolved) {
+            result[edit.index].text.replaceSubrange(edit.range, with: turn.text)
+        }
+        return result
     }
 
     private struct Reading {

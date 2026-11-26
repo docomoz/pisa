@@ -133,7 +133,7 @@ final class TranscriptOrthographyTests: XCTestCase {
     }
 
     func testDelimitedEnglishFillersUseRussianSpellingInsideRussianSpeech() {
-        XCTAssertEqual(TranscriptOrthography.normalize("Ну, uh, да."), "Ну, аааа, да.")
+        XCTAssertEqual(TranscriptOrthography.normalize("Ну, uh, да."), "Ну, а-а-а, да.")
         XCTAssertEqual(TranscriptOrthography.normalize("Yeah, понятно."), "Да, понятно.")
         XCTAssertEqual(TranscriptOrthography.normalize("Uh-huh, конечно."), "Угу, конечно.")
         XCTAssertEqual(TranscriptOrthography.normalize("Да, yeah."), "Да, да.")

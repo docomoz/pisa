@@ -657,7 +657,7 @@ actor Transcriber {
             }
         }
         localized = try await verifyMeetingLanguage(localized, firstPass: firstPass.segments, files: preparedFiles, model: model, russian: russian,
-            vocabulary: context, performance: performance, diagnostics: collectDiagnostics)
+            vocabulary: context, performance: performance, diagnostics: collectDiagnostics, preceding: live ? recentLanguageSegments : [])
         if !retainProcessedMicrophone, let generated {
             for i in localized.indices where localized[i].audioFile == generated.lastPathComponent {
                 localized[i].audioFile = sourceMicrophone?.lastPathComponent
@@ -742,7 +742,13 @@ actor Transcriber {
         let revised = try await contextualRevision(segments, preceding: [], files: files, bounds: bounds,
             hypotheses: firstPass.hypotheses, model: model, russian: russian, vocabulary: vocabulary,
             scriptReadings: scriptReadings, performance: TranscriptionPerformance(), collectDiagnostics: true, selected: selected) { _, _ in }
-        let resolved = repeatFirstPass ? BackchannelLanguage.resolve(revised, evidence: firstPass, preceding: [], vocabulary: vocabulary) : revised
+        let languageResolved = BackchannelLanguage.resolve(revised, evidence: firstPass, preceding: [], vocabulary: vocabulary)
+        let resolved = zip(revised, languageResolved).map { original, segment in
+            guard selected.contains(segment.id) else { return original }
+            var turn = segment
+            turn.text = TranscriptOrthography.normalize(segment.text, vocabulary: vocabulary)
+            return turn
+        }
         let credited = try await verifySubtitleCredits(resolved, files: files, model: model, russian: russian, vocabulary: vocabulary,
             performance: TranscriptionPerformance(), diagnostics: true, selected: selected)
         return try await verifyMeetingLanguage(credited, firstPass: firstPass.segments, files: files, model: model, russian: russian, vocabulary: vocabulary,
@@ -753,17 +759,19 @@ actor Transcriber {
     /// The first turn in a live window gets the same language policy as a turn in a completed meeting.
     private func verifyMeetingLanguage(_ segments: [TranscriptSegment], firstPass: [TranscriptSegment], files: [(URL, Double)], model: ParakeetRecognitionSession,
         russian: RussianSpeechRecognizer?, vocabulary: String, performance: TranscriptionPerformance,
-        diagnostics: Bool, selected: Set<UUID>? = nil) async throws -> [TranscriptSegment] {
+        diagnostics: Bool, selected: Set<UUID>? = nil, preceding: [TranscriptSegment] = []) async throws -> [TranscriptSegment] {
         var verified = segments
+        var maskedParts: [Int: [String]] = [:]
         lazy var originals = Dictionary(firstPass.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
         for (index, segment) in segments.enumerated() {
             guard selected?.contains(segment.id) != false else { continue }
             // An earlier context check may have marked a foreign reading unclear.
             // Keep its own audio eligible for the same isolated recovery.
             let source = segment.text == "Неразборчиво" ? originals[segment.id] ?? segment.text : segment.text
-            guard let fallback = MeetingRecognitionLanguage.unclearText(for: source, vocabulary: vocabulary) else { continue }
+            guard let parts = MeetingRecognitionLanguage.unmaskedParts(of: source, vocabulary: vocabulary) else { continue }
             try Task.checkCancellation()
-            verified[index].text = segment.text == "Неразборчиво" ? segment.text : fallback
+            maskedParts[index] = parts
+            verified[index].text = segment.text == "Неразборчиво" ? segment.text : parts.joined(separator: "…")
             verified[index].independentRecognitionLanguage = false
             let duration = segment.end - segment.start
             guard model.canVerify || russian != nil, duration > 0, duration <= 32,
@@ -803,7 +811,9 @@ actor Transcriber {
             try await performance.pace(after: began)
             try Task.checkCancellation()
         }
-        return verified
+        guard !maskedParts.isEmpty else { return verified }
+        return MeetingRecognitionLanguage.resolveRevisedFillers(verified, maskedParts: maskedParts,
+            originals: originals, preceding: preceding, vocabulary: vocabulary)
     }
 
     /// A credit can come from the primary decoder or a later revision. Verify

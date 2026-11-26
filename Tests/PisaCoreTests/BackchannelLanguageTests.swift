@@ -397,7 +397,7 @@ final class BackchannelLanguageTests: XCTestCase {
     func testRussianConversationLocalizesKnownFillersWithoutAnAudioAlternative() {
         let russian = segment(25, "Теперь обсудим следующий вопрос проекта", mic: false)
         for (original, expected) in [
-            ("Uh.", "Аааа."), ("Um.", "Ааа."), ("Ah!", "А!"), ("Hmm?", "Хм?"),
+            ("Uh.", "А-а-а…"), ("Um.", "Ааа."), ("Ah!", "А!"), ("Hmm?", "Хм?"),
             ("Uh-huh.", "Угу."), ("Mhm.", "Угу."), ("Yeah.", "Да."), ("Yep.", "Да."),
             ("Yes.", "Да."), ("Da da da.", "Да, да, да."), ("Okay.", "Окей."), ("Sorry.", "Сорри."),
             ("Uh-huh, yeah.", "Угу, да."), ("Yeah,", "Да,"),
@@ -407,6 +407,32 @@ final class BackchannelLanguageTests: XCTestCase {
             let result = BackchannelLanguage.resolve([short], alternatives: [:], preceding: [russian])
             XCTAssertEqual(result[0].text, expected, original)
         }
+    }
+
+    func testIsolatedHesitationAtTheEndOfRussianSpeech() {
+        for mic in [false, true] {
+            let russian = segment(10, "Давайте продолжим наше обсуждение.", mic: mic)
+            let english = segment(10, "Let us continue our discussion.", mic: mic)
+            for text in ["… uh", "... Uh", "Uh", "uh.", "Uh…", "Uh..."] {
+                let reply = segment(12, text, mic: mic)
+                XCTAssertEqual(BackchannelLanguage.resolve([russian, reply], alternatives: [:], preceding: [])[1].text, "А-а-а…", text)
+                for context in [[], [english]] {
+                    XCTAssertEqual(BackchannelLanguage.resolve([reply], alternatives: [:], preceding: context), [reply])
+                }
+                XCTAssertEqual(BackchannelLanguage.resolve([reply], alternatives: [:], preceding: [russian], vocabulary: "Uh"), [reply])
+            }
+            for (source, expected) in [("Uh?", "А-а-а?"), ("Uh-huh.", "Угу."), ("Uh, I agree.", "Uh, I agree."), ("«Uh»", "«Uh»")] {
+                let reply = segment(12, source, mic: mic)
+                XCTAssertEqual(BackchannelLanguage.resolve([reply], alternatives: [:], preceding: [russian])[0].text, expected)
+            }
+        }
+    }
+
+    func testHyphenatedVowelIsOneSoundInFillerEvidence() {
+        for stretched in ["А-а-а", "А‑а‑а", "Аааа"] {
+            XCTAssertTrue(BackchannelLanguage.confirmsFillerSequence(original: "Uh, yeah.", reread: stretched + ", да.", corroboration: "Uh, да."))
+        }
+        XCTAssertFalse(BackchannelLanguage.confirmsFillerSequence(original: "Uh, yeah.", reread: "А, а, а, да.", corroboration: "Uh, да."))
     }
 
     func testFillerFallbackPreservesEnglishSpeechAndUnknownContext() {
@@ -550,8 +576,8 @@ final class BackchannelLanguageTests: XCTestCase {
     }
 
     func testLeadingVocalizationBeforeUnpunctuatedRussianSpeech() {
-        XCTAssertEqual(TranscriptOrthography.normalize("Uh по каким"), "Аааа по каким")
-        XCTAssertEqual(TranscriptOrthography.normalize("Uh значит работа."), "Аааа значит работа.")
+        XCTAssertEqual(TranscriptOrthography.normalize("Uh по каким"), "А-а-а по каким")
+        XCTAssertEqual(TranscriptOrthography.normalize("Uh значит работа."), "А-а-а значит работа.")
         for text in ["Uh I know.", "Uh ne знаю trend of", "Uh і", "Okay сегодня идёт дождь",
                      "«Uh значит работа».", "Uh то ми по"] {
             XCTAssertEqual(TranscriptOrthography.normalize(text), text)
@@ -566,7 +592,7 @@ final class BackchannelLanguageTests: XCTestCase {
             ("Uh huh. Да.", "Угу. Да."),
             ("Да, uh-huh! Хм? Okay…", "Да, угу! Хм? Окей…"),
             ("Hmm. Угу, yeah?", "Хм. Угу, да?"),
-            ("Да. Uh. Huh?", "Да. Аааа. А?"),
+            ("Да. Uh. Huh?", "Да. А-а-а. А?"),
         ] {
             let short = segment(75, original)
             XCTAssertFalse(BackchannelLanguage.shouldRecheck(original, duration: 1))

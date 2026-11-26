@@ -41,6 +41,48 @@ final class ParakeetRecognitionPolicyTests: XCTestCase {
                        "Проверим …")
     }
 
+    func testFinalLanguagePassResolvesOnlyNewFillersAndKeepsUnclearSpans() throws {
+        func system(_ start: Double, _ text: String) -> TranscriptSegment {
+            var turn = TranscriptSegment(start: start, end: start + 1, speaker: "Собеседники", text: text)
+            turn.audioFile = "meeting-remote.caf"
+            return turn
+        }
+        let russian = system(0, "Теперь обсудим следующий вопрос проекта")
+        let untouched = system(1, "Uh")
+        let sources = ["Devět. Uh…", "Devět.", "明天见 uh 明天见 yeah"]
+        var turns = [untouched]
+        var masks: [Int: [String]] = [:]
+        var originals = [untouched.id: untouched.text]
+        for source in sources {
+            let parts = try XCTUnwrap(MeetingRecognitionLanguage.unmaskedParts(of: source, vocabulary: ""))
+            var turn = system(Double(turns.count + 1), parts.joined(separator: "…"))
+            if source == "Devět." {
+                turn.text = try XCTUnwrap(MeetingRecognitionLanguage.confirmedText("Uh", corroboration: "uh", original: source, vocabulary: ""))
+            }
+            turn.independentRecognitionLanguage = false
+            masks[turns.count] = parts
+            originals[turn.id] = source
+            turns.append(turn)
+        }
+        func resolve(_ context: [TranscriptSegment], glossary: String = "") -> [TranscriptSegment] {
+            MeetingRecognitionLanguage.resolveRevisedFillers(turns, maskedParts: masks, originals: originals,
+                preceding: context, vocabulary: glossary)
+        }
+        XCTAssertEqual(resolve([russian]).map(\.text), ["Uh", "… А-а-а…", "А-а-а…", "… uh … yeah"])
+        XCTAssertEqual(resolve([system(0, "Let us discuss the next question")]), turns)
+        XCTAssertEqual(resolve([]), turns)
+        XCTAssertEqual(resolve([russian], glossary: "Uh"), turns)
+
+        var dependent = russian
+        dependent.independentRecognitionLanguage = false
+        XCTAssertEqual(resolve([dependent]), turns)
+        turns.append(russian)
+        originals[russian.id] = "Некоторые слова пришлось восстановить по контексту"
+        XCTAssertEqual(resolve([]), turns)
+        originals[russian.id] = russian.text
+        XCTAssertEqual(resolve([])[1].text, "… А-а-а…")
+    }
+
     func testMeetingLanguageRecoveryUsesIndependentWordsAndKeepsSurroundings() {
         func confirmed(_ text: String, _ check: String?, _ source: String = "Devět.", _ glossary: String = "") -> String? {
             MeetingRecognitionLanguage.confirmedText(text, corroboration: check, original: source, vocabulary: glossary)
