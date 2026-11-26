@@ -1112,7 +1112,7 @@ private final class LayoutSuite {
         let last = "База задач №6"
         let entries = [first, second] + (1...6).map { "База задач №\($0)" }
         state.preferences.vocabulary = (["Справочник"] + entries).joined(separator: "\n")
-        let query = "ЗА З"
+        let query = "З БА"
         let firstRow = InterfaceLayoutElement.termSuggestion(first)
         let lastRow = InterfaceLayoutElement.termSuggestion(last)
 
@@ -1134,7 +1134,7 @@ private final class LayoutSuite {
                   let closed = frames([.termReplacement, .termApply], in: host),
                   host.type(query, into: field),
                   let open = frames([.termApply, firstRow, lastRow], in: host) else {
-                check(false, "a case-insensitive substring opens the dictionary suggestions")
+                check(false, "word prefixes in a different order open the dictionary suggestions")
                 continue
             }
             check(host.frames[.termSuggestion("Справочник")] == nil, "the dropdown omits unrelated dictionary entries")
@@ -1165,14 +1165,17 @@ private final class LayoutSuite {
             host.pressKey("\u{1b}", keyCode: 53)
             check(host.frames[firstRow] == nil && host.isEditing(field), "Escape closes suggestions and keeps focus")
 
-            let tabKeys: [(String, String, NSEvent.ModifierFlags)] = [("аза з", "\t", []), (query, "\u{19}", .shift)]
+            check(host.type("аза з", into: field) && host.frames[firstRow] == nil,
+                  "a fragment inside a word does not open suggestions")
+
+            let tabKeys: [(String, String, NSEvent.ModifierFlags)] = [("ба з", "\t", []), (query, "\u{19}", .shift)]
             for (editedQuery, key, modifiers) in tabKeys {
                 check(host.type(editedQuery, into: field) && host.frames[firstRow] != nil, "editing reopens the dropdown")
                 host.pressKey(key, keyCode: 48, modifiers: modifiers)
                 check(host.frames[firstRow] == nil && !host.isEditing(field), "Tab navigation dismisses suggestions and moves focus")
             }
 
-            check(host.type("аза з", into: field), "the dropdown reopens before a mouse selection")
+            check(host.type("зна", into: field), "the dropdown reopens using the start of the second word")
             if let row = host.frames[firstRow], let anchor = host.frames[.termReplacement] {
                 let center = host.center(of: field)
                 host.click(CGPoint(x: center.x + row.midX - anchor.midX, y: center.y + row.midY - anchor.midY))

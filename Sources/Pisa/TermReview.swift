@@ -175,8 +175,9 @@ struct TermReview: View {
     private var term: String { replacement.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var suggestions: [String] {
-        guard suggestionSelection.isOpen, !term.isEmpty else { return [] }
-        return dictionaryTerms.filter { $0 != term && $0.localizedCaseInsensitiveContains(term) }
+        let term = self.term
+        guard suggestionSelection.isOpen, let query = WordPrefixQuery(term) else { return [] }
+        return dictionaryTerms.filter { $0 != term && query.matches($0) }
     }
 
     private func canReplace(_ occurrences: [TermOccurrence], with term: String) -> Bool {

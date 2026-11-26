@@ -12,21 +12,33 @@ func isAutomaticSpeakerName(_ name: String) -> Bool {
         words[1].allSatisfy { $0.isASCII && $0.isNumber }
 }
 
-func voiceNameSuggestions(query: String, meetingNames: [String], savedNames: [String]) -> [String] {
-    let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    func words(in text: String) -> [Substring] {
+struct WordPrefixQuery {
+    private let prefixes: [Substring]
+
+    init?(_ query: String) {
+        prefixes = Self.words(in: query)
+        guard !prefixes.isEmpty else { return nil }
+    }
+
+    func matches(_ text: String) -> Bool {
+        let words = Self.words(in: text)
+        return prefixes.allSatisfy { prefix in words.contains { $0.hasPrefix(prefix) } }
+    }
+
+    private static func words(in text: String) -> [Substring] {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
             .split { !$0.isLetter && !$0.isNumber }
     }
-    let prefixes = words(in: query)
-    guard !prefixes.isEmpty else { return [] }
+}
+
+func voiceNameSuggestions(query: String, meetingNames: [String], savedNames: [String]) -> [String] {
+    let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let wordQuery = WordPrefixQuery(query) else { return [] }
     var seen = Set<String>()
     return (savedNames + meetingNames).compactMap { rawName in
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != TranscriptSegment.unidentifiedSpeaker,
-              seen.insert(name.lowercased()).inserted, name != query else { return nil }
-        let nameWords = words(in: name)
-        guard prefixes.allSatisfy({ prefix in nameWords.contains { $0.hasPrefix(prefix) } }) else { return nil }
+              seen.insert(name.lowercased()).inserted, name != query, wordQuery.matches(name) else { return nil }
         return name
     }
 }
