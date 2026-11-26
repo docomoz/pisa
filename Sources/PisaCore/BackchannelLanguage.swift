@@ -782,6 +782,18 @@ enum BackchannelLanguage {
         return Int(((first.start + first.end) / 2 * 16_000).rounded())
     }
 
+    /// Cropping the first, already confirmed word can change its ending in
+    /// the primary's focused read. When only the ending of that lead word
+    /// differs, try a silent release without adding any surrounding speech.
+    static func confirmsForeignEnding(_ candidate: String, focused: String, withSilentTail: () -> String) -> Bool {
+        if confirmsLatinSource(original: candidate, reread: focused) { return true }
+        guard isLatinSpeech(candidate), isLatinSpeech(focused) else { return false }
+        let words = RussianRecognition.words(candidate), heard = RussianRecognition.words(focused)
+        guard words.count == 2, heard.count == 2, words[1] == heard[1], words[0].count >= 4,
+              heard[0].hasPrefix(words[0]), (1...3).contains(heard[0].count - words[0].count) else { return false }
+        return confirmsLatinSource(original: candidate, reread: withSilentTail())
+    }
+
     /// Independent agreement preserves foreign Latin speech regardless of its
     /// language label. Punctuation and case do not change the spoken words.
     static func confirmsLatinSource(original: String, reread: String) -> Bool {

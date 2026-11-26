@@ -101,6 +101,25 @@ final class BackchannelLanguageTests: XCTestCase {
         XCTAssertNil(start("Follow than.", "Follow them.", "Follow them.", "Follow Dan", vocabulary: "Follow"))
     }
 
+    func testSilentTailOnlyRetriesTheLeadWordAndStillRequiresTheEntireEnglishReply() {
+        var retries = 0
+        func confirm(_ candidate: String, _ focused: String, retry: String) -> Bool {
+            BackchannelLanguage.confirmsForeignEnding(candidate, focused: focused) {
+                retries += 1
+                return retry
+            }
+        }
+        XCTAssertTrue(confirm("Review this.", "Reviewed this.", retry: "Review this!"))
+        XCTAssertFalse(confirm("Review this.", "Reviewed this.", retry: "Reviewed this."))
+        XCTAssertFalse(confirm("Review this.", "Reviewed this.", retry: "This."))
+        XCTAssertEqual(retries, 3)
+        XCTAssertTrue(confirm("Review this.", "review this", retry: ""))
+        for unrelated in ["Review these.", "Reveal this.", "This.", "Reviewed this later.", "Проверь это."] {
+            XCTAssertFalse(confirm("Review this.", unrelated, retry: "Review this."), unrelated)
+        }
+        XCTAssertEqual(retries, 3)
+    }
+
     func testLexicalRereadRequiresIndependentWordsAndVocalizationsCanStandAlone() {
         for heard in [nil, "", "ну, а я?", "четыре слова для проверки"] {
             XCTAssertFalse(BackchannelLanguage.canVerifyAlternative(original: "Yeah.", corroboration: heard))

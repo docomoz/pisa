@@ -1834,8 +1834,12 @@ actor Transcriber {
                 }
                 if let isolated, let start = BackchannelLanguage.foreignEndingStart(original: text, reread: reread.text,
                     padded: decoded.text, language: reread.language, acoustic: isolated, sampleCount: core.count, vocabulary: vocabulary) {
-                    let focused = measureRecognition("parakeet") { model.generate(Array(core[start...])).text }
-                    if BackchannelLanguage.confirmsLatinSource(original: reread.text, reread: focused) {
+                    let tail = Array(core[start...])
+                    let focused = measureRecognition("parakeet") { model.generate(tail).text }
+                    let confirmed = BackchannelLanguage.confirmsForeignEnding(reread.text, focused: focused) {
+                        measureRecognition("parakeet") { model.generate(tail + [Float](repeating: 0, count: 2_000)).text }
+                    }
+                    if confirmed {
                         return RecognizedSpeech(text: reread.text, independentLanguage: true, acoustic: retainedEvidence)
                     }
                 }
