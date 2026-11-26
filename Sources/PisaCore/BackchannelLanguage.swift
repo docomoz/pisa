@@ -1057,7 +1057,7 @@ enum BackchannelLanguage {
         }
         let punctuation = text.trimmingCharacters(in: .whitespacesAndNewlines).reversed().prefix { ".!?,:;…".contains($0) }
         let ending = words == ["uh"] && punctuation.allSatisfy({ ".…".contains($0) }) ? "…" : String(punctuation.reversed())
-        return spelling.prefix(1).uppercased() + spelling.dropFirst() + ending
+        return spelling.prefix(1).uppercased() + String(spelling.dropFirst()) + ending
     }
 
     // A sustained vowel is one sound. Commas or spaces between vowels still
