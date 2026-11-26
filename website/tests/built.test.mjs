@@ -97,8 +97,16 @@ test('the built page uses the configured measurement ID', async () => {
   assert.equal(meta?.[1] ?? '', id);
 });
 
-test('the retired migration guide is unavailable', async () => {
+test('legacy migration links lead to the guide for both old app identifiers', async () => {
   for (const path of ['/migration', '/migration.html']) {
-    assert.equal((await worker.fetch(request(path))).status, 404);
+    for (const method of ['GET', 'HEAD']) {
+      const response = await worker.fetch(request(path, method));
+      assert.equal(response.status, 302);
+      assert.equal(response.headers.get('location'), 'https://github.com/docomoz/pisa/blob/main/docs/migration.md');
+    }
   }
+  const guide = await readFile(new URL('../../docs/migration.md', import.meta.url), 'utf8');
+  assert.match(guide, /com\.docomoz\.pisya/);
+  assert.match(guide, /com\.domocoz\.pisa/);
+  assert.match(guide, /com\.docomoz\.pisa/);
 });
