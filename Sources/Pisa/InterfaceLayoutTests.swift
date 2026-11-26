@@ -173,6 +173,13 @@ enum InterfaceLayoutTests {
                 print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
                 return suite.failures == 0 && suite.checks > 0 ? 0 : 1
             }
+            if scenario == nil || scenario == "dictionary-search" {
+                try suite.checkDictionarySearchNavigation(state: AppState(rootURL: root.appendingPathComponent("dictionary-search")))
+                if scenario == "dictionary-search" {
+                    print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
+                    return suite.failures == 0 && suite.checks > 0 ? 0 : 1
+                }
+            }
             if scenario == nil || scenario == "term-review" {
                 try suite.checkTermSuggestions(state: AppState(rootURL: root.appendingPathComponent("term-suggestions")))
                 // Run in AppKit's event loop so the candidate and occurrence tasks can resume.
@@ -1168,12 +1175,30 @@ private final class LayoutSuite {
             check(host.type("аза з", into: field) && host.frames[firstRow] == nil,
                   "a fragment inside a word does not open suggestions")
 
-            let tabKeys: [(String, String, NSEvent.ModifierFlags)] = [("ба з", "\t", []), (query, "\u{19}", .shift)]
-            for (editedQuery, key, modifiers) in tabKeys {
-                check(host.type(editedQuery, into: field) && host.frames[firstRow] != nil, "editing reopens the dropdown")
-                host.pressKey(key, keyCode: 48, modifiers: modifiers)
-                check(host.frames[firstRow] == nil && !host.isEditing(field), "Tab navigation dismisses suggestions and moves focus")
-            }
+            host.pressKey("\t", keyCode: 48)
+            check(!host.isEditing(field), "Tab without suggestions follows the normal focus order")
+            check(host.type("ба з", into: field) && host.frames[firstRow] != nil, "editing reopens the dropdown")
+            host.pressKey("\t", keyCode: 48)
+            check(host.frames[firstRow] != nil && !host.isEditing(field), "Tab transfers focus from the editor to the suggestions")
+            try saveScreenshot("term-suggestions-tab-\(percent)", in: host)
+            host.pressKey("\u{f701}", keyCode: 125)
+            host.pressReturn()
+            check(host.wait { field.currentEditor()?.string == second }, "Down and Return choose the second suggestion after Tab")
+
+            check(host.type(query, into: field), "editing reopens suggestions after a keyboard selection")
+            host.pressKey("\t", keyCode: 48)
+            host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
+            check(host.frames[firstRow] == nil && host.isEditing(field), "Shift-Tab from the suggestions returns to the field")
+
+            check(host.type("ба з", into: field), "editing reopens suggestions before verifying Escape")
+            host.pressKey("\t", keyCode: 48)
+            host.pressKey("\u{1b}", keyCode: 53)
+            check(host.frames[firstRow] == nil && host.isEditing(field), "Escape from the suggestions returns to the field")
+
+            check(host.type(query, into: field), "editing reopens suggestions before verifying forward Tab")
+            host.pressKey("\t", keyCode: 48)
+            host.pressKey("\t", keyCode: 48)
+            check(host.frames[firstRow] == nil && !host.isEditing(field), "a second Tab leaves and dismisses the suggestions")
 
             check(host.type("зна", into: field), "the dropdown reopens using the start of the second word")
             if let row = host.frames[firstRow], let anchor = host.frames[.termReplacement] {
@@ -1187,6 +1212,51 @@ private final class LayoutSuite {
             check(state.meetings.first(where: { $0.id == meeting.id })?.segments.first?.text == original &&
                   !state.canUndoTermReplacement(meetingID: meeting.id),
                   "choosing a suggestion leaves the transcript unchanged until applying the correction")
+        }
+    }
+
+    func checkDictionarySearchNavigation(state: AppState) throws {
+        let names = (1...30).map { "Термин \($0)" }
+        let vocabulary = (["Другая запись"] + names).joined(separator: "\n")
+        state.preferences.vocabulary = vocabulary
+        guard let last = VocabularyDictionary.entries(in: vocabulary).last else {
+            throw PisaError.message("The dictionary search fixture is empty")
+        }
+        for scale: CGFloat in [1, 1.2] {
+            let percent = Int(scale * 100)
+            scenario = "dictionary result navigation, \(percent)%"
+            let host = LayoutHost(SettingsView(initialSection: "Словарь").environmentObject(state),
+                                  size: CGSize(width: 900, height: 700), scale: scale)
+            defer { host.close() }
+            guard let search = host.field(in: .zero, placeholder: "Поиск по словарю"),
+                  host.type("Термин", into: search) else {
+                check(false, "the dictionary search accepts a query")
+                continue
+            }
+            try saveScreenshot("dictionary-search-field-\(percent)", in: host)
+            host.pressKey("\t", keyCode: 48)
+            check(!host.isEditing(search), "Tab leaves the search field")
+            try saveScreenshot("dictionary-search-results-\(percent)", in: host)
+            host.pressKey("\u{19}", keyCode: 48, modifiers: .shift)
+            check(host.wait { host.isEditing(search) && search.currentEditor()?.string == "Термин" },
+                  "Shift-Tab from results returns to the current query")
+
+            host.pressKey("\t", keyCode: 48)
+            host.pressKey("\t", keyCode: 48)
+            if let input = host.field(in: .zero, placeholder: "Слово или название") {
+                check(host.isEditing(input), "a second Tab advances from results to the add field")
+            }
+            check(host.focus(search), "the user can return to the search field after leaving results")
+            host.pressKey("\t", keyCode: 48)
+            for _ in names { host.pressKey("\u{f701}", keyCode: 125) }
+            check(host.wait { host.frames[.dictionaryRow(last.id)] != nil }, "Down scrolls to the last search result")
+            try saveScreenshot("dictionary-search-scrolled-\(percent)", in: host)
+            host.pressKey("\u{f700}", keyCode: 126)
+            host.pressReturn()
+            check(host.wait { host.sheetContainsField(value: "Термин 29") },
+                  "Return opens the result selected with Tab and the arrow keys")
+            check(state.preferences.vocabulary == vocabulary,
+                  "selecting a search result leaves the dictionary unchanged")
         }
     }
 

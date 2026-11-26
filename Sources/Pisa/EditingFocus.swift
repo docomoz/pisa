@@ -61,6 +61,12 @@ struct FormSuggestionSelection {
         return matches[selectedIndex]
     }
 
+    mutating func activate(matches: [String]) -> Bool {
+        guard !matches.isEmpty else { return false }
+        if selected(in: matches) == nil { selectedIndex = 0 }
+        return true
+    }
+
     mutating func handle(_ command: Selector, matches: [String]) -> Bool {
         switch command {
         case #selector(NSResponder.moveDown(_:)):
@@ -90,12 +96,80 @@ struct FormSuggestionFieldBounds: PreferenceKey {
     }
 }
 
+/// An explicit keyboard target for a list entered from an AppKit field editor.
+struct ListKeyboardFocus: NSViewRepresentable {
+    @Binding var isFocused: Bool
+    let onCommand: (Selector) -> Bool
+
+    func makeNSView(context: Context) -> Target {
+        let view = Target()
+        view.focusRingType = .none
+        return view
+    }
+
+    func updateNSView(_ view: Target, context: Context) {
+        view.focused = $isFocused
+        view.onCommand = onCommand
+        guard isFocused, view.window?.firstResponder !== view else { return }
+        DispatchQueue.main.async { [weak view] in
+            guard let view, let window = view.window, window.firstResponder !== view,
+                  view.focused?.wrappedValue == true else { return }
+            view.originatingField = (window.firstResponder as? NSTextView)?.delegate as? NSTextField
+            window.makeFirstResponder(view)
+        }
+    }
+
+    final class Target: NSView {
+        var focused: Binding<Bool>?
+        var onCommand: ((Selector) -> Bool)?
+        weak var originatingField: NSTextField?
+
+        override var acceptsFirstResponder: Bool { true }
+        override var canBecomeKeyView: Bool { false }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func resignFirstResponder() -> Bool {
+            guard super.resignFirstResponder() else { return false }
+            focused?.wrappedValue = false
+            return true
+        }
+
+        override func keyDown(with event: NSEvent) {
+            guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
+                super.keyDown(with: event)
+                return
+            }
+            let command: Selector
+            switch event.keyCode {
+            case 125: command = #selector(NSResponder.moveDown(_:))
+            case 126: command = #selector(NSResponder.moveUp(_:))
+            case 36, 76: command = #selector(NSResponder.insertNewline(_:))
+            case 53: command = #selector(NSResponder.cancelOperation(_:))
+            case 48:
+                command = event.modifierFlags.contains(.shift)
+                    ? #selector(NSResponder.insertBacktab(_:)) : #selector(NSResponder.insertTab(_:))
+            default: super.keyDown(with: event); return
+            }
+            if onCommand?(command) == true { return }
+            guard command == #selector(NSResponder.insertTab(_:)) else {
+                super.keyDown(with: event)
+                return
+            }
+            if let originatingField, let window, originatingField.window === window {
+                window.selectKeyView(following: originatingField)
+            } else { window?.selectNextKeyView(self) }
+        }
+    }
+}
+
 struct FormSuggestionOverlay: View {
     let anchor: Anchor<CGRect>?
     let matches: [String]
     let selectedIndex: Int?
     let element: (String) -> InterfaceLayoutElement
     let choose: (String) -> Void
+    var keyboardFocus: Binding<Bool>?
+    var onListCommand: ((Selector) -> Bool)?
 
     var body: some View {
         GeometryReader { geometry in
@@ -112,9 +186,9 @@ struct FormSuggestionOverlay: View {
         }
     }
 
-    private func list(maxContentHeight: CGFloat) -> some View {
+    @ViewBuilder private func list(maxContentHeight: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: PisaDesign.Metrics.cornerRadius)
-        return ScrollViewReader { proxy in
+        let list = ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
                     ForEach(Array(matches.enumerated()), id: \.element) { index, match in
@@ -140,6 +214,13 @@ struct FormSuggestionOverlay: View {
             }
         }
         .background(SlimScrollbars().allowsHitTesting(false))
+        if let keyboardFocus, let onListCommand {
+            list.background(ListKeyboardFocus(isFocused: keyboardFocus, onCommand: onListCommand))
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(typographicText("Подсказки"))
+        } else {
+            list
+        }
     }
 }
 

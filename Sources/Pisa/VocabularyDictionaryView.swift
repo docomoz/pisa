@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 extension AppState {
     /// Publish only after the complete current preferences have been written atomically.
@@ -23,6 +24,9 @@ struct VocabularyDictionaryView: View {
     @State private var confirmingSpelling = false
     @State private var removal: VocabularyDictionary.Removal?
     @State private var inputFocused = false
+    @State private var searchFocused = false
+    @State private var keyboardResult: Int?
+    @State private var resultsFocused = false
     @FocusState private var focusedRowControl: RowControl?
 
     private enum RowControl: Hashable {
@@ -42,6 +46,7 @@ struct VocabularyDictionaryView: View {
     }
 
     var body: some View {
+        let results = filtered
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
             SectionHeading(
                 "Словарь распознавания",
@@ -50,7 +55,8 @@ struct VocabularyDictionaryView: View {
                 .monospacedDigit()
                 .measuredForInterfaceTest(.dictionaryHeading)
             HStack(spacing: PisaDesign.Spacing.related) {
-                SearchField(title: typographicText("Поиск по словарю"), text: $search)
+                SearchField(title: typographicText("Поиск по словарю"), text: $search,
+                            isFocused: $searchFocused, onCommand: handleSearchCommand)
                     .measuredForInterfaceTest(.dictionarySearch)
                 FormTextField(title: "Слово или название", text: $input, isFocused: $inputFocused, onSubmit: { add() })
                     .measuredForInterfaceTest(.dictionaryEntry)
@@ -80,13 +86,14 @@ struct VocabularyDictionaryView: View {
                     LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
                         if entries.isEmpty {
                             SupportingText("Добавьте имена и названия, которые Pisa записывает неточно")
-                        } else if filtered.isEmpty {
+                        } else if results.isEmpty {
                             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                                 SectionHeading("Ничего не найдено")
                                 screenButton("Очистить поиск") { search = "" }.actionButton()
                             }
                         }
-                        ForEach(filtered) { entry in
+                        ForEach(results) { entry in
+                            let isKeyboardResult = resultsFocused && keyboardResult == entry.id
                             HStack(spacing: PisaDesign.Spacing.none) {
                                 Button { editing = entry } label: {
                                     screenText(entry.text, highlighting: search)
@@ -101,6 +108,7 @@ struct VocabularyDictionaryView: View {
                                 .shapeAwarePlainButton()
                                 .focused($focusedRowControl, equals: .edit(entry.id))
                                 .accessibilityLabel(typographicText("Изменить «\(entry.text)»"))
+                                .accessibilityAddTraits(isKeyboardResult ? .isSelected : [])
                                 SettingsRowMenu(help: "Действия с записью словаря", accessibilityTitle: "Действия с записью «\(entry.text)»") {
                                     [
                                         NativeActionMenuItem("Изменить…") { editing = entry },
@@ -110,11 +118,21 @@ struct VocabularyDictionaryView: View {
                                 .focused($focusedRowControl, equals: .menu(entry.id))
                                 .padding(.trailing, PisaDesign.Spacing.related)
                             }
-                            .settingsRowHighlight(highlighted == entry.id)
+                            .settingsRowHighlight(highlighted == entry.id || isKeyboardResult)
                             .measuredForInterfaceTest(.dictionaryRow(entry.id))
                             .id(entry.id)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(ListKeyboardFocus(isFocused: $resultsFocused, onCommand: handleResultCommand))
+                .onChange(of: resultsFocused) { _, focused in
+                    if focused, let id = keyboardResult ?? results.first?.id {
+                        keyboardResult = id
+                        proxy.scrollTo(id)
+                    }
+                }
+                .onChange(of: keyboardResult) { _, id in
+                    if resultsFocused, let id { proxy.scrollTo(id) }
                 }
                 .onChange(of: focusedRowControl) { _, control in
                     if let control { proxy.scrollTo(control.entryID) }
@@ -139,6 +157,36 @@ struct VocabularyDictionaryView: View {
                 try? await Task.sleep(for: .seconds(3))
                 if !Task.isCancelled { highlighted = nil }
             }
+    }
+
+    private func handleSearchCommand(_ command: Selector) -> Bool {
+        guard command == #selector(NSResponder.insertTab(_:)), !search.isEmpty, let first = filtered.first else { return false }
+        keyboardResult = first.id
+        resultsFocused = true
+        return true
+    }
+
+    private func handleResultCommand(_ command: Selector) -> Bool {
+        let results = filtered
+        guard !results.isEmpty else { return false }
+        let index = results.firstIndex { $0.id == keyboardResult } ?? 0
+        switch command {
+        case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)):
+            let step = command == #selector(NSResponder.moveDown(_:)) ? 1 : -1
+            let next = min(results.count - 1, max(0, index + step))
+            keyboardResult = results[next].id
+        case #selector(NSResponder.insertNewline(_:)):
+            editing = results[index]
+        case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.insertBacktab(_:)):
+            resultsFocused = false
+            searchFocused = true
+        case #selector(NSResponder.insertTab(_:)):
+            resultsFocused = false
+            inputFocused = true
+        default:
+            return false
+        }
+        return true
     }
 
     private func perform(_ operation: () throws -> Void) {

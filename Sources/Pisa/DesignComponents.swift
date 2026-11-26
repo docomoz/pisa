@@ -89,11 +89,12 @@ struct SearchField: View {
     @Binding var text: String
     var compact = false
     var isFocused: Binding<Bool>?
+    var onCommand: ((Selector) -> Bool)?
 
     var body: some View {
         HStack(spacing: PisaDesign.Spacing.inline) {
             Image(systemName: "magnifyingglass").foregroundStyle(Color.mutedInk)
-            SingleLineTextField(title: title, text: $text, compact: compact, isFocused: isFocused)
+            SingleLineTextField(title: title, text: $text, compact: compact, isFocused: isFocused, onCommand: onCommand)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .shapeAwarePlainButton(Circle()).screenHelp("Очистить поиск")

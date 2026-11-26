@@ -154,6 +154,7 @@ struct TermReview: View {
     @State private var notice: String?
     @State private var replacementFocused = false
     @State private var suggestionSelection = FormSuggestionSelection()
+    @State private var suggestionListFocused = false
     @State private var lastReplacement: (source: String, label: String?, correctedSource: String)?
     @State private var dictionary: TranscriptTerms.DictionaryAdditions?
     @State private var dictionaryTerms: [String] = []
@@ -335,7 +336,8 @@ struct TermReview: View {
         }
         .overlayPreferenceValue(FormSuggestionFieldBounds.self, alignment: .topLeading) { anchor in
             FormSuggestionOverlay(anchor: anchor, matches: suggestions, selectedIndex: suggestionSelection.selectedIndex,
-                                  element: InterfaceLayoutElement.termSuggestion, choose: chooseSuggestion)
+                                  element: InterfaceLayoutElement.termSuggestion, choose: chooseSuggestion,
+                                  keyboardFocus: $suggestionListFocused, onListCommand: handleSuggestionCommand)
         }
         .padding(.leading, PisaDesign.Spacing.content)
     }
@@ -346,9 +348,34 @@ struct TermReview: View {
             replacement = text
             suggestionSelection.open()
         }), isFocused: $replacementFocused, accessibilityTitle: "Правильное написание",
-                      onSubmit: submitReplacement, onCommand: { suggestionSelection.handle($0, matches: suggestions) })
+                      onSubmit: submitReplacement, onCommand: handleReplacementCommand)
             .anchorPreference(key: FormSuggestionFieldBounds.self, value: .bounds) { $0 }
             .measuredForInterfaceTest(.termReplacement)
+    }
+
+    private func handleReplacementCommand(_ command: Selector) -> Bool {
+        let matches = suggestions
+        if command == #selector(NSResponder.insertTab(_:)), suggestionSelection.activate(matches: matches) {
+            suggestionListFocused = true
+            return true
+        }
+        return suggestionSelection.handle(command, matches: matches)
+    }
+
+    private func handleSuggestionCommand(_ command: Selector) -> Bool {
+        let matches = suggestions
+        switch command {
+        case #selector(NSResponder.insertNewline(_:)):
+            if let suggestion = suggestionSelection.selected(in: matches) { chooseSuggestion(suggestion) }
+            return true
+        case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.insertBacktab(_:)):
+            suggestionSelection.close()
+            suggestionListFocused = false
+            replacementFocused = true
+            return true
+        default:
+            return suggestionSelection.handle(command, matches: matches)
+        }
     }
 
     private func submitReplacement() {
@@ -362,6 +389,7 @@ struct TermReview: View {
     private func chooseSuggestion(_ suggestion: String) {
         replacement = suggestion
         suggestionSelection.close()
+        suggestionListFocused = false
         replacementFocused = true
     }
 
