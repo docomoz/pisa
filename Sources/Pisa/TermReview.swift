@@ -153,8 +153,10 @@ struct TermReview: View {
     @State private var replacement = ""
     @State private var notice: String?
     @State private var replacementFocused = false
+    @State private var suggestionSelection = FormSuggestionSelection()
     @State private var lastReplacement: (source: String, label: String?, correctedSource: String)?
     @State private var dictionary: TranscriptTerms.DictionaryAdditions?
+    @State private var dictionaryTerms: [String] = []
 
     init(meeting: Meeting, candidateList: CandidateList? = nil) {
         self.meeting = meeting
@@ -172,6 +174,11 @@ struct TermReview: View {
     }
     private var term: String { replacement.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var searchTerm: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var suggestions: [String] {
+        guard suggestionSelection.isOpen, !term.isEmpty else { return [] }
+        return dictionaryTerms.filter { $0 != term && $0.localizedCaseInsensitiveContains(term) }
+    }
+
     private func canReplace(_ occurrences: [TermOccurrence], with term: String) -> Bool {
         guard !term.isEmpty else { return false }
         var hasChanges = false
@@ -211,10 +218,16 @@ struct TermReview: View {
         }
         .dialogContent()
         .frame(width: 940, height: 660)
-        .background(ClickToUnfocus())
+        .background(ClickToUnfocus(onEscape: {
+            guard replacementFocused else { return false }
+            return suggestionSelection.dismiss(matches: suggestions)
+        }))
         .onChange(of: input, initial: true) { _, input in candidateList.prepare(input) }
         .onChange(of: input.vocabulary, initial: true) { _, vocabulary in
             dictionary = TranscriptTerms.DictionaryAdditions(vocabulary)
+            var seen: Set<String> = []
+            dictionaryTerms = VocabularyDictionary.entries(in: vocabulary).map(\.text).filter { seen.insert($0).inserted }
+            suggestionSelection.close()
         }
         .task(id: request) { await refreshMatches(request) }
         .onDisappear { state.stopPlayback() }
@@ -284,12 +297,11 @@ struct TermReview: View {
             if let source {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
                     SectionHeading("Правильное написание", subtitle: "В тексте: «\(sourceLabel ?? source)». При замене основы аббревиатуры окончания сохраняются.")
-                    FormTextField(title: "Термин", text: $replacement, isFocused: $replacementFocused,
-                                  accessibilityTitle: "Правильное написание", onSubmit: replace)
-                        .measuredForInterfaceTest(.termReplacement)
+                    replacementEditor
                     HStack(spacing: PisaDesign.Spacing.inline) {
                         screenButton("Исправить все", action: replace).actionButton(.primary)
                             .disabled(!canReplace(matches?.spellingSamples ?? [], with: term))
+                            .measuredForInterfaceTest(.termApply)
                         screenButton("Добавить в словарь", action: addTerm).actionButton()
                             .disabled(dictionary?.termToAdd(term) == nil)
                             .measuredForInterfaceTest(.termAdd)
@@ -320,7 +332,36 @@ struct TermReview: View {
             }
             Spacer(minLength: 0)
         }
+        .overlayPreferenceValue(FormSuggestionFieldBounds.self, alignment: .topLeading) { anchor in
+            FormSuggestionOverlay(anchor: anchor, matches: suggestions, selectedIndex: suggestionSelection.selectedIndex,
+                                  element: InterfaceLayoutElement.termSuggestion, choose: chooseSuggestion)
+        }
         .padding(.leading, PisaDesign.Spacing.content)
+    }
+
+    private var replacementEditor: some View {
+        // Update the suggestions in the native edit callback before any arrow or Return event.
+        FormTextField(title: "Термин", text: Binding(get: { replacement }, set: { text in
+            replacement = text
+            suggestionSelection.open()
+        }), isFocused: $replacementFocused, accessibilityTitle: "Правильное написание",
+                      onSubmit: submitReplacement, onCommand: { suggestionSelection.handle($0, matches: suggestions) })
+            .anchorPreference(key: FormSuggestionFieldBounds.self, value: .bounds) { $0 }
+            .measuredForInterfaceTest(.termReplacement)
+    }
+
+    private func submitReplacement() {
+        if let suggestion = suggestionSelection.selected(in: suggestions) {
+            chooseSuggestion(suggestion)
+        } else {
+            replace()
+        }
+    }
+
+    private func chooseSuggestion(_ suggestion: String) {
+        replacement = suggestion
+        suggestionSelection.close()
+        replacementFocused = true
     }
 
     private func occurrenceRow(_ occurrence: TermOccurrence, segment: TranscriptSegment, meeting: Meeting,
@@ -378,6 +419,7 @@ struct TermReview: View {
     }
 
     private func select(_ text: String, label: String? = nil) {
+        suggestionSelection.close()
         selectionID = UUID()
         source = text
         sourceLabel = label
@@ -430,6 +472,7 @@ struct TermReview: View {
             source = correctedSource
             sourceLabel = nil
             replacement = corrected
+            suggestionSelection.close()
             replacementFocused = false
             notice = "Исправлено: \(chosen.count)"
         } catch { notice = error.localizedDescription }
@@ -439,6 +482,7 @@ struct TermReview: View {
         do {
             let previous = input
             try state.undoTermReplacement(meetingID: meeting.id)
+            suggestionSelection.close()
             candidateList.apply(.undo, from: previous, to: input)
             if let lastReplacement, source == lastReplacement.correctedSource {
                 source = lastReplacement.source

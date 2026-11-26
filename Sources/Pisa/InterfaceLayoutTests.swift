@@ -28,8 +28,8 @@ enum InterfaceLayoutElement: Hashable {
     case exportPath, exportChooseFolder, exportUnavailableNotice, exportCloudNotice
     case mcpAccessNotice, mcpCopyConfiguration
     case dictionaryHeading, dictionarySearch, dictionaryEntry, dictionaryAdd, dictionaryResult, dictionaryEdit, dictionaryRow(Int)
-    case termSearch, termFind, termReplacement, termAdd, termUndo
-    case termCandidate(String)
+    case termSearch, termFind, termReplacement, termApply, termAdd, termUndo
+    case termCandidate(String), termSuggestion(String)
     case renameField, folderName, voiceName, voiceSample(UUID), savedVoiceSearch, savedVoiceName, voiceMergeSearch
     case folderIcon(String), folderSave
     case savedVoiceHeading, savedVoiceRow(UUID)
@@ -173,16 +173,23 @@ enum InterfaceLayoutTests {
                 print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
                 return suite.failures == 0 && suite.checks > 0 ? 0 : 1
             }
+            if scenario == nil || scenario == "term-review" {
+                try suite.checkTermSuggestions(state: AppState(rootURL: root.appendingPathComponent("term-suggestions")))
+                // Run in AppKit's event loop so the candidate and occurrence tasks can resume.
+                if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
+                    return 1
+                }
+                if scenario == "term-review" {
+                    print("INTERFACE_LAYOUT_TEST_RESULT checks=\(suite.checks) failures=\(suite.failures)")
+                    return suite.failures == 0 && suite.checks > 0 ? 0 : 1
+                }
+            }
             guard scenario == nil || scenario == "transcript-review" else {
                 throw PisaError.message("Неизвестный сценарий проверки интерфейса")
             }
             if scenario == nil {
                 try suite.checkVoiceSample(state: AppState(rootURL: root.appendingPathComponent("voice-sample")))
                 try suite.checkActiveRecordingFolder(state: AppState(rootURL: root.appendingPathComponent("active-folder")))
-                // Run in AppKit's event loop so the candidate and occurrence tasks can resume.
-                if !runTermReplacement(state: AppState(rootURL: root.appendingPathComponent("term-review")), app: app) {
-                    return 1
-                }
                 try suite.checkScreens(state: state)
             }
             var result: Int32 = 1
@@ -238,6 +245,7 @@ enum InterfaceLayoutTests {
                               text: "Обсудили MapKit, LLM и Qwen3-ASR. Нашли резюме на хедхантере.")
         }
         state.update(meeting)
+        state.preferences.vocabulary = TranscriptTerms.adding("Cluster Kubernetes", to: state.preferences.vocabulary)
         let originalVocabulary = state.preferences.vocabulary
         let candidates = TermReview.CandidateList()
         let size = CGSize(width: 940, height: 660)
@@ -284,10 +292,21 @@ enum InterfaceLayoutTests {
             }
             host.pressReturn()
             try capture("01-selected", in: host)
+            let suggestion = InterfaceLayoutElement.termSuggestion("Cluster Kubernetes")
             guard let replacement = host.field(in: .zero, placeholder: "Термин"),
-                  host.type("Kubernetes", into: replacement) else {
-                throw PisaError.message("Replacement field did not accept a term")
+                  host.type("Kubernetes", into: replacement),
+                  try await wait(in: host, for: { host.frames[suggestion] != nil }) else {
+                throw PisaError.message("Replacement field did not show the dictionary suggestion")
             }
+            host.pressKey("\u{f701}", keyCode: 125)
+            host.pressReturn()
+            guard replacement.currentEditor()?.string == "Cluster Kubernetes",
+                  !state.canUndoTermReplacement(meetingID: meeting.id),
+                  host.type("Kubernetes", into: replacement),
+                  try await wait(in: host, for: { host.frames[suggestion] != nil }) else {
+                throw PisaError.message("Return did not fill the selected suggestion without applying a correction")
+            }
+            // With the same dropdown visible but no selected row, Return still submits the typed correction.
             guard try await wait(in: host, for: {
                 host.pressReturn(settle: false)
                 return state.canUndoTermReplacement(meetingID: meeting.id)
@@ -1079,6 +1098,92 @@ private final class LayoutSuite {
                 checkField(.termReplacement, placeholder: false, nativePlaceholder: "Термин", in: host)
                 checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
             }
+        }
+    }
+
+    func checkTermSuggestions(state: AppState) throws {
+        var meeting = Meeting(title: "Разметка терминов", source: "Тест интерфейса")
+        meeting.status = .ready
+        let original = "Обсудили справочник для команды."
+        meeting.segments = [TranscriptSegment(start: 0, end: 3, speaker: "Анна", text: original)]
+        state.update(meeting)
+        let first = "База знаний"
+        let second = "База звонков"
+        let last = "База задач №6"
+        let entries = [first, second] + (1...6).map { "База задач №\($0)" }
+        state.preferences.vocabulary = (["Справочник"] + entries).joined(separator: "\n")
+        let query = "ЗА З"
+        let firstRow = InterfaceLayoutElement.termSuggestion(first)
+        let lastRow = InterfaceLayoutElement.termSuggestion(last)
+
+        for scale: CGFloat in [1, 1.2] {
+            let percent = Int(scale * 100)
+            scenario = "term suggestions, \(percent)%"
+            let host = LayoutHost(TermReview(meeting: meeting).environmentObject(state),
+                                  size: CGSize(width: 940, height: 660), scale: scale)
+            defer { host.close() }
+            guard let search = host.field(in: .zero, placeholder: "Слово или фраза"),
+                  host.type("справочник", into: search) else {
+                check(false, "the term search accepts a source word")
+                continue
+            }
+            host.pressReturn()
+            checkField(.termReplacement, placeholder: false, nativePlaceholder: "Термин", in: host)
+            checkField(.termReplacement, placeholder: true, clear: true, nativePlaceholder: "Термин", in: host)
+            guard let field = host.field(in: .zero, placeholder: "Термин"),
+                  let closed = frames([.termReplacement, .termApply], in: host),
+                  host.type(query, into: field),
+                  let open = frames([.termApply, firstRow, lastRow], in: host) else {
+                check(false, "a case-insensitive substring opens the dictionary suggestions")
+                continue
+            }
+            check(host.frames[.termSuggestion("Справочник")] == nil, "the dropdown omits unrelated dictionary entries")
+            equal(open[0].minY, closed[1].minY, "opening suggestions leaves the form in place")
+            check(open[1].minY >= closed[0].maxY, "suggestions appear beneath the correction field")
+            check(open[1].intersects(open[0]), "suggestions cover the form")
+
+            host.pressKey("\u{f701}", keyCode: 125)
+            host.pressKey("\u{f701}", keyCode: 125)
+            host.pressKey("\u{f700}", keyCode: 126)
+            try saveScreenshot("term-suggestions-open-\(percent)", in: host)
+            host.pressReturn()
+            check(host.wait { field.currentEditor()?.string == first }, "Return inserts the highlighted suggestion")
+            check(host.frames[firstRow] == nil && host.isEditing(field), "selection closes the dropdown and keeps focus")
+            try saveScreenshot("term-suggestions-filled-\(percent)", in: host)
+
+            check(host.type(query, into: field, settle: false), "the correction field accepts a fresh query")
+            host.pressKey("\u{f701}", keyCode: 125, settle: false)
+            host.pressKey("\u{f701}", keyCode: 125, settle: false)
+            host.pressKey("\u{3}", keyCode: 76, modifiers: .numericPad)
+            check(host.wait { field.currentEditor()?.string == second }, "quick typing, Down, Down and keypad Enter insert the second suggestion")
+
+            check(host.type(query, into: field), "the dropdown reopens for a new query")
+            for _ in entries { host.pressKey("\u{f701}", keyCode: 125) }
+            check(host.wait { (host.frames[lastRow]?.minY ?? open[2].minY) < open[2].minY },
+                  "arrow navigation scrolls the last suggestion into view")
+            try saveScreenshot("term-suggestions-scrolled-\(percent)", in: host)
+            host.pressKey("\u{1b}", keyCode: 53)
+            check(host.frames[firstRow] == nil && host.isEditing(field), "Escape closes suggestions and keeps focus")
+
+            let tabKeys: [(String, String, NSEvent.ModifierFlags)] = [("аза з", "\t", []), (query, "\u{19}", .shift)]
+            for (editedQuery, key, modifiers) in tabKeys {
+                check(host.type(editedQuery, into: field) && host.frames[firstRow] != nil, "editing reopens the dropdown")
+                host.pressKey(key, keyCode: 48, modifiers: modifiers)
+                check(host.frames[firstRow] == nil && !host.isEditing(field), "Tab navigation dismisses suggestions and moves focus")
+            }
+
+            check(host.type("аза з", into: field), "the dropdown reopens before a mouse selection")
+            if let row = host.frames[firstRow], let anchor = host.frames[.termReplacement] {
+                let center = host.center(of: field)
+                host.click(CGPoint(x: center.x + row.midX - anchor.midX, y: center.y + row.midY - anchor.midY))
+                check(host.wait { field.currentEditor()?.string == first }, "clicking a suggestion fills the field")
+                check(host.frames[firstRow] == nil, "clicking a suggestion closes the dropdown")
+            } else {
+                check(false, "the matching dictionary entry is available to click")
+            }
+            check(state.meetings.first(where: { $0.id == meeting.id })?.segments.first?.text == original &&
+                  !state.canUndoTermReplacement(meetingID: meeting.id),
+                  "choosing a suggestion leaves the transcript unchanged until applying the correction")
         }
     }
 
