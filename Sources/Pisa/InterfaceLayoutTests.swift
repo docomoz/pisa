@@ -1668,7 +1668,7 @@ private final class LayoutSuite {
 
     func checkVoiceSample(state: AppState) throws {
         let file = "voice-fixture-mic.caf"
-        let frameCount: AVAudioFrameCount = 48_000
+        let frameCount: AVAudioFrameCount = 144_000
         guard let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
               let samples = buffer.floatChannelData?[0] else {
@@ -1682,14 +1682,16 @@ private final class LayoutSuite {
 
         var meeting = Meeting(title: "Планы на следующую встречу", source: "Тестовое аудио")
         meeting.status = .ready
-        meeting.duration = 3
+        meeting.duration = 9
         meeting.audioFiles = [file]
         let reply = TranscriptSegment(start: 0, end: 3, speaker: "Анна", text: "Обсудим планы команды и уточним сроки")
-        meeting.segments = [reply]
-        state.update(meeting)
+        let sameSpeaker = TranscriptSegment(start: 3, end: 6, speaker: "Анна", text: "Сначала проверим расписание")
+        let nextSpeaker = TranscriptSegment(start: 6, end: 9, speaker: "Спикер 2", text: "Я подготовлю материалы")
+        meeting.segments = [reply, sameSpeaker, nextSpeaker]
 
         for (percent, scale) in [(100, 1.0), (120, 1.2)] {
             scenario = "voice sample, \(percent)%"
+            state.update(meeting)
             let host = LayoutHost(VoiceManager(meetingID: meeting.id).environmentObject(state),
                                   size: CGSize(width: 940, height: 660), scale: scale)
             defer { host.close() }
@@ -1710,6 +1712,33 @@ private final class LayoutSuite {
             try saveScreenshot("voice-sample-unchecked-\(percent)", in: host)
             host.click(toggle)
             check(host.wait { host.frames[.voicePreviewSample] != nil }, "checking the checkbox restores the sample preview")
+
+            host.click(toggle)
+            guard let secondReply = frames([.voiceSample(sameSpeaker.id)], in: host)?.first else { continue }
+            host.click(secondReply.center)
+            guard let nameFrame = frames([.voiceName], in: host)?.first,
+                  let nameField = host.field(in: nameFrame, placeholder: "Имя участника") else {
+                check(false, "voice name field is available for the second reply")
+                continue
+            }
+            check(host.frames[.voicePreviewSample] == nil, "another reply from the same speaker keeps the checkbox cleared")
+            check(host.type("Анна Крылова", into: nameField), "voice name accepts a new value")
+            host.pressReturn()
+            check(host.wait {
+                state.meetings.first(where: { $0.id == meeting.id })?.segments.first?.speaker == "Анна Крылова"
+            }, "applying the name with the checkbox cleared updates the transcript")
+            check(state.voiceProfiles.isEmpty, "applying the name with the checkbox cleared does not save a voice profile")
+
+            guard let otherReply = frames([.voiceSample(nextSpeaker.id)], in: host)?.first else { continue }
+            host.click(otherReply.center)
+            guard let nextNameFrame = frames([.voiceName], in: host)?.first,
+                  let nextNameField = host.field(in: nextNameFrame, placeholder: "Имя участника") else {
+                check(false, "voice name field is available for the next speaker")
+                continue
+            }
+            check(host.type("Борис", into: nextNameField), "the next speaker accepts a name")
+            check(host.wait { host.frames[.voicePreviewSample] != nil }, "a new speaker starts with the checkbox checked")
+            try saveScreenshot("voice-sample-next-speaker-\(percent)", in: host)
 
             let settings = LayoutHost(SettingsView(initialSection: "Голоса").environmentObject(state),
                                       size: CGSize(width: 900, height: 700), scale: scale)
