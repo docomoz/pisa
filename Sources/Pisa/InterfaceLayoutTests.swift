@@ -7,7 +7,7 @@ import SwiftUI
 // Attach passive measurements only when a test host supplies the named space.
 enum InterfaceLayoutElement: Hashable {
     case welcomeContent, welcomeTitle, welcomeDescription, welcomeAction
-    case mainToolbar, mainToolbarActions, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
+    case mainToolbar, mainToolbarLeading, mainToolbarActions, meetingMetadata, meetingTitle, meetingContent, meetingStatus, audioToggle, waveform
     case recognitionFooterLabel, recognitionFooterIcon, updateFooterLink, updateFooterIcon
     case transcriptionStatusHeading, transcriptionStatusAction, transcriptionStoppingAction
     case transcriptionProgressCaption, transcriptionProgressRow
@@ -953,8 +953,8 @@ private final class LayoutSuite {
     }
 
     private func checkMainHeader(in host: LayoutHost) {
-        guard let measured = frames([.sidebarFolders, .sidebarAllRecordings, .librarySearch, .sidebarTrash, .mainToolbar, .mainToolbarActions], in: host) else { return }
-        let (folders, allRecordings, search, trash, toolbar, actions) = (measured[0], measured[1], measured[2], measured[3], measured[4], measured[5])
+        guard let measured = frames([.sidebarFolders, .sidebarAllRecordings, .librarySearch, .sidebarTrash, .mainToolbar, .mainToolbarLeading, .mainToolbarActions], in: host) else { return }
+        let (folders, allRecordings, search, trash, toolbar, leading, actions) = (measured[0], measured[1], measured[2], measured[3], measured[4], measured[5], measured[6])
         equal(folders.minY, 8, "sidebar folders start eight points below the content edge")
         check(search.minY > folders.maxY, "library search sits below the folder list")
         check(trash.minY > search.maxY && host.bounds.contains(trash), "trash stays pinned at the bottom of the sidebar")
@@ -964,9 +964,11 @@ private final class LayoutSuite {
         equal(trash.minX, search.minX, "trash selection matches the library search left edge")
         equal(trash.maxX, search.maxX, "trash selection matches the library search right edge")
         check(host.bounds.contains(allRecordings) && host.bounds.contains(search), "sidebar folders and search fit inside the window")
-        equal(actions.midY - toolbar.minY, 30, "main toolbar actions are closer to the content edge")
-        equal(toolbar.height, 68, "the toolbar leaves eight more points for the meeting area")
-        check(toolbar.contains(actions), "main toolbar actions fit inside the toolbar")
+        equal(actions.minY, allRecordings.minY, "main toolbar actions align with the top edge of the All Recordings sidebar pill")
+        equal(leading.midY, actions.midY, "main toolbar brand or recording indicator stays centered with the toolbar actions")
+        equal(actions.midY - toolbar.minY, 26, "main toolbar actions align with the sidebar top inset")
+        equal(toolbar.height, 64, "the toolbar keeps spacing below its buttons while aligning with the sidebar")
+        check(toolbar.contains(leading) && toolbar.contains(actions), "main toolbar controls fit inside the toolbar")
     }
 
     private func checkWelcome(in host: LayoutHost) {
