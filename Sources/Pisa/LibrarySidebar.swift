@@ -40,7 +40,7 @@ struct LibrarySidebar: View {
             .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
                 folderScrollMetrics.geometry = geometry
             }
-            .modifier(ScrollEdgeFade())
+            .scrollEdgeFade(.sidebarTint)
             .task(id: folderScrollDirection) { await scrollDuringFolderDrag() }
             .measuredForInterfaceTest(.sidebarFolders)
             .padding(.top, PisaDesign.Spacing.inline)
@@ -62,7 +62,7 @@ struct LibrarySidebar: View {
             recordingsList
                 .padding(.top, state.isScopedFolderSearch ? PisaDesign.Spacing.related : PisaDesign.Spacing.none)
 
-            scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
+            scope("Корзина", icon: "trash", selected: state.showingTrash, labelElement: .sidebarTrashLabel) { state.openFolder(trash: true) }
                 .textStyle(PisaDesign.Typography.footnote)
                 .popupContextMenu { [NativeActionMenuItem("Очистить корзину", enabled: state.canEmptyTrash) { confirmEmptyTrash = true }] }
                 .measuredForInterfaceTest(.sidebarTrash)
@@ -97,13 +97,13 @@ struct LibrarySidebar: View {
 
     private var folderListHeight: CGFloat {
         let maxRows = 6
-        let maxRowHeight = ceil(max(18, PisaDesign.Typography.footnote.size * textScale * 1.35))
+        let maxRowHeight = ceil(max(PisaDesign.Metrics.navigationRowHeight, PisaDesign.Typography.footnote.size * textScale * 1.35))
             + 2 * PisaDesign.Spacing.inline + PisaDesign.Spacing.hairline
         let maxHeight = CGFloat(maxRows) * maxRowHeight
         if folderContentHeight > 0 {
             return min(maxHeight, folderContentHeight)
         }
-        let estimatedRowHeight = ceil(max(18, PisaDesign.Typography.footnote.size * textScale))
+        let estimatedRowHeight = ceil(max(PisaDesign.Metrics.navigationRowHeight, PisaDesign.Typography.footnote.size * textScale))
             + 2 * PisaDesign.Spacing.inline
         let count = min(maxRows, state.folders.count + 3)
         return CGFloat(count) * estimatedRowHeight
@@ -169,7 +169,8 @@ struct LibrarySidebar: View {
                 .frame(width: width, alignment: .leading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .modifier(ScrollEdgeFade())
+            .scrollEdgeFade(.sidebarTint, topElement: .sidebarTopFade, bottomElement: .sidebarBottomFade)
+            .measuredForInterfaceTest(.sidebarRecordingsScroll)
             .focusable().focusEffectDisabled().focused($recordingsFocused)
             .onMoveCommand { direction in
                 let rows = state.visibleMeetings
@@ -192,50 +193,6 @@ struct LibrarySidebar: View {
     private final class FolderScrollMetrics {
         var geometry: ScrollGeometry?
         var rowFrames: [UUID: CGRect] = [:]
-    }
-
-    private struct ScrollEdgeFadeEdges: Equatable {
-        var top = false
-        var bottom = false
-    }
-
-    private struct ScrollEdgeFade: ViewModifier {
-        @State private var edges = ScrollEdgeFadeEdges()
-
-        func body(content: Content) -> some View {
-            content
-                .onScrollGeometryChange(for: ScrollEdgeFadeEdges.self) { geometry in
-                    let offsetY = geometry.contentOffset.y
-                    let contentHeight = geometry.contentSize.height
-                    let containerHeight = geometry.containerSize.height
-                    let topInset = geometry.contentInsets.top
-                    let bottomInset = geometry.contentInsets.bottom
-                    return ScrollEdgeFadeEdges(
-                        top: offsetY + topInset > 1,
-                        bottom: contentHeight > containerHeight + 1
-                            && offsetY + containerHeight - bottomInset < contentHeight - 1
-                    )
-                } action: { _, updated in
-                    if edges != updated { edges = updated }
-                }
-                .overlay {
-                    VStack(spacing: PisaDesign.Spacing.none) {
-                        if edges.top {
-                            LinearGradient(colors: [Color.sidebarTint, Color.sidebarTint.opacity(0)],
-                                           startPoint: .top, endPoint: .bottom)
-                                .frame(height: PisaDesign.Spacing.related)
-                        }
-                        Spacer(minLength: PisaDesign.Spacing.none)
-                        if edges.bottom {
-                            LinearGradient(colors: [Color.sidebarTint.opacity(0), Color.sidebarTint],
-                                           startPoint: .top, endPoint: .bottom)
-                                .frame(height: PisaDesign.Spacing.related)
-                        }
-                    }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                }
-        }
     }
 
     private func sectionHeader(_ title: String, count: Int?) -> some View {
@@ -536,15 +493,20 @@ struct LibrarySidebar: View {
         }
     }
 
-    private func navigationLabel(_ name: String, icon: String) -> some View {
+    private func navigationLabel(_ name: String, icon: String, labelElement: InterfaceLayoutElement? = nil) -> some View {
         HStack(spacing: PisaDesign.Spacing.related) {
             FolderIcon.image(icon, size: PisaDesign.Typography.footnote.size * textScale)
-                .frame(width: 20, height: 18)
-            screenText(name).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 20, height: PisaDesign.Metrics.navigationRowHeight)
+            if let labelElement {
+                screenText(name).lineLimit(1).measuredForInterfaceTest(labelElement)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                screenText(name).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
-    private func scope(_ name: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { navigationLabel(name, icon: icon).frame(maxWidth: .infinity, alignment: .leading).padding(PisaDesign.Spacing.inline).plainSelection(selected, radius: PisaDesign.Metrics.navigationRadius).contentShape(Rectangle()) }.shapeAwarePlainButton()
+    private func scope(_ name: String, icon: String, selected: Bool, labelElement: InterfaceLayoutElement? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) { navigationLabel(name, icon: icon, labelElement: labelElement).frame(maxWidth: .infinity, alignment: .leading).padding(PisaDesign.Spacing.inline).plainSelection(selected, radius: PisaDesign.Metrics.navigationRadius).contentShape(Rectangle()) }.shapeAwarePlainButton()
     }
 }
 

@@ -144,7 +144,68 @@ struct Eyebrow: View {
     }
 }
 
+private struct ScrollEdgeFadeEdges: Equatable {
+    var top = false
+    var bottom = false
+}
+
+struct ScrollEdgeFade<TopModifier: ViewModifier, BottomModifier: ViewModifier>: ViewModifier {
+    let color: Color
+    let topModifier: TopModifier
+    let bottomModifier: BottomModifier
+    @State private var edges = ScrollEdgeFadeEdges()
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: ScrollEdgeFadeEdges.self) { geometry in
+                let offsetY = geometry.contentOffset.y
+                let contentHeight = geometry.contentSize.height
+                let containerHeight = geometry.containerSize.height
+                let topInset = geometry.contentInsets.top
+                let bottomInset = geometry.contentInsets.bottom
+                return ScrollEdgeFadeEdges(
+                    top: offsetY + topInset > 1,
+                    bottom: contentHeight > containerHeight + 1
+                        && offsetY + containerHeight - bottomInset < contentHeight - 1
+                )
+            } action: { _, updated in
+                if edges != updated { edges = updated }
+            }
+            .overlay {
+                VStack(spacing: PisaDesign.Spacing.none) {
+                    if edges.top {
+                        LinearGradient(colors: [color, color.opacity(0)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: PisaDesign.Spacing.related)
+                            .modifier(topModifier)
+                    }
+                    Spacer(minLength: PisaDesign.Spacing.none)
+                    if edges.bottom {
+                        LinearGradient(colors: [color.opacity(0), color],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: PisaDesign.Spacing.related)
+                            .modifier(bottomModifier)
+                    }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+    }
+}
+
 extension View {
+    func scrollEdgeFade(_ color: Color) -> some View {
+        modifier(ScrollEdgeFade(color: color, topModifier: EmptyModifier(), bottomModifier: EmptyModifier()))
+    }
+
+    func scrollEdgeFade<TopModifier: ViewModifier, BottomModifier: ViewModifier>(
+        _ color: Color,
+        topModifier: TopModifier,
+        bottomModifier: BottomModifier
+    ) -> some View {
+        modifier(ScrollEdgeFade(color: color, topModifier: topModifier, bottomModifier: bottomModifier))
+    }
+
     func dialogContent() -> some View {
         textStyle(PisaDesign.Typography.body).controlSize(.large).actionControls()
             .padding(PisaDesign.Spacing.sheetInset).popupCanvas()

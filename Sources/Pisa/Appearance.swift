@@ -32,6 +32,7 @@ enum PisaDesign {
         static let surfaceRadius: CGFloat = 12
         static let selectionRadius: CGFloat = 10
         static let navigationRadius: CGFloat = 9
+        static let navigationRowHeight: CGFloat = 18
         static let editorHeight: CGFloat = 180
         static let labelIconWidth: CGFloat = 24
         static let elapsedWidth: CGFloat = 58

@@ -71,8 +71,10 @@ struct MainView: View {
             }
         }
         .textStyle(PisaDesign.Typography.footnote)
+        .frame(minHeight: PisaDesign.Metrics.navigationRowHeight)
         .padding(.horizontal, PisaDesign.Spacing.page)
-        .padding(.vertical, PisaDesign.Spacing.content)
+        .padding(.top, PisaDesign.Spacing.inline + PisaDesign.Spacing.hairline)
+        .padding(.bottom, PisaDesign.Spacing.content)
     }
 
     private var sidebar: some View { LibrarySidebar(dateReference: recordingDateReference) }
@@ -452,8 +454,6 @@ struct MeetingView: View {
             }
             if showsAutomaticPlayer && !audioSources.isEmpty {
                 SavedAudioPlayer(sources: audioSources)
-            } else {
-                Divider()
             }
             if meeting.segments.isEmpty {
                 VStack(spacing: PisaDesign.Spacing.section) {
@@ -524,10 +524,15 @@ struct MeetingView: View {
                                 }
                             }
                         }
-                    }.padding(.vertical, PisaDesign.Spacing.section).padding(.trailing, PisaDesign.Spacing.related)
-                        .padding(.leading, PisaDesign.Spacing.inline)
-                        .opacity(isTranscribing && state.isReprocessing ? 0.6 : 1)
+                    }
+                    .padding(.top, PisaDesign.Spacing.content)
+                    .padding(.bottom, PisaDesign.Spacing.section)
+                    .padding(.trailing, PisaDesign.Spacing.related)
+                    .padding(.leading, PisaDesign.Spacing.inline)
+                    .opacity(isTranscribing && state.isReprocessing ? 0.6 : 1)
                 }
+                .scrollEdgeFade(.paper, topElement: .transcriptTopFade, bottomElement: .transcriptBottomFade)
+                .measuredForInterfaceTest(.transcriptScroll)
                 // Give the highlight room inside the scroll view while keeping rows aligned.
                 .padding(.leading, -PisaDesign.Spacing.inline)
                 .onAppear { revealSource(using: proxy) }
@@ -567,11 +572,13 @@ struct MeetingView: View {
                 }.frame(maxWidth: .infinity, alignment: .trailing)
             }
             HStack(spacing: PisaDesign.Spacing.inline) {
-                screenText("РАСШИФРОВКА").textStyle(PisaDesign.Typography.transcriptHeading)
+                screenText("РАСШИФРОВКА")
+                    .measuredForInterfaceTest(.transcriptHeading)
                 Spacer()
-                screenText(fragmentCount(meeting.segments.count))
-            }.textStyle(PisaDesign.Typography.footnoteMedium).foregroundStyle(Color.mutedInk)
-        }.padding(.bottom, PisaDesign.Spacing.related)
+                screenText(fragmentCount(meeting.segments.count).uppercased(with: Locale(identifier: "ru_RU")))
+                    .measuredForInterfaceTest(.transcriptFragmentCount)
+            }.textStyle(PisaDesign.Typography.transcriptHeading).foregroundStyle(Color.mutedInk)
+        }.padding(.bottom, PisaDesign.Spacing.inline)
     }
 
     private var detailsButton: some View {

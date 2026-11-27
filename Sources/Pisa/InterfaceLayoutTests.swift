@@ -14,10 +14,12 @@ enum InterfaceLayoutElement: Hashable {
     case savedAudioTranscriptionAction(String)
     case audioToggleLabel
     case transcriptSearch, librarySearch, firstMeetingAction, detailsButton
+    case transcriptHeading, transcriptFragmentCount, transcriptScroll, transcriptTopFade, transcriptBottomFade
     case reviewDisclosure(UUID), reviewReason(UUID), reviewDetails(UUID)
     case sidebarRecording(UUID), sidebarTranscriptionStatus(UUID, String)
     case sidebarRecordingFolder(UUID)
-    case sidebarFolders, sidebarAllRecordings, sidebarTrash, sidebarSectionHeading, sidebarOtherFoldersHeading
+    case sidebarFolders, sidebarAllRecordings, sidebarTrash, sidebarTrashLabel, sidebarSectionHeading, sidebarOtherFoldersHeading
+    case sidebarRecordingsScroll, sidebarTopFade, sidebarBottomFade
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
@@ -54,6 +56,14 @@ extension EnvironmentValues {
 extension View {
     func measuredForInterfaceTest(_ element: InterfaceLayoutElement) -> some View {
         modifier(InterfaceMeasurement(element: element))
+    }
+
+    func scrollEdgeFade(_ color: Color,
+                        topElement: InterfaceLayoutElement,
+                        bottomElement: InterfaceLayoutElement) -> some View {
+        scrollEdgeFade(color,
+                       topModifier: InterfaceMeasurement(element: topElement),
+                       bottomModifier: InterfaceMeasurement(element: bottomElement))
     }
 }
 
@@ -831,6 +841,21 @@ private final class LayoutSuite {
             meeting.status = index % 5 == 0 ? .failed : .ready
             if meeting.status == .failed {
                 meeting.error = "Обработка остановлена. Аудио сохранено."
+            } else if index == 1 {
+                var lines: [TranscriptSegment] = []
+                for line in 0..<24 {
+                    let start = TimeInterval(line * 15)
+                    let end = start + 12
+                    let speaker = line.isMultiple(of: 2) ? "Спикер" : "Собеседники"
+                    let number = line + 1
+                    lines.append(TranscriptSegment(
+                        start: start,
+                        end: end,
+                        speaker: speaker,
+                        text: "Обсуждаем динамику метрик и результаты этапа #\(number), сверяя планы команды по кварталу и следующие шаги."
+                    ))
+                }
+                meeting.segments = lines
             }
             meetings.append(meeting)
         }
@@ -839,6 +864,7 @@ private final class LayoutSuite {
 
         for (size, scale) in [(CGSize(width: 980, height: 660), 1.0), (CGSize(width: 1200, height: 800), 1.2)] {
             scenario = "large library sidebar \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
+            state.select(meetings.first?.id)
             var bodyEvaluations = 0
             LibrarySidebar.interfaceTestBodyObserver = { bodyEvaluations += 1 }
             defer { LibrarySidebar.interfaceTestBodyObserver = nil }
@@ -864,6 +890,45 @@ private final class LayoutSuite {
                   "large library sidebar stays idle after settling without scroll-geometry redraw loops (extra=\(extraEvaluations))")
             check(elapsed < 1.0,
                   "large library sidebar does not stall the main run loop (elapsed=\(elapsed)s)")
+
+            if meetings.count > 1 {
+                scenario = "transcript fades and footer \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
+                state.select(meetings[1].id)
+                host.settle()
+                check(host.frames[.transcriptTopFade] == nil, "top fade stays hidden while scrolled to the top")
+                if let measured = frames([
+                    .sidebarBottomFade, .transcriptBottomFade,
+                    .sidebarRecordingsScroll, .transcriptScroll,
+                    .sidebarTrashLabel, .recognitionFooterLabel,
+                    .transcriptHeading, .transcriptFragmentCount
+                ], in: host) {
+                    let (sidebarFade, transcriptFade, sidebarScroll, transcriptScroll,
+                         trashLabel, footerLabel, heading, count) = (
+                        measured[0], measured[1], measured[2], measured[3],
+                        measured[4], measured[5], measured[6], measured[7]
+                    )
+                    equal(sidebarFade.height, PisaDesign.Spacing.related, "sidebar bottom fade keeps standard height")
+                    equal(transcriptFade.height, sidebarFade.height, "transcript bottom fade matches the sidebar fade height")
+                    equal(transcriptFade.maxY, sidebarFade.maxY, "distance from window bottom to fade matches in sidebar and main window")
+                    equal(transcriptScroll.maxY, sidebarScroll.maxY, "transcript scroll bottom matches the sidebar list bottom")
+                    equal(footerLabel.midY, trashLabel.midY, "recognition footer shares the sidebar trash baseline")
+                    equal(footerLabel.maxY, trashLabel.maxY, "recognition footer matches the sidebar trash bottom edge")
+                    equal(footerLabel.height, trashLabel.height, "recognition footer matches the sidebar trash text height")
+                    equal(count.midY, heading.midY, "fragment count shares the transcript heading baseline")
+                    equal(count.height, heading.height, "fragment count matches the transcript heading height")
+                    equal(transcriptScroll.minY - heading.maxY, PisaDesign.Spacing.inline, "transcript starts directly below its heading without a divider")
+                    let gap = CGRect(x: heading.minX, y: heading.maxY, width: count.maxX - heading.minX, height: transcriptScroll.minY - heading.maxY)
+                    check(!host.hasHorizontalRule(in: gap), "no gray divider line appears below the transcript heading")
+
+                    check(host.scroll(containing: transcriptScroll.center, by: 120), "transcript scrolls down to reveal the top fade")
+                    if let scrolled = frames([.transcriptTopFade, .transcriptBottomFade], in: host) {
+                        equal(scrolled[0].minY, transcriptScroll.minY, "top fade sits at the top edge of the transcript scroll view")
+                        equal(scrolled[0].height, PisaDesign.Spacing.related, "top fade matches the sidebar fade height")
+                        equal(scrolled[1].maxY, sidebarFade.maxY, "scrolled transcript keeps the bottom fade aligned with the sidebar")
+                    }
+                    try saveScreenshot("transcript-fades-\(Int(size.width))-\(Int(scale * 100))", in: host)
+                }
+            }
         }
     }
 
@@ -1486,14 +1551,20 @@ private final class LayoutSuite {
         let host = LayoutHost(MainView(installUpdate: { clicks += 1 }, canInstallUpdate: true).environmentObject(state),
                               size: size, scale: scale)
         defer { host.close() }
-        if let measured = frames([.recognitionFooterLabel, .recognitionFooterIcon, .updateFooterLink, .updateFooterIcon], in: host) {
-            let (label, recognitionIcon, link, icon) = (measured[0], measured[1], measured[2], measured[3])
+        if let measured = frames([.recognitionFooterLabel, .recognitionFooterIcon, .updateFooterLink, .updateFooterIcon, .sidebarTrashLabel, .sidebarRecordingsScroll], in: host) {
+            let (label, recognitionIcon, link, icon, trashLabel, sidebarScroll) = (measured[0], measured[1], measured[2], measured[3], measured[4], measured[5])
+            equal(label.midY, trashLabel.midY, "recognition footer shares the sidebar trash baseline")
+            equal(label.maxY, trashLabel.maxY, "recognition footer matches the sidebar trash bottom edge")
+            equal(label.height, trashLabel.height, "recognition footer matches the sidebar trash text height")
             equal(link.midY, label.midY, "update link shares the recognition footer's baseline")
             equal(link.height, label.height, "update link uses the recognition footer's text size")
             equal(link.maxX, size.width - PisaDesign.Spacing.page, "update link is aligned to the right content edge")
-            equal(link.maxY, size.height - PisaDesign.Spacing.content, "update link sits at the bottom of the window")
+            equal(link.maxY, trashLabel.maxY, "update link shares the sidebar trash baseline at the bottom of the window")
             equal(link.minX - icon.maxX, label.minX - recognitionIcon.maxX, "both footer labels use the same icon-to-text spacing")
             check(abs(icon.midY - link.midY) <= 1, "update icon is centered beside the link text")
+            if let transcriptScroll = host.frames[.transcriptScroll] {
+                equal(transcriptScroll.maxY, sidebarScroll.maxY, "transcript bottom matches the sidebar list bottom")
+            }
             host.click(link.center)
             check(clicks == 1, "clicking the link opens the update action")
             host.click(icon.center)
@@ -2123,6 +2194,51 @@ private final class LayoutHost {
         let rect = view.convert(clip.bounds, from: clip)
         let y = view.isFlipped ? rect.minY : view.bounds.height - rect.maxY
         return CGRect(x: rect.minX, y: y, width: rect.width, height: rect.height)
+    }
+
+    func scroll(containing point: CGPoint, by deltaY: CGFloat) -> Bool {
+        func findScrollView(in node: NSView) -> NSScrollView? {
+            if let scroll = node as? NSScrollView {
+                let local = CGPoint(x: point.x, y: view.isFlipped ? point.y : view.bounds.height - point.y)
+                if scroll.bounds.contains(scroll.convert(local, from: view)) { return scroll }
+            }
+            return node.subviews.lazy.compactMap { findScrollView(in: $0) }.first
+        }
+        guard let scroll = findScrollView(in: view), let document = scroll.documentView else { return false }
+        let clip = scroll.contentView
+        let maxY = max(document.frame.minY, document.frame.maxY - clip.bounds.height)
+        let targetY: CGFloat
+        if document.isFlipped {
+            targetY = min(maxY, max(document.frame.minY, clip.bounds.minY + deltaY))
+        } else {
+            targetY = max(document.frame.minY, min(maxY, clip.bounds.minY - deltaY))
+        }
+        clip.scroll(to: CGPoint(x: clip.bounds.minX, y: targetY))
+        scroll.reflectScrolledClipView(clip)
+        settle()
+        return true
+    }
+
+    func hasHorizontalRule(in region: CGRect) -> Bool {
+        guard let image = renderedHost() else { return false }
+        let sx = CGFloat(image.pixelsWide) / bounds.width
+        let sy = CGFloat(image.pixelsHigh) / bounds.height
+        let left = max(0, Int(floor(region.minX * sx)))
+        let right = min(image.pixelsWide, Int(ceil(region.maxX * sx)))
+        let top = max(0, Int(floor(region.minY * sy)))
+        let bottom = min(image.pixelsHigh, Int(ceil(region.maxY * sy)))
+        guard right - left >= 20, top < bottom else { return false }
+        for y in top..<bottom {
+            var nonPaper = 0
+            for x in left..<right {
+                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if color.redComponent < 0.96 || color.greenComponent < 0.96 || color.blueComponent < 0.96 {
+                    nonPaper += 1
+                }
+            }
+            if Double(nonPaper) / Double(right - left) >= 0.7 { return true }
+        }
+        return false
     }
 
     func center(of field: NSTextField) -> CGPoint {
