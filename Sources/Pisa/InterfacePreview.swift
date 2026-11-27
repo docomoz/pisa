@@ -291,7 +291,7 @@ final class InterfacePreview: NSObject {
         func checkedMenus(marking title: String) throws -> (sidebar: NSMenu, details: NSMenu) {
             let saved = try state.library.read(meeting.id)
             let actions = MeetingActionSet(state: state, meeting: saved)
-            guard let sidebar = actions.contextMenuItems.first(where: \.hasSubmenu)?.submenu else {
+            guard let sidebar = actions.contextMenuItems.first(where: { $0.title == "Переместить в папку" })?.submenu else {
                 throw PisaError.message("В контекстном меню нет списка папок")
             }
             let details = nativeActionMenu(items: actions.folderMenuItems(beforeNewFolder: {}))
@@ -314,6 +314,83 @@ final class InterfacePreview: NSObject {
         _ = try checkedMenus(marking: "Без папки")
     }
 
+    static func testContextMenuShareStructure() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Context-Menu-Share-Test-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = AppState(rootURL: root)
+        let audioFile = "context-share-mic.caf"
+        try writeAudio(to: state.library.audioURL(audioFile), duration: 2, frequency: 220)
+
+        func describe(_ items: [NSMenuItem]) -> [String] {
+            items.map { $0.isSeparatorItem ? "---" : $0.title }
+        }
+
+        var full = Meeting(title: "Готовая встреча", source: "Аудио")
+        full.status = .ready
+        full.audioFiles = [audioFile]
+        full.segments = [.init(start: 0, end: 1, speaker: "Анна", text: "Привет")]
+        state.update(full)
+        let fullActions = MeetingActionSet(state: state, meeting: full)
+        let fullItems = fullActions.contextMenuItems
+        let expectedStructure = [
+            "Переименовать…", "Переместить в папку", "---",
+            "Поделиться", "---",
+            "Расшифровать заново", "---",
+            "В корзину"
+        ]
+        guard describe(fullItems) == expectedStructure else {
+            throw PisaError.message("Неверная структура контекстного меню: \(describe(fullItems))")
+        }
+        guard !fullItems.contains(where: { $0.title == "Разметить голоса" }) else {
+            throw PisaError.message("Пункт «Разметить голоса» остался в контекстном меню")
+        }
+        guard let shareItem = fullItems.first(where: { $0.title == "Поделиться" }),
+              shareItem.isEnabled, let shareMenu = shareItem.submenu else {
+            throw PisaError.message("В контекстном меню нет активного подменю «Поделиться»")
+        }
+        let detailShareItems = fullActions.shareMenuItems(beforeExport: {})
+        guard shareMenu.items.map(\.title) == ["Расшифровка…", "Аудио…"],
+              shareMenu.items.map(\.title) == detailShareItems.map(\.title),
+              shareMenu.items.map(\.isEnabled) == [true, true],
+              detailShareItems.map(\.isEnabled) == [true, true],
+              !shareMenu.showsStateColumn else {
+            throw PisaError.message("Подменю «Поделиться» не совпадает с меню на странице записи")
+        }
+
+        var transcriptOnly = full
+        transcriptOnly.id = UUID()
+        transcriptOnly.audioFiles = []
+        state.update(transcriptOnly)
+        guard let transcriptShare = MeetingActionSet(state: state, meeting: transcriptOnly).contextMenuItems.first(where: { $0.title == "Поделиться" }),
+              transcriptShare.isEnabled,
+              transcriptShare.submenu?.items.map(\.isEnabled) == [true, false] else {
+            throw PisaError.message("Для записи без аудио в «Поделиться» должна быть активна только расшифровка")
+        }
+
+        var audioOnly = Meeting(title: "Только аудио", source: "Аудио")
+        audioOnly.audioFiles = [audioFile]
+        state.update(audioOnly)
+        guard let audioShare = MeetingActionSet(state: state, meeting: audioOnly).contextMenuItems.first(where: { $0.title == "Поделиться" }),
+              audioShare.isEnabled,
+              audioShare.submenu?.items.map(\.isEnabled) == [false, true] else {
+            throw PisaError.message("Для нерасшифрованной записи в «Поделиться» должно быть активно только аудио")
+        }
+
+        let empty = Meeting(title: "Пустая запись", source: "Аудио")
+        state.update(empty)
+        guard let emptyShare = MeetingActionSet(state: state, meeting: empty).contextMenuItems.first(where: { $0.title == "Поделиться" }),
+              !emptyShare.isEnabled,
+              emptyShare.submenu?.items.map(\.isEnabled) == [false, false] else {
+            throw PisaError.message("Для записи без текста и аудио пункт «Поделиться» должен быть неактивен")
+        }
+
+        state.processingID = full.id
+        guard let busyShare = MeetingActionSet(state: state, meeting: full).contextMenuItems.first(where: { $0.title == "Поделиться" }),
+              !busyShare.isEnabled else {
+            throw PisaError.message("Во время обработки пункт «Поделиться» должен быть неактивен")
+        }
+    }
+
     static func testQueue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("Pisa-Queue-Test-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -333,7 +410,7 @@ final class InterfacePreview: NSObject {
         state.update(processing); state.processingID = processing.id
         state.rename(processing, to: "Название во время расшифровки")
         guard let folderID = state.saveFolder("Работа"),
-              let moveItem = MeetingActionSet(state: state, meeting: processing).contextMenuItems.first(where: \.hasSubmenu),
+              let moveItem = MeetingActionSet(state: state, meeting: processing).contextMenuItems.first(where: { $0.title == "Переместить в папку" }),
               moveItem.isEnabled, let submenu = moveItem.submenu,
               let destination = submenu.item(withTitle: "Работа") else {
             throw PisaError.message("Перемещение из контекстного меню недоступно во время расшифровки")
@@ -661,7 +738,7 @@ final class InterfacePreview: NSObject {
               live.status == .processing, live.liveCommittedUntil == 0 else {
             throw PisaError.message("Текущая запись не запустила черновик с начала записанного аудио")
         }
-        guard let moveItem = MeetingActionSet(state: state, meeting: live).contextMenuItems.first(where: \.hasSubmenu),
+        guard let moveItem = MeetingActionSet(state: state, meeting: live).contextMenuItems.first(where: { $0.title == "Переместить в папку" }),
               moveItem.isEnabled, let submenu = moveItem.submenu,
               let destination = submenu.item(withTitle: "Работа") else {
             throw PisaError.message("Перенос в папку недоступен из меню текущей записи")

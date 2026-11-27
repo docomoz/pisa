@@ -478,7 +478,7 @@ private final class LayoutSuite {
         state.update(meeting)
         state.beginRecordingSession(meeting, automatic: false)
         let menu = MeetingActionSet(state: state, meeting: meeting).contextMenuItems
-        guard let submenu = menu.first(where: \.hasSubmenu)?.submenu,
+        guard let submenu = menu.first(where: { $0.title == "Переместить в папку" })?.submenu,
               let destination = submenu.item(withTitle: folderName) else {
             throw PisaError.message("В меню записи нет папки для переноса")
         }

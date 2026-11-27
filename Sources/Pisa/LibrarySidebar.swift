@@ -398,13 +398,40 @@ struct MeetingActionSet {
             items.forEach { $0.isEnabled = canModify }
             return items
         }
-        let voices = NativeActionMenuItem("Разметить голоса", enabled: canModify && !meeting.participantNames.isEmpty) { state.voiceMeeting = meeting }
         let move = NSMenuItem(title: "Переместить в папку", action: nil, keyEquivalent: "")
         move.submenu = nativeActionMenu(items: folderMenuItems)
         move.isEnabled = state.canMove(meeting)
+        let share = NSMenuItem(title: "Поделиться", action: nil, keyEquivalent: "")
+        share.submenu = nativeActionMenu(items: shareMenuItems)
+        share.isEnabled = canShare
         let transcribeItem = transcribe.nativeItem
         transcribeItem.isEnabled = canModify && transcribeItem.isEnabled
-        return [voices, rename.nativeItem, move, .separator(), transcribeItem, .separator(), trash.nativeItem]
+        return [
+            rename.nativeItem, move,
+            .separator(),
+            share,
+            .separator(),
+            transcribeItem,
+            .separator(),
+            trash.nativeItem
+        ]
+    }
+
+    var canShare: Bool { state.canExport(meeting) || state.canExportAudio(meeting) }
+
+    var shareMenuItems: [NSMenuItem] { shareMenuItems(beforeExport: {}) }
+
+    func shareMenuItems(beforeExport: @escaping () -> Void) -> [NSMenuItem] {
+        [
+            NativeActionMenuItem("Расшифровка…", enabled: state.canExport(meeting)) {
+                beforeExport()
+                state.exportTranscript(meeting)
+            },
+            NativeActionMenuItem("Аудио…", enabled: state.canExportAudio(meeting)) {
+                beforeExport()
+                Task { await state.exportAudio(meeting) }
+            }
+        ]
     }
 
     var folderMenuItems: [NSMenuItem] { folderMenuItems(beforeNewFolder: {}) }

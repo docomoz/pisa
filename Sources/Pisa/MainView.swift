@@ -720,6 +720,7 @@ struct MeetingView: View {
     private func meetingDetails(buttonSize: ActionButtonSize) -> some View {
         let folder = state.folders.first { $0.id == meeting.folderID }
         let participants = websiteScreenshotParticipantOrder ?? meeting.participantNames
+        let actions = MeetingActionSet(state: state, meeting: meeting)
         return VStack(alignment: .leading, spacing: buttonSize == .small ? PisaDesign.Spacing.content : PisaDesign.Spacing.section) {
             VStack(alignment: .leading, spacing: PisaDesign.Spacing.related) {
                 if buttonSize == .small {
@@ -747,7 +748,7 @@ struct MeetingView: View {
                     .disabled(!state.canReviewTerms(meeting))
 
                     NativeActionMenu {
-                        MeetingActionSet(state: state, meeting: meeting).folderMenuItems { showsMeetingDetails = false }
+                        actions.folderMenuItems { showsMeetingDetails = false }
                     } label: {
                         detailsActionLabel(folder?.name ?? "Папка", iconName: folder?.iconName ?? "folder", hasMenu: true)
                     }
@@ -756,21 +757,12 @@ struct MeetingView: View {
                     .screenHelp(folder?.name ?? "Переместить в папку")
 
                     NativeActionMenu {
-                        [
-                            NativeActionMenuItem("Расшифровка…", enabled: state.canExport(meeting)) {
-                                showsMeetingDetails = false
-                                state.exportTranscript(meeting)
-                            },
-                            NativeActionMenuItem("Аудио…", enabled: state.canExportAudio(meeting)) {
-                                showsMeetingDetails = false
-                                Task { await state.exportAudio(meeting) }
-                            }
-                        ]
+                        actions.shareMenuItems { showsMeetingDetails = false }
                     } label: {
                         detailsActionLabel("Поделиться", iconName: "square.and.arrow.up", hasMenu: true)
                     }
                     .actionButton(size: buttonSize)
-                    .disabled(!state.canExport(meeting) && !state.canExportAudio(meeting))
+                    .disabled(!actions.canShare)
 
                     NativeActionMenu {
                         meetingMenuItems

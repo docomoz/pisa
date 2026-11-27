@@ -86,6 +86,7 @@ enum Launcher {
             Task { @MainActor in
                 do {
                     try InterfacePreview.testFolderMenuSelection()
+                    try InterfacePreview.testContextMenuShareStructure()
                     try InterfacePreview.testQueue()
                     try await InterfacePreview.testMoveWhileReprocessing()
                     try InterfacePreview.testTrashQueuedRecording()
