@@ -77,12 +77,12 @@ struct MainView: View {
 
     private var sidebar: some View { LibrarySidebar(dateReference: recordingDateReference) }
     private var topbar: some View {
-        let panelHeight = PisaDesign.Metrics.regularHeight + 2 * PisaDesign.Spacing.related
+        let panelHeight = PisaDesign.Metrics.regularHeight + 2 * PisaDesign.Spacing.inline
         return GeometryReader { geometry in
             topbarControls(compact: state.recording && geometry.size.width < 740)
         }
         .frame(height: panelHeight)
-        .padding(.bottom, PisaDesign.Spacing.inline)
+        .padding(.bottom, PisaDesign.Spacing.related)
         .measuredForInterfaceTest(.mainToolbar)
     }
     private func topbarControls(compact: Bool) -> some View {
@@ -91,12 +91,14 @@ struct MainView: View {
             Group {
                 if state.recording, let started = state.recordingStarted {
                     RecordingIndicator(monitor: state.recordingMonitor, started: started)
+                        .measuredForInterfaceTest(.mainToolbarLeading)
                 } else {
                     HStack(spacing: PisaDesign.Spacing.inline) {
                         Image(nsImage: BrandMark.headerIcon).resizable().frame(width: 24, height: 24)
                         BrandMoodView()
                     }
                     .accessibilityElement(children: .combine)
+                    .measuredForInterfaceTest(.mainToolbarLeading)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
