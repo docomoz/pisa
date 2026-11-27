@@ -193,7 +193,7 @@ struct ListKeyboardFocus: NSViewRepresentable {
 struct FormSuggestionOverlay: View {
     let anchor: Anchor<CGRect>?
     let matches: [String]
-    let selectedIndex: Int?
+    @Binding var selection: FormSuggestionSelection
     let element: (String) -> InterfaceLayoutElement
     let choose: (String) -> Void
     var keyboardFocus: Binding<Bool>?
@@ -208,6 +208,12 @@ struct FormSuggestionOverlay: View {
                 if field.minY >= 0, availableHeight >= PisaDesign.Metrics.regularHeight {
                     list(maxContentHeight: availableHeight)
                         .frame(width: field.width)
+                        .background {
+                            SuggestionClickDismissal {
+                                selection.close()
+                                keyboardFocus?.wrappedValue = false
+                            }
+                        }
                         .offset(x: field.minX, y: top)
                 }
             }
@@ -220,7 +226,7 @@ struct FormSuggestionOverlay: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
                     ForEach(Array(matches.enumerated()), id: \.element) { index, match in
-                        FormSuggestionRow(text: match, selected: index == selectedIndex) { choose(match) }
+                        FormSuggestionRow(text: match, selected: index == selection.selectedIndex) { choose(match) }
                             .id(index)
                             .measuredForInterfaceTest(element(match))
                     }
@@ -237,7 +243,7 @@ struct FormSuggestionOverlay: View {
                 shape.strokeBorder(PisaDesign.Colors.secondaryAction, lineWidth: 1)
                     .allowsHitTesting(false)
             }
-            .onChange(of: selectedIndex) { _, index in
+            .onChange(of: selection.selectedIndex) { _, index in
                 if let index { proxy.scrollTo(index) }
             }
         }
@@ -249,6 +255,35 @@ struct FormSuggestionOverlay: View {
         } else {
             list
         }
+    }
+}
+
+/// Observe clicks without taking them away from the input or surrounding controls.
+private struct SuggestionClickDismissal: NSViewRepresentable {
+    let dismiss: () -> Void
+
+    func makeNSView(context: Context) -> Observer { Observer() }
+    func updateNSView(_ view: Observer, context: Context) { view.dismiss = dismiss }
+
+    final class Observer: NSView {
+        var dismiss: (() -> Void)?
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self, let window, event.window === window else { return event }
+                let point = convert(event.locationInWindow, from: nil)
+                if !bounds.intersection(visibleRect).contains(point) { dismiss?() }
+                return event
+            }
+        }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
 

@@ -176,7 +176,7 @@ struct VoiceManager: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .overlayPreferenceValue(FormSuggestionFieldBounds.self, alignment: .topLeading) { anchor in
-                    FormSuggestionOverlay(anchor: anchor, matches: suggestions, selectedIndex: suggestionSelection.selectedIndex,
+                    FormSuggestionOverlay(anchor: anchor, matches: suggestions, selection: $suggestionSelection,
                                           element: InterfaceLayoutElement.voiceSuggestion, choose: chooseSuggestion,
                                           keyboardFocus: $suggestionListFocused, onListCommand: handleSuggestionCommand)
                 }

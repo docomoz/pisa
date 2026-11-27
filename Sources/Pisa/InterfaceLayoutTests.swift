@@ -1355,6 +1355,17 @@ private final class LayoutSuite {
                   "choosing a suggestion leaves the transcript unchanged until applying the correction")
             checkSuggestionRefinement("ба з", adding: "н", keyCode: 16, keeping: firstRow,
                                       excluding: .termSuggestion(second), in: field, host: host)
+
+            check(host.type(query, into: field), "the correction field accepts a new draft")
+            try checkSuggestionOutsideClicks(query, row: firstRow, in: field, host: host,
+                                             screenshot: "term-suggestions-dismissed-\(percent)")
+            host.click(host.center(of: search), throughApplication: true)
+            check(host.frames[firstRow] == nil && host.isEditing(search) && field.stringValue == query,
+                  "the first click on the search field moves focus and preserves the correction draft")
+            search.currentEditor()?.insertText("x")
+            host.settle()
+            check((search.currentEditor()?.string ?? search.stringValue).contains("x"),
+                  "the search editor accepts text after clicking out of suggestions")
         }
     }
 
@@ -1739,6 +1750,8 @@ private final class LayoutSuite {
                 let suggestion = InterfaceLayoutElement.voiceSuggestion(savedVoice.name)
                 let closedToggle = frames([.voiceAllMatching], in: host)?.first
                 check(host.type(prefix, into: name), "voice name accepts a suggestion prefix")
+                try checkSuggestionOutsideClicks(prefix, row: suggestion, in: name, host: host,
+                                                 screenshot: "voice-suggestions-dismissed-\(percent)")
                 if let open = frames([.voiceAllMatching, suggestion], in: host), let closedToggle {
                     equal(open[0].minY, closedToggle.minY, "opening suggestions leaves the form in place")
                     check(open[1].minY >= frame.maxY, "suggestion appears below the name field")
@@ -1821,6 +1834,26 @@ private final class LayoutSuite {
                 check(false, "voice name is available for keyboard suggestion selection")
             }
         }
+    }
+
+    private func checkSuggestionOutsideClicks(_ query: String, row: InterfaceLayoutElement, in field: NSTextField,
+                                              host: LayoutHost, screenshot: String) throws {
+        check(host.frames[row] != nil, "the dropdown is open before clicking the input")
+        host.pressKey("\u{f701}", keyCode: 125)
+        host.click(host.center(of: field), throughApplication: true)
+        check(host.frames[row] == nil && host.isEditing(field) && field.currentEditor()?.string == query,
+              "clicking the input dismisses the highlighted suggestion and keeps the draft editable")
+
+        check(host.type(query + " ", into: field) && host.frames[row] != nil,
+              "editing the draft reopens suggestions after an outside click")
+        host.pressKey("\t", keyCode: 48)
+        check(host.isSuggestionListFocused, "the list has keyboard focus before clicking the background")
+        host.click(CGPoint(x: host.bounds.midX, y: 5), throughApplication: true)
+        check(host.frames[row] == nil && !host.isSuggestionListFocused && field.stringValue == query + " ",
+              "clicking the form background dismisses suggestions and keeps the exact draft")
+        try saveScreenshot(screenshot, in: host)
+        check(host.type(query, into: field) && host.frames[row] != nil,
+              "the field can reopen suggestions after clicking the background")
     }
 
     private func checkTypingAfterSuggestion(_ suggestion: String, in field: NSTextField, host: LayoutHost) {
@@ -2016,15 +2049,26 @@ private final class LayoutHost {
         return false
     }
 
-    func click(_ point: CGPoint) {
+    func click(_ point: CGPoint, throughApplication: Bool = false) {
         let local = CGPoint(x: point.x, y: view.isFlipped ? point.y : view.bounds.height - point.y)
         let location = view.convert(local, to: nil)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            if let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
-                                               pressure: type == .leftMouseDown ? 1 : 0) {
-                window.sendEvent(event)
+        func mouseEvent(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                               pressure: type == .leftMouseDown ? 1 : 0)
+        }
+        guard let down = mouseEvent(.leftMouseDown), let up = mouseEvent(.leftMouseUp) else { return }
+        if throughApplication {
+            // Exercise app-local event monitors and let native controls track the mouse release.
+            NSApp.postEvent(up, atStart: true)
+            NSApp.sendEvent(down)
+            if NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: false) === up,
+               let pending = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true) {
+                NSApp.sendEvent(pending)
             }
+        } else {
+            window.sendEvent(down)
+            window.sendEvent(up)
         }
         settle()
     }
