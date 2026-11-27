@@ -642,7 +642,9 @@ private final class LayoutSuite {
                 let name = "sidebar-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100)).png"
                 try host.savePNG(to: URL(fileURLWithPath: output, isDirectory: true).appendingPathComponent(name))
             }
+            checkMainHeader(in: host)
         }
+        try checkLargeLibrarySidebarStability(root: state.library.root)
         if mainWindowOnly { return }
         try checkSavedAudioModelReadiness(state: state, saved: saved)
         var voiceMeeting = ready
@@ -813,6 +815,58 @@ private final class LayoutSuite {
               "clearing search hides the other-folders section")
     }
 
+    private func checkLargeLibrarySidebarStability(root: URL) throws {
+        let largeRoot = root.appendingPathComponent("LargeLibrary", isDirectory: true)
+        try FileManager.default.createDirectory(at: largeRoot, withIntermediateDirectories: true)
+        let state = AppState(rootURL: largeRoot)
+        state.modelSetup.phase = .ready
+        state.preferences.summaryOnboardingAcknowledged = true
+        let folderIDs = (1...10).compactMap { state.saveFolder("Рабочая папка \($0) с длинным названием") }
+        var meetings: [Meeting] = []
+        for index in 0..<65 {
+            var meeting = Meeting(title: "Встреча #\(index + 1): обсуждение плана и результатов проекта с командой", source: "Zoom")
+            meeting.date = Calendar.current.date(byAdding: .hour, value: -(index * 5 + 1), to: .now) ?? .now
+            meeting.duration = TimeInterval(600 + (index % 7) * 420)
+            if !folderIDs.isEmpty { meeting.folderID = folderIDs[index % folderIDs.count] }
+            meeting.status = index % 5 == 0 ? .failed : .ready
+            if meeting.status == .failed {
+                meeting.error = "Обработка остановлена. Аудио сохранено."
+            }
+            meetings.append(meeting)
+        }
+        state.meetings = meetings
+        state.select(meetings.first?.id)
+
+        for (size, scale) in [(CGSize(width: 980, height: 660), 1.0), (CGSize(width: 1200, height: 800), 1.2)] {
+            scenario = "large library sidebar \(Int(size.width))×\(Int(size.height)), \(Int(scale * 100))%"
+            var bodyEvaluations = 0
+            LibrarySidebar.interfaceTestBodyObserver = { bodyEvaluations += 1 }
+            defer { LibrarySidebar.interfaceTestBodyObserver = nil }
+
+            let host = LayoutHost(MainView(installUpdate: {}, canInstallUpdate: false).environmentObject(state),
+                                  size: size, scale: scale)
+            defer { host.close() }
+            try saveScreenshot("large-sidebar-\(Int(size.width))-\(Int(scale * 100))", in: host)
+            checkMainHeader(in: host)
+            if let first = meetings.first,
+               let measured = frames([.librarySearch, .sidebarRecording(first.id)], in: host) {
+                equal(measured[1].minX, measured[0].minX, "large library recording matches the search left edge")
+                equal(measured[1].maxX, measured[0].maxX, "large library recording matches the search right edge")
+                check(host.bounds.contains(measured[1]), "large library recording fits inside the window")
+            }
+
+            let settledCount = bodyEvaluations
+            let start = Date()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let elapsed = Date().timeIntervalSince(start)
+            let extraEvaluations = bodyEvaluations - settledCount
+            check(extraEvaluations <= 1,
+                  "large library sidebar stays idle after settling without scroll-geometry redraw loops (extra=\(extraEvaluations))")
+            check(elapsed < 1.0,
+                  "large library sidebar does not stall the main run loop (elapsed=\(elapsed)s)")
+        }
+    }
+
     private func checkIntegrationSettings(state: AppState, scale: CGFloat) throws {
         let size = CGSize(width: 900, height: 700)
         let exportFolder = state.library.root.appendingPathComponent("Расшифровки тестовых встреч", isDirectory: true)
@@ -904,10 +958,12 @@ private final class LayoutSuite {
         equal(folders.minY, 8, "sidebar folders start eight points below the content edge")
         check(search.minY > folders.maxY, "library search sits below the folder list")
         check(trash.minY > search.maxY && host.bounds.contains(trash), "trash stays pinned at the bottom of the sidebar")
+        equal(allRecordings.minX, PisaDesign.Spacing.content, "folder selection starts at the sidebar content inset")
         equal(allRecordings.minX, search.minX, "folder selection matches the library search left edge")
         equal(allRecordings.maxX, search.maxX, "folder selection matches the library search right edge")
         equal(trash.minX, search.minX, "trash selection matches the library search left edge")
         equal(trash.maxX, search.maxX, "trash selection matches the library search right edge")
+        check(host.bounds.contains(allRecordings) && host.bounds.contains(search), "sidebar folders and search fit inside the window")
         equal(actions.midY - toolbar.minY, 30, "main toolbar actions are closer to the content edge")
         equal(toolbar.height, 68, "the toolbar leaves eight more points for the meeting area")
         check(toolbar.contains(actions), "main toolbar actions fit inside the toolbar")

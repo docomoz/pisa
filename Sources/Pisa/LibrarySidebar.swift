@@ -2,24 +2,25 @@ import SwiftUI
 import AppKit
 
 struct LibrarySidebar: View {
+    @MainActor static var interfaceTestBodyObserver: (() -> Void)?
     @EnvironmentObject var state: AppState
     @Environment(\.appTextScale) private var textScale
     let dateReference: Date
+    var width: CGFloat = 270
     @State private var folderEditor = false
     @State private var editingFolder: MeetingFolder?
     @State private var folderName = ""
     @State private var deletingFolder: MeetingFolder?
     @State private var confirmEmptyTrash = false
-    @State private var folderRowFrames: [UUID: CGRect] = [:]
     @State private var folderDrag: FolderDrag?
     @GestureState private var folderDragActive = false
     @State private var folderScrollPosition = ScrollPosition()
-    @State private var folderScrollGeometry: ScrollGeometry?
-    @State private var recordingsScrollGeometry: ScrollGeometry?
-    @State private var sidebarWidth: CGFloat = 0
+    @State private var folderContentHeight: CGFloat = 0
+    @State private var folderScrollMetrics = FolderScrollMetrics()
     private static let folderViewport = "folder-sidebar"
     @FocusState private var recordingsFocused: Bool
     var body: some View {
+        let _ = Self.interfaceTestBodyObserver?()
         VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
             ScrollView { VStack(spacing: PisaDesign.Spacing.hairline) {
                 scope("Все записи", icon: "tray", selected: !state.showingTrash && state.folderFilter == nil && !state.unfiledOnly) { state.openFolder() }
@@ -28,14 +29,18 @@ struct LibrarySidebar: View {
                 if !state.folders.isEmpty { folderRows }
                 scope("Новая папка…", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
                     .disabled(state.demo)
-            }.textStyle(PisaDesign.Typography.footnote).padding(.horizontal, PisaDesign.Spacing.content).frame(width: sidebarWidth > 0 ? sidebarWidth : nil) }
+            }.textStyle(PisaDesign.Typography.footnote).padding(.horizontal, PisaDesign.Spacing.content).frame(width: width, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { ceil($0.size.height) } action: { height in
+                    if height > 0, abs(folderContentHeight - height) > 0.5 { folderContentHeight = height }
+                }
+            }
             .frame(height: folderListHeight)
             .coordinateSpace(name: Self.folderViewport)
             .scrollPosition($folderScrollPosition)
             .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
-                folderScrollGeometry = geometry
+                folderScrollMetrics.geometry = geometry
             }
-            .overlay { scrollEdgeFade(geometry: folderScrollGeometry) }
+            .modifier(ScrollEdgeFade())
             .task(id: folderScrollDirection) { await scrollDuringFolderDrag() }
             .measuredForInterfaceTest(.sidebarFolders)
             .padding(.top, PisaDesign.Spacing.inline)
@@ -65,10 +70,10 @@ struct LibrarySidebar: View {
                 .padding(.top, PisaDesign.Spacing.hairline)
                 .padding(.bottom, PisaDesign.Spacing.inline)
         }
+        .frame(width: width, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
         .background(Color.sidebarTint)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-            if abs(sidebarWidth - width) > 0.5 { sidebarWidth = width }
-        }
         .sheet(isPresented: $confirmEmptyTrash) {
             ConfirmationSheet(
                 title: "Очистить корзину?",
@@ -95,8 +100,8 @@ struct LibrarySidebar: View {
         let maxRowHeight = ceil(max(18, PisaDesign.Typography.footnote.size * textScale * 1.35))
             + 2 * PisaDesign.Spacing.inline + PisaDesign.Spacing.hairline
         let maxHeight = CGFloat(maxRows) * maxRowHeight
-        if let contentHeight = folderScrollGeometry?.contentSize.height, contentHeight > 0 {
-            return min(maxHeight, ceil(contentHeight))
+        if folderContentHeight > 0 {
+            return min(maxHeight, folderContentHeight)
         }
         let estimatedRowHeight = ceil(max(18, PisaDesign.Typography.footnote.size * textScale))
             + 2 * PisaDesign.Spacing.inline
@@ -161,13 +166,10 @@ struct LibrarySidebar: View {
                     }
                 }
                 .padding(.horizontal, PisaDesign.Spacing.content)
-                .frame(width: sidebarWidth > 0 ? sidebarWidth : nil)
+                .frame(width: width, alignment: .leading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
-                recordingsScrollGeometry = geometry
-            }
-            .overlay { scrollEdgeFade(geometry: recordingsScrollGeometry) }
+            .modifier(ScrollEdgeFade())
             .focusable().focusEffectDisabled().focused($recordingsFocused)
             .onMoveCommand { direction in
                 let rows = state.visibleMeetings
@@ -187,31 +189,53 @@ struct LibrarySidebar: View {
         }
     }
 
-    private func scrollEdgeFade(geometry: ScrollGeometry?) -> some View {
-        let fadeHeight = PisaDesign.Spacing.related
-        let offsetY = geometry?.contentOffset.y ?? 0
-        let contentHeight = geometry?.contentSize.height ?? 0
-        let containerHeight = geometry?.containerSize.height ?? 0
-        let topInset = geometry?.contentInsets.top ?? 0
-        let bottomInset = geometry?.contentInsets.bottom ?? 0
-        let showsTop = offsetY + topInset > 1
-        let showsBottom = contentHeight > containerHeight + 1
-            && offsetY + containerHeight - bottomInset < contentHeight - 1
-        return VStack(spacing: PisaDesign.Spacing.none) {
-            if showsTop {
-                LinearGradient(colors: [Color.sidebarTint, Color.sidebarTint.opacity(0)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: fadeHeight)
-            }
-            Spacer(minLength: PisaDesign.Spacing.none)
-            if showsBottom {
-                LinearGradient(colors: [Color.sidebarTint.opacity(0), Color.sidebarTint],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: fadeHeight)
-            }
+    private final class FolderScrollMetrics {
+        var geometry: ScrollGeometry?
+        var rowFrames: [UUID: CGRect] = [:]
+    }
+
+    private struct ScrollEdgeFadeEdges: Equatable {
+        var top = false
+        var bottom = false
+    }
+
+    private struct ScrollEdgeFade: ViewModifier {
+        @State private var edges = ScrollEdgeFadeEdges()
+
+        func body(content: Content) -> some View {
+            content
+                .onScrollGeometryChange(for: ScrollEdgeFadeEdges.self) { geometry in
+                    let offsetY = geometry.contentOffset.y
+                    let contentHeight = geometry.contentSize.height
+                    let containerHeight = geometry.containerSize.height
+                    let topInset = geometry.contentInsets.top
+                    let bottomInset = geometry.contentInsets.bottom
+                    return ScrollEdgeFadeEdges(
+                        top: offsetY + topInset > 1,
+                        bottom: contentHeight > containerHeight + 1
+                            && offsetY + containerHeight - bottomInset < contentHeight - 1
+                    )
+                } action: { _, updated in
+                    if edges != updated { edges = updated }
+                }
+                .overlay {
+                    VStack(spacing: PisaDesign.Spacing.none) {
+                        if edges.top {
+                            LinearGradient(colors: [Color.sidebarTint, Color.sidebarTint.opacity(0)],
+                                           startPoint: .top, endPoint: .bottom)
+                                .frame(height: PisaDesign.Spacing.related)
+                        }
+                        Spacer(minLength: PisaDesign.Spacing.none)
+                        if edges.bottom {
+                            LinearGradient(colors: [Color.sidebarTint.opacity(0), Color.sidebarTint],
+                                           startPoint: .top, endPoint: .bottom)
+                                .frame(height: PisaDesign.Spacing.related)
+                        }
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
         }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     private func sectionHeader(_ title: String, count: Int?) -> some View {
@@ -403,9 +427,9 @@ struct LibrarySidebar: View {
                 .onGeometryChange(for: CGRect.self) { geometry in
                     geometry.frame(in: .named(Self.folderViewport))
                 } action: { frame in
-                    folderRowFrames[folder.id] = frame
+                    folderScrollMetrics.rowFrames[folder.id] = frame
                 }
-                .onDisappear { folderRowFrames[folder.id] = nil }
+                .onDisappear { folderScrollMetrics.rowFrames[folder.id] = nil }
             }
         }
         .contentShape(Rectangle())
@@ -418,7 +442,7 @@ struct LibrarySidebar: View {
         }
         .overlay(alignment: .top) {
             if let drag = activeFolderDrag, isInFolderViewport(drag.location),
-               let first = state.folders.first, let origin = folderRowFrames[first.id]?.minY {
+               let first = state.folders.first, let origin = folderScrollMetrics.rowFrames[first.id]?.minY {
                 ZStack(alignment: .top) {
                     folderDragPreview(drag, origin: origin)
                 }
@@ -440,8 +464,8 @@ struct LibrarySidebar: View {
                 if folderDrag != nil {
                     folderDrag?.location = value.location
                 } else if !state.demo, state.folders.count > 1,
-                          let folder = state.folders.first(where: { folderRowFrames[$0.id]?.contains(value.startLocation) == true }),
-                          let frame = folderRowFrames[folder.id] {
+                          let folder = state.folders.first(where: { folderScrollMetrics.rowFrames[$0.id]?.contains(value.startLocation) == true }),
+                          let frame = folderScrollMetrics.rowFrames[folder.id] {
                     folderDrag = FolderDrag(id: folder.id, grabOffsetY: value.startLocation.y - frame.minY, location: value.location)
                 }
             }
@@ -474,24 +498,24 @@ struct LibrarySidebar: View {
     private func folderInsertion(at point: CGPoint) -> (id: UUID, after: Bool, lineY: CGFloat)? {
         let halfGap = PisaDesign.Spacing.hairline / 2
         guard isInFolderViewport(point),
-              let first = state.folders.first, let start = folderRowFrames[first.id],
-              let last = state.folders.last, let end = folderRowFrames[last.id],
+              let first = state.folders.first, let start = folderScrollMetrics.rowFrames[first.id],
+              let last = state.folders.last, let end = folderScrollMetrics.rowFrames[last.id],
               point.x >= start.minX, point.x <= start.maxX,
               point.y >= start.minY - halfGap, point.y <= end.maxY + halfGap else { return nil }
         for folder in state.folders {
-            guard let frame = folderRowFrames[folder.id] else { return nil }
+            guard let frame = folderScrollMetrics.rowFrames[folder.id] else { return nil }
             if point.y < frame.midY { return (folder.id, false, frame.minY - halfGap) }
         }
         return (last.id, true, end.maxY + halfGap)
     }
 
     private func isInFolderViewport(_ point: CGPoint) -> Bool {
-        guard let geometry = folderScrollGeometry else { return false }
+        guard let geometry = folderScrollMetrics.geometry else { return false }
         return CGRect(origin: .zero, size: geometry.containerSize).contains(point)
     }
 
     private var folderScrollDirection: Int {
-        guard let point = activeFolderDrag?.location, let geometry = folderScrollGeometry,
+        guard let point = activeFolderDrag?.location, let geometry = folderScrollMetrics.geometry,
               isInFolderViewport(point) else { return 0 }
         let edge = PisaDesign.Spacing.content
         if point.y < edge { return -1 }
@@ -502,7 +526,7 @@ struct LibrarySidebar: View {
     private func scrollDuringFolderDrag() async {
         let direction = folderScrollDirection
         guard direction != 0 else { return }
-        while !Task.isCancelled, let geometry = folderScrollGeometry {
+        while !Task.isCancelled, let geometry = folderScrollMetrics.geometry {
             let offset = geometry.contentOffset.y
             let limit = max(0, geometry.contentSize.height - geometry.containerSize.height)
             let next = min(limit, max(0, offset + CGFloat(direction) * PisaDesign.Spacing.inline))

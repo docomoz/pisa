@@ -10,9 +10,6 @@ final class ScrollbarStyler: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); schedule() }
     func schedule() {
-        if let root = window?.contentView {
-            apply(to: root)
-        }
         DispatchQueue.main.async { [weak self] in
             guard let root = self?.window?.contentView else { return }
             self?.apply(to: root)
