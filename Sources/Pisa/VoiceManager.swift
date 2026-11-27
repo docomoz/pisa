@@ -59,7 +59,11 @@ struct VoiceManager: View {
         assignmentError = nil
         suggestionSelection.close()
         suggestionListFocused = false
-        name = voiceNameForSelection(currentSpeaker: sample?.speaker, currentName: name, segment: segment)
+        let currentSpeaker = sample?.speaker
+        if currentSpeaker != segment.speaker {
+            remember = true
+        }
+        name = voiceNameForSelection(currentSpeaker: currentSpeaker, currentName: name, segment: segment)
         selected = segment.id
     }
 
