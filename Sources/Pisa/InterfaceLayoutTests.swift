@@ -17,6 +17,7 @@ enum InterfaceLayoutElement: Hashable {
     case reviewDisclosure(UUID), reviewReason(UUID), reviewDetails(UUID)
     case sidebarRecording(UUID), sidebarTranscriptionStatus(UUID, String)
     case sidebarRecordingFolder(UUID)
+    case sidebarFolders, sidebarAllRecordings, sidebarTrash, sidebarSectionHeading, sidebarOtherFoldersHeading
     case setupStatus, setupAction
     case microphoneLabel, systemAudioLabel, microphoneWarning, systemAudioWarning
     case settingsTab(String), settingsTabBar, settingsContent(String)
@@ -575,6 +576,7 @@ private final class LayoutSuite {
             try saveScreenshot("welcome-\(Int(size.width))-\(Int(scale * 100))", in: host)
             checkSidebarStatuses(in: host, state: state, saved: saved.id, queued: queued.id, processing: processing.id,
                                  interrupted: interrupted)
+            checkSidebarScopedSearch(in: host, state: state, local: ready, other: processing)
             state.select(ready.id)
             guard let reference = checkMeetingHeader(in: host) else { continue }
             checkTranscript(in: host, wide: size.width > 980)
@@ -717,6 +719,10 @@ private final class LayoutSuite {
 
     private func checkSidebarStatuses(in host: LayoutHost, state: AppState, saved: UUID, queued: UUID,
                                       processing: UUID, interrupted: Meeting) {
+        if let measured = frames([.librarySearch, .sidebarRecording(interrupted.id)], in: host) {
+            equal(measured[1].minX, measured[0].minX, "recording selection matches the library search left edge on launch")
+            equal(measured[1].maxX, measured[0].maxX, "recording selection matches the library search right edge on launch")
+        }
         func checkStatus(_ id: UUID, _ label: String) {
             let element = InterfaceLayoutElement.sidebarTranscriptionStatus(id, label)
             guard let measured = frames([.sidebarRecording(id), element], in: host) else { return }
@@ -755,6 +761,56 @@ private final class LayoutSuite {
         state.update(earlyStop)
         checkStatus(interrupted.id, "Остановлена")
         state.update(interrupted)
+    }
+
+    private func checkSidebarScopedSearch(in host: LayoutHost, state: AppState, local: Meeting, other: Meeting) {
+        guard let folderID = local.folderID else { return }
+        defer {
+            state.search = ""
+            state.openFolder()
+            host.settle()
+        }
+        state.openFolder(folderID)
+        let baselineHeader = frames([.sidebarSectionHeading], in: host)?.first
+        state.search = "прошлогодней"
+        check(host.wait {
+            !state.searchInProgress &&
+            host.frames[.sidebarOtherFoldersHeading] != nil &&
+            host.frames[.sidebarRecording(other.id)] != nil
+        }, "searching inside a folder surfaces matches from other folders when the current folder has none")
+        if let measured = frames([.librarySearch, .sidebarOtherFoldersHeading, .sidebarRecording(other.id), .sidebarTrash], in: host) {
+            let (search, heading, row, trash) = (measured[0], measured[1], measured[2], measured[3])
+            check(heading.minY > search.maxY && row.minY > heading.maxY && row.maxY <= trash.minY + 1,
+                  "other-folder results appear directly beneath library search and above trash")
+            if let baselineHeader {
+                equal(heading.minX, baselineHeader.minX, "scrolling search header matches the normal header left edge")
+                equal(heading.maxX, baselineHeader.maxX, "scrolling search header matches the normal header right edge")
+                equal(heading.minY, baselineHeader.minY, "scrolling search header starts at the same height as the normal header")
+            }
+        }
+
+        state.search = "результатов"
+        check(host.wait {
+            !state.searchInProgress &&
+            host.frames[.sidebarSectionHeading] != nil &&
+            host.frames[.sidebarRecording(local.id)] != nil &&
+            host.frames[.sidebarOtherFoldersHeading] != nil &&
+            host.frames[.sidebarRecording(other.id)] != nil
+        }, "searching inside a folder shows local matches above other-folder matches")
+        if let measured = frames([.librarySearch, .sidebarSectionHeading, .sidebarRecording(local.id), .sidebarOtherFoldersHeading, .sidebarRecording(other.id)], in: host) {
+            let (search, localHeading, localRow, heading, otherRow) = (measured[0], measured[1], measured[2], measured[3], measured[4])
+            check(localRow.minY > search.maxY && heading.minY > localRow.maxY && otherRow.minY > heading.maxY,
+                  "local matches precede the other-folders section below search")
+            if let baselineHeader {
+                equal(localHeading.minX, baselineHeader.minX, "folder search header aligns with the normal header left edge")
+                equal(localHeading.maxX, baselineHeader.maxX, "folder search header aligns with the normal header right edge")
+                equal(localHeading.minY, baselineHeader.minY, "folder search header starts at the same height as the normal header")
+            }
+        }
+
+        state.search = ""
+        check(host.wait { !state.searchInProgress && host.frames[.sidebarOtherFoldersHeading] == nil },
+              "clearing search hides the other-folders section")
     }
 
     private func checkIntegrationSettings(state: AppState, scale: CGFloat) throws {
@@ -843,9 +899,15 @@ private final class LayoutSuite {
     }
 
     private func checkMainHeader(in host: LayoutHost) {
-        guard let measured = frames([.librarySearch, .mainToolbar, .mainToolbarActions], in: host) else { return }
-        let (search, toolbar, actions) = (measured[0], measured[1], measured[2])
-        equal(search.minY, 8, "library search starts eight points below the content edge")
+        guard let measured = frames([.sidebarFolders, .sidebarAllRecordings, .librarySearch, .sidebarTrash, .mainToolbar, .mainToolbarActions], in: host) else { return }
+        let (folders, allRecordings, search, trash, toolbar, actions) = (measured[0], measured[1], measured[2], measured[3], measured[4], measured[5])
+        equal(folders.minY, 8, "sidebar folders start eight points below the content edge")
+        check(search.minY > folders.maxY, "library search sits below the folder list")
+        check(trash.minY > search.maxY && host.bounds.contains(trash), "trash stays pinned at the bottom of the sidebar")
+        equal(allRecordings.minX, search.minX, "folder selection matches the library search left edge")
+        equal(allRecordings.maxX, search.maxX, "folder selection matches the library search right edge")
+        equal(trash.minX, search.minX, "trash selection matches the library search left edge")
+        equal(trash.maxX, search.maxX, "trash selection matches the library search right edge")
         equal(actions.midY - toolbar.minY, 30, "main toolbar actions are closer to the content edge")
         equal(toolbar.height, 68, "the toolbar leaves eight more points for the meeting area")
         check(toolbar.contains(actions), "main toolbar actions fit inside the toolbar")

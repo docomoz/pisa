@@ -15,80 +15,60 @@ struct LibrarySidebar: View {
     @GestureState private var folderDragActive = false
     @State private var folderScrollPosition = ScrollPosition()
     @State private var folderScrollGeometry: ScrollGeometry?
+    @State private var recordingsScrollGeometry: ScrollGeometry?
+    @State private var sidebarWidth: CGFloat = 0
     private static let folderViewport = "folder-sidebar"
     @FocusState private var recordingsFocused: Bool
     var body: some View {
-        VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
-            SearchField(title: "Название, фраза, участник", text: $state.search, compact: true)
-                .measuredForInterfaceTest(.librarySearch)
+        VStack(alignment: .leading, spacing: PisaDesign.Spacing.none) {
             ScrollView { VStack(spacing: PisaDesign.Spacing.hairline) {
                 scope("Все записи", icon: "tray", selected: !state.showingTrash && state.folderFilter == nil && !state.unfiledOnly) { state.openFolder() }
+                    .measuredForInterfaceTest(.sidebarAllRecordings)
                 scope("Без папки", icon: "doc", selected: state.unfiledOnly && !state.showingTrash) { state.openFolder(unfiled: true) }
                 if !state.folders.isEmpty { folderRows }
                 scope("Новая папка…", icon: "folder.badge.plus", selected: false) { editingFolder = nil; folderName = ""; folderEditor = true }
                     .disabled(state.demo)
-                scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
-                    .popupContextMenu { [NativeActionMenuItem("Очистить корзину", enabled: state.canEmptyTrash) { confirmEmptyTrash = true }] }
-            }.textStyle(PisaDesign.Typography.footnote) }
-            .frame(height: min(190, CGFloat(state.folders.count + 4) * 36))
+            }.textStyle(PisaDesign.Typography.footnote).padding(.horizontal, PisaDesign.Spacing.content).frame(width: sidebarWidth > 0 ? sidebarWidth : nil) }
+            .frame(height: folderListHeight)
             .coordinateSpace(name: Self.folderViewport)
             .scrollPosition($folderScrollPosition)
             .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
                 folderScrollGeometry = geometry
             }
+            .overlay { scrollEdgeFade(geometry: folderScrollGeometry) }
             .task(id: folderScrollDirection) { await scrollDuringFolderDrag() }
-            HStack(spacing: PisaDesign.Spacing.inline) { Eyebrow(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО"); Spacer(); if !state.searchInProgress { screenText("\(state.filtered.count)") } }.textStyle(PisaDesign.Typography.overline).foregroundStyle(Color.mutedInk)
-            ScrollViewReader { proxy in
-              ScrollView {
-              LazyVStack(spacing: PisaDesign.Spacing.compact) {
-                ForEach(state.searchInProgress ? [] : state.filtered) { meeting in
-                    let isAutomatic = meeting.hasAutomaticTitle
-                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
-                        if isAutomatic {
-                            recordingDate(meeting.date, prefix: meeting.headingTitle + " · ")
-                                .textStyle(PisaDesign.Typography.caption)
-                        } else {
-                            screenText(meeting.title).textStyle(PisaDesign.Typography.captionMedium)
-                                .lineLimit(2).truncationMode(.tail).screenHelp(meeting.title)
-                        }
-                        recordingMetadata(meeting, showsDate: !isAutomatic)
-                            .textStyle(PisaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
+            .measuredForInterfaceTest(.sidebarFolders)
+            .padding(.top, PisaDesign.Spacing.inline)
 
-                    }.padding(.vertical, PisaDesign.Spacing.related).padding(.horizontal, PisaDesign.Spacing.related).frame(maxWidth: .infinity, alignment: .leading)
-                        .plainSelection(state.selection == meeting.id)
-                        .measuredForInterfaceTest(.sidebarRecording(meeting.id))
-                        .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.pointingHandCursor().id(meeting.id)
-                        .accessibilityAddTraits(state.selection == meeting.id ? .isSelected : [])
-                        .accessibilityAction { state.select(meeting.id) }
-                        .popupContextMenu(onOpen: {
-                            if state.selection != meeting.id { state.select(meeting.id) }
-                            recordingsFocused = true
-                        }) {
-                            MeetingActionSet(state: state, meeting: meeting).contextMenuItems
-                        }
-                }
-              }
-              }.focusable().focusEffectDisabled().focused($recordingsFocused)
-                .onMoveCommand { direction in
-                    let rows = state.filtered
-                    guard !state.searchInProgress, !rows.isEmpty, direction == .up || direction == .down else { return }
-                    let index = rows.firstIndex { $0.id == state.selection } ?? 0
-                    let next = min(rows.count - 1, max(0, index + (direction == .down ? 1 : -1)))
-                    state.select(rows[next].id); proxy.scrollTo(rows[next].id)
-                }
-                .overlay {
-                    if state.searchInProgress {
-                        ProgressView().controlSize(.small)
-                    } else if state.filtered.isEmpty {
-                        screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены").textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk)
-                    }
-                }
+            SearchField(title: "Название, фраза, участник", text: $state.search, compact: true)
+                .measuredForInterfaceTest(.librarySearch)
+                .padding(.horizontal, PisaDesign.Spacing.content)
+                .padding(.top, PisaDesign.Spacing.related)
+
+            if !state.isScopedFolderSearch {
+                sectionHeader(state.search.isEmpty ? "ЗАПИСИ" : "НАЙДЕНО",
+                              count: state.searchInProgress ? nil : state.filtered.count)
+                    .measuredForInterfaceTest(.sidebarSectionHeading)
+                    .padding(.horizontal, PisaDesign.Spacing.content)
+                    .padding(.top, PisaDesign.Spacing.related)
+                    .padding(.bottom, PisaDesign.Spacing.inline)
             }
+
+            recordingsList
+                .padding(.top, state.isScopedFolderSearch ? PisaDesign.Spacing.related : PisaDesign.Spacing.none)
+
+            scope("Корзина", icon: "trash", selected: state.showingTrash) { state.openFolder(trash: true) }
+                .textStyle(PisaDesign.Typography.footnote)
+                .popupContextMenu { [NativeActionMenuItem("Очистить корзину", enabled: state.canEmptyTrash) { confirmEmptyTrash = true }] }
+                .measuredForInterfaceTest(.sidebarTrash)
+                .padding(.horizontal, PisaDesign.Spacing.content)
+                .padding(.top, PisaDesign.Spacing.hairline)
+                .padding(.bottom, PisaDesign.Spacing.inline)
         }
-        .padding(.horizontal, PisaDesign.Spacing.content)
-        .padding(.top, PisaDesign.Spacing.inline)
-        .padding(.bottom, PisaDesign.Spacing.content)
         .background(Color.sidebarTint)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if abs(sidebarWidth - width) > 0.5 { sidebarWidth = width }
+        }
         .sheet(isPresented: $confirmEmptyTrash) {
             ConfirmationSheet(
                 title: "Очистить корзину?",
@@ -107,6 +87,176 @@ struct LibrarySidebar: View {
                 actionTitle: "Удалить папку",
                 role: .destructive
             ) { state.removeFolder(folder) }
+        }
+    }
+
+    private var folderListHeight: CGFloat {
+        let maxRows = 6
+        let maxRowHeight = ceil(max(18, PisaDesign.Typography.footnote.size * textScale * 1.35))
+            + 2 * PisaDesign.Spacing.inline + PisaDesign.Spacing.hairline
+        let maxHeight = CGFloat(maxRows) * maxRowHeight
+        if let contentHeight = folderScrollGeometry?.contentSize.height, contentHeight > 0 {
+            return min(maxHeight, ceil(contentHeight))
+        }
+        let estimatedRowHeight = ceil(max(18, PisaDesign.Typography.footnote.size * textScale))
+            + 2 * PisaDesign.Spacing.inline
+        let count = min(maxRows, state.folders.count + 3)
+        return CGFloat(count) * estimatedRowHeight
+            + CGFloat(max(0, count - 1)) * PisaDesign.Spacing.hairline
+    }
+
+    private var showsOnlyOtherFolderMatches: Bool {
+        state.isScopedFolderSearch && !state.searchInProgress
+            && state.filtered.isEmpty && !state.otherFolderMatches.isEmpty
+    }
+
+    private var recordingsList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                Group {
+                    if state.isScopedFolderSearch {
+                        if showsOnlyOtherFolderMatches {
+                            VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                                sectionHeader("В ДРУГИХ ПАПКАХ", count: state.otherFolderMatches.count)
+                                    .measuredForInterfaceTest(.sidebarSectionHeading)
+                                    .measuredForInterfaceTest(.sidebarOtherFoldersHeading)
+                                LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                                    ForEach(state.otherFolderMatches) { meeting in
+                                        recordingRow(meeting)
+                                    }
+                                }
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: PisaDesign.Spacing.content) {
+                                VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                                    sectionHeader(scopedFolderHeading, count: state.searchInProgress ? nil : state.filtered.count)
+                                        .measuredForInterfaceTest(.sidebarSectionHeading)
+                                    if !state.searchInProgress && !state.filtered.isEmpty {
+                                        LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                                            ForEach(state.filtered) { meeting in
+                                                recordingRow(meeting)
+                                            }
+                                        }
+                                    }
+                                }
+                                if !state.searchInProgress && !state.otherFolderMatches.isEmpty {
+                                    VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+                                        sectionHeader("В ДРУГИХ ПАПКАХ", count: state.otherFolderMatches.count)
+                                            .measuredForInterfaceTest(.sidebarOtherFoldersHeading)
+                                        LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                                            ForEach(state.otherFolderMatches) { meeting in
+                                                recordingRow(meeting)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if !state.searchInProgress {
+                        LazyVStack(alignment: .leading, spacing: PisaDesign.Spacing.compact) {
+                            ForEach(state.filtered) { meeting in
+                                recordingRow(meeting)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, PisaDesign.Spacing.content)
+                .frame(width: sidebarWidth > 0 ? sidebarWidth : nil)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
+                recordingsScrollGeometry = geometry
+            }
+            .overlay { scrollEdgeFade(geometry: recordingsScrollGeometry) }
+            .focusable().focusEffectDisabled().focused($recordingsFocused)
+            .onMoveCommand { direction in
+                let rows = state.visibleMeetings
+                guard !state.searchInProgress, !rows.isEmpty, direction == .up || direction == .down else { return }
+                let index = rows.firstIndex { $0.id == state.selection } ?? 0
+                let next = min(rows.count - 1, max(0, index + (direction == .down ? 1 : -1)))
+                state.select(rows[next].id); proxy.scrollTo(rows[next].id)
+            }
+            .overlay {
+                if state.searchInProgress {
+                    ProgressView().controlSize(.small)
+                } else if state.visibleMeetings.isEmpty {
+                    screenText(state.showingTrash ? "Корзина пуста" : "Записи не найдены")
+                        .textStyle(PisaDesign.Typography.footnote).foregroundStyle(Color.mutedInk)
+                }
+            }
+        }
+    }
+
+    private func scrollEdgeFade(geometry: ScrollGeometry?) -> some View {
+        let fadeHeight = PisaDesign.Spacing.related
+        let offsetY = geometry?.contentOffset.y ?? 0
+        let contentHeight = geometry?.contentSize.height ?? 0
+        let containerHeight = geometry?.containerSize.height ?? 0
+        let topInset = geometry?.contentInsets.top ?? 0
+        let bottomInset = geometry?.contentInsets.bottom ?? 0
+        let showsTop = offsetY + topInset > 1
+        let showsBottom = contentHeight > containerHeight + 1
+            && offsetY + containerHeight - bottomInset < contentHeight - 1
+        return VStack(spacing: PisaDesign.Spacing.none) {
+            if showsTop {
+                LinearGradient(colors: [Color.sidebarTint, Color.sidebarTint.opacity(0)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: fadeHeight)
+            }
+            Spacer(minLength: PisaDesign.Spacing.none)
+            if showsBottom {
+                LinearGradient(colors: [Color.sidebarTint.opacity(0), Color.sidebarTint],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: fadeHeight)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func sectionHeader(_ title: String, count: Int?) -> some View {
+        HStack(spacing: PisaDesign.Spacing.inline) {
+            Eyebrow(title).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: PisaDesign.Spacing.none)
+            if let count { screenText("\(count)").fixedSize() }
+        }
+        .textStyle(PisaDesign.Typography.overline)
+        .foregroundStyle(Color.mutedInk)
+    }
+
+    private var scopedFolderHeading: String {
+        if state.unfiledOnly { return "БЕЗ ПАПКИ" }
+        if let name = state.folders.first(where: { $0.id == state.folderFilter })?.name {
+            return "В «\(name.uppercased(with: Locale(identifier: "ru_RU")))»"
+        }
+        return "В ПАПКЕ"
+    }
+
+    private func recordingRow(_ meeting: Meeting) -> some View {
+        let isAutomatic = meeting.hasAutomaticTitle
+        return VStack(alignment: .leading, spacing: PisaDesign.Spacing.inline) {
+            if isAutomatic {
+                recordingDate(meeting.date, prefix: meeting.headingTitle + " · ")
+                    .textStyle(PisaDesign.Typography.caption)
+            } else {
+                screenText(meeting.title).textStyle(PisaDesign.Typography.captionMedium)
+                    .lineLimit(2).truncationMode(.tail).screenHelp(meeting.title)
+            }
+            recordingMetadata(meeting, showsDate: !isAutomatic)
+                .textStyle(PisaDesign.Typography.micro).foregroundStyle(Color.mutedInk).lineLimit(1)
+        }
+        .padding(.vertical, PisaDesign.Spacing.related).padding(.horizontal, PisaDesign.Spacing.related)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plainSelection(state.selection == meeting.id)
+        .measuredForInterfaceTest(.sidebarRecording(meeting.id))
+        .contentShape(Rectangle()).onTapGesture { recordingsFocused = true; state.select(meeting.id) }.pointingHandCursor().id(meeting.id)
+        .accessibilityAddTraits(state.selection == meeting.id ? .isSelected : [])
+        .accessibilityAction { state.select(meeting.id) }
+        .popupContextMenu(onOpen: {
+            if state.selection != meeting.id { state.select(meeting.id) }
+            recordingsFocused = true
+        }) {
+            MeetingActionSet(state: state, meeting: meeting).contextMenuItems
         }
     }
 

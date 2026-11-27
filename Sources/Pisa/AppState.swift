@@ -126,12 +126,29 @@ final class AppState: ObservableObject {
     }
     @Published private var pending: [QueuedTranscription] = []
     var selected: Meeting? { meetings.first { $0.id == selection } }
+    var isScopedFolderSearch: Bool {
+        !showingTrash && (folderFilter != nil || unfiledOnly) && !search.isEmpty
+    }
     var filtered: [Meeting] {
         meetings.filter { m in
             (showingTrash ? m.deletedAt != nil : m.deletedAt == nil) &&
-            (showingTrash || (folderFilter == nil || m.folderID == folderFilter) && (!unfiledOnly || m.folderID == nil)) &&
+            (showingTrash || matchesCurrentFolderScope(m)) &&
             (search.isEmpty || searchMatches.contains(m.id))
         }
+    }
+    var otherFolderMatches: [Meeting] {
+        guard isScopedFolderSearch else { return [] }
+        return meetings.filter { m in
+            m.deletedAt == nil &&
+            searchMatches.contains(m.id) &&
+            !matchesCurrentFolderScope(m)
+        }
+    }
+    var visibleMeetings: [Meeting] {
+        filtered + otherFolderMatches
+    }
+    private func matchesCurrentFolderScope(_ meeting: Meeting) -> Bool {
+        (folderFilter == nil || meeting.folderID == folderFilter) && (!unfiledOnly || meeting.folderID == nil)
     }
     private func scheduleSearchAnalytics() {
         searchAnalyticsTask?.cancel()
@@ -168,7 +185,7 @@ final class AppState: ObservableObject {
             self.searchInProgress = false
             if self.selectAfterSearch {
                 self.selectAfterSearch = false
-                self.select(self.filtered.first?.id)
+                self.select(self.visibleMeetings.first?.id)
             }
         }
     }
@@ -177,7 +194,7 @@ final class AppState: ObservableObject {
         if !search.isEmpty { refreshSearch() }
     }
     private func selectFirstMatching() {
-        select(filtered.first?.id)
+        select(visibleMeetings.first?.id)
         if searchInProgress { selectAfterSearch = true }
     }
     func openSource(_ url: URL) {
@@ -269,7 +286,7 @@ final class AppState: ObservableObject {
             try library.save(latest)
             upsert(latest)
             if changed { Analytics.feature(.meetingMoved) }
-            if !filtered.contains(where: { $0.id == selection }) { selectFirstMatching() }
+            if !visibleMeetings.contains(where: { $0.id == selection }) { selectFirstMatching() }
         } catch { message = error.localizedDescription }
     }
     func trash(_ m: Meeting, restore: Bool = false) {
